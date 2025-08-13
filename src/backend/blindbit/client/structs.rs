@@ -76,13 +76,16 @@ pub struct ForwardTxRequest {
     data: String,
 }
 
+// SAFETY: String is Sync, so ForwardTxRequest is also Sync
+unsafe impl Sync for ForwardTxRequest {}
+
 impl ForwardTxRequest {
     pub fn new(tx_hex: String) -> Self {
         Self { data: tx_hex }
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct InfoResponse {
     #[serde(deserialize_with = "deserialize_network")]
     pub network: Network,

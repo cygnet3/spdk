@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Error, Result};
 use bitcoin::{
-    absolute::Height, bip158::BlockFilter, hashes::{sha256, Hash}, 
+    absolute::Height, bip158::BlockFilter, 
     Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey
 };
 use futures::Stream;
