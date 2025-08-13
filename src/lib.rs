@@ -6,8 +6,8 @@ mod updater;
 
 pub use bdk_coin_select::FeeRate;
 pub use bitcoin;
-pub use silentpayments;
 pub use futures;
+pub use silentpayments;
 
 pub use backend::*;
 pub use client::*;

@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
 
 // Define the trait differently for WASM vs native
@@ -7,14 +7,22 @@ use serde::{de::DeserializeOwned, Serialize};
 #[async_trait]
 pub trait HttpClient {
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T>;
-    async fn post<T: DeserializeOwned>(&self, url: &str, body: &(impl Serialize + Sync)) -> Result<T>;
+    async fn post<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &(impl Serialize + Sync),
+    ) -> Result<T>;
 }
 
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 pub trait HttpClient {
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T>;
-    async fn post<T: DeserializeOwned>(&self, url: &str, body: &(impl Serialize + Sync)) -> Result<T>;
+    async fn post<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &(impl Serialize + Sync),
+    ) -> Result<T>;
 }
 
 // Native implementation using reqwest
@@ -42,7 +50,11 @@ impl HttpClient for NativeHttpClient {
         Ok(serde_json::from_str(&text)?)
     }
 
-    async fn post<T: DeserializeOwned>(&self, url: &str, body: &(impl Serialize + Sync)) -> Result<T> {
+    async fn post<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &(impl Serialize + Sync),
+    ) -> Result<T> {
         let response = self.client.post(url).json(body).send().await?;
         let text: String = response.text().await?;
         Ok(serde_json::from_str(&text)?)
@@ -50,11 +62,11 @@ impl HttpClient for NativeHttpClient {
 }
 
 #[cfg(target_arch = "wasm32")]
+use js_sys::Promise;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::JsFuture;
-#[cfg(target_arch = "wasm32")]
-use js_sys::Promise;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -84,18 +96,32 @@ impl WasmHttpClient {
 #[async_trait::async_trait(?Send)]
 impl HttpClient for WasmHttpClient {
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
-        let p = self.inner.get(url).map_err(|e| anyhow::anyhow!("get() threw: {:?}", e))?;
-        let v = JsFuture::from(p).await.map_err(|e| anyhow::anyhow!("promise rejected: {:?}", e))?;
+        let p = self
+            .inner
+            .get(url)
+            .map_err(|e| anyhow::anyhow!("get() threw: {:?}", e))?;
+        let v = JsFuture::from(p)
+            .await
+            .map_err(|e| anyhow::anyhow!("promise rejected: {:?}", e))?;
         let t: T = serde_wasm_bindgen::from_value(v)
             .map_err(|e| anyhow::anyhow!("deserialize error: {}", e))?;
         Ok(t)
     }
 
-    async fn post<T: DeserializeOwned>(&self, url: &str, body: &(impl Serialize + Sync)) -> Result<T> {
+    async fn post<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &(impl Serialize + Sync),
+    ) -> Result<T> {
         let body_js = serde_wasm_bindgen::to_value(body)
             .map_err(|e| anyhow::anyhow!("serialize body error: {}", e))?;
-        let p = self.inner.post(url, &body_js).map_err(|e| anyhow::anyhow!("post() threw: {:?}", e))?;
-        let v = JsFuture::from(p).await.map_err(|e| anyhow::anyhow!("promise rejected: {:?}", e))?;
+        let p = self
+            .inner
+            .post(url, &body_js)
+            .map_err(|e| anyhow::anyhow!("post() threw: {:?}", e))?;
+        let v = JsFuture::from(p)
+            .await
+            .map_err(|e| anyhow::anyhow!("promise rejected: {:?}", e))?;
         let t: T = serde_wasm_bindgen::from_value(v)
             .map_err(|e| anyhow::anyhow!("deserialize error: {}", e))?;
         Ok(t)

@@ -2,8 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Error, Result};
 use bitcoin::{
-    absolute::Height, bip158::BlockFilter, 
-    Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey
+    absolute::Height, bip158::BlockFilter, Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
 };
 use futures::Stream;
 use silentpayments::receiving::Label;
@@ -21,14 +20,14 @@ use crate::backend::ChainBackend;
 use crate::backend::ChainBackendWasm;
 
 /// Trait for scanning silent payment blocks
-/// 
+///
 /// This trait abstracts the core scanning functionality, allowing consumers
 /// to implement it with their own constraints and requirements.
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SpScanner {
     /// Scan a range of blocks for silent payment outputs and inputs
-    /// 
+    ///
     /// # Arguments
     /// * `start` - Starting block height (inclusive)
     /// * `end` - Ending block height (inclusive)
@@ -43,10 +42,10 @@ pub trait SpScanner {
     ) -> Result<()>;
 
     /// Process a single block's data
-    /// 
+    ///
     /// # Arguments
     /// * `blockdata` - Block data containing tweaks and filters
-    /// 
+    ///
     /// # Returns
     /// * `(found_outputs, found_inputs)` - Tuple of found outputs and spent inputs
     async fn process_block(
@@ -55,12 +54,12 @@ pub trait SpScanner {
     ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)>;
 
     /// Process block outputs to find owned silent payment outputs
-    /// 
+    ///
     /// # Arguments
     /// * `blkheight` - Block height
     /// * `tweaks` - List of tweak public keys
     /// * `new_utxo_filter` - Filter data for new UTXOs
-    /// 
+    ///
     /// # Returns
     /// * Map of outpoints to owned outputs
     async fn process_block_outputs(
@@ -71,11 +70,11 @@ pub trait SpScanner {
     ) -> Result<HashMap<OutPoint, OwnedOutput>>;
 
     /// Process block inputs to find spent outputs
-    /// 
+    ///
     /// # Arguments
     /// * `blkheight` - Block height
     /// * `spent_filter` - Filter data for spent outputs
-    /// 
+    ///
     /// # Returns
     /// * Set of spent outpoints
     async fn process_block_inputs(
@@ -85,12 +84,12 @@ pub trait SpScanner {
     ) -> Result<HashSet<OutPoint>>;
 
     /// Get the block data stream for a range of blocks
-    /// 
+    ///
     /// # Arguments
     /// * `range` - Range of block heights
     /// * `dust_limit` - Minimum amount to consider
     /// * `with_cutthrough` - Whether to use cutthrough optimization
-    /// 
+    ///
     /// # Returns
     /// * Stream of block data results
     fn get_block_data_stream(
@@ -101,7 +100,7 @@ pub trait SpScanner {
     ) -> std::pin::Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>;
 
     /// Check if scanning should be interrupted
-    /// 
+    ///
     /// # Returns
     /// * `true` if scanning should stop, `false` otherwise
     fn should_interrupt(&self) -> bool;
@@ -110,7 +109,7 @@ pub trait SpScanner {
     fn save_state(&mut self) -> Result<()>;
 
     /// Record found outputs for a block
-    /// 
+    ///
     /// # Arguments
     /// * `height` - Block height
     /// * `block_hash` - Block hash
@@ -123,7 +122,7 @@ pub trait SpScanner {
     ) -> Result<()>;
 
     /// Record spent inputs for a block
-    /// 
+    ///
     /// # Arguments
     /// * `height` - Block height
     /// * `block_hash` - Block hash
@@ -136,7 +135,7 @@ pub trait SpScanner {
     ) -> Result<()>;
 
     /// Record scan progress
-    /// 
+    ///
     /// # Arguments
     /// * `start` - Start height
     /// * `current` - Current height
@@ -160,7 +159,7 @@ pub trait SpScanner {
     // Helper methods with default implementations
 
     /// Process multiple blocks from a stream
-    /// 
+    ///
     /// This is a default implementation that can be overridden if needed
     async fn process_blocks(
         &mut self,
@@ -217,7 +216,7 @@ pub trait SpScanner {
     }
 
     /// Scan UTXOs for a given block and secrets map
-    /// 
+    ///
     /// This is a default implementation that can be overridden if needed
     async fn scan_utxos(
         &self,
@@ -293,7 +292,7 @@ pub trait SpScanner {
     }
 
     /// Check if block contains relevant output transactions
-    /// 
+    ///
     /// This is a default implementation that can be overridden if needed
     fn check_block_outputs(
         created_utxo_filter: BlockFilter,
@@ -315,7 +314,7 @@ pub trait SpScanner {
     }
 
     /// Get input hashes for owned outpoints
-    /// 
+    ///
     /// This is a default implementation that can be overridden if needed
     fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>> {
         let mut map: HashMap<[u8; 8], OutPoint> = HashMap::new();
@@ -326,7 +325,7 @@ pub trait SpScanner {
     }
 
     /// Check if block contains relevant input transactions
-    /// 
+    ///
     /// This is a default implementation that can be overridden if needed
     fn check_block_inputs(
         &self,

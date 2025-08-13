@@ -113,7 +113,7 @@ impl SpClient {
         #[cfg(not(target_arch = "wasm32"))]
         {
             use rayon::prelude::*;
-            
+
             let shared_secrets: Vec<PublicKey> = tweak_data_vec
                 .into_par_iter()
                 .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))

@@ -1,17 +1,17 @@
-use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, Txid};
 use anyhow::Result;
+use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, Txid};
 
 use crate::backend::http_client::HttpClient;
-#[cfg(target_arch = "wasm32")]
-use crate::backend::http_client::WasmHttpClient;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::backend::http_client::NativeHttpClient;
+#[cfg(target_arch = "wasm32")]
+use crate::backend::http_client::WasmHttpClient;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
-use std::rc::Rc;
 
 use crate::backend::blindbit::client::structs::InfoResponse;
 
@@ -32,7 +32,12 @@ pub trait BlindbitClient {
     }
 
     async fn tweaks(&self, block_height: Height, dust_limit: Amount) -> Result<Vec<PublicKey>> {
-        let url = format!("{}tweaks/{}?dustLimit={}", self.host_url(), block_height, dust_limit.to_sat());
+        let url = format!(
+            "{}tweaks/{}?dustLimit={}",
+            self.host_url(),
+            block_height,
+            dust_limit.to_sat()
+        );
         Ok(self.http_client().get(&url).await?)
     }
 
@@ -41,7 +46,12 @@ pub trait BlindbitClient {
         block_height: Height,
         dust_limit: Amount,
     ) -> Result<Vec<PublicKey>> {
-        let url = format!("{}tweak-index/{}?dustLimit={}", self.host_url(), block_height, dust_limit.to_sat());
+        let url = format!(
+            "{}tweak-index/{}?dustLimit={}",
+            self.host_url(),
+            block_height,
+            dust_limit.to_sat()
+        );
         Ok(self.http_client().get(&url).await?)
     }
 
@@ -87,7 +97,7 @@ pub struct NativeBlindbitClient {
 impl NativeBlindbitClient {
     pub fn new(host_url: String) -> Self {
         let mut host_url = host_url;
-        
+
         // we need a trailing slash, if not present we append it
         if !host_url.ends_with('/') {
             host_url.push('/');
@@ -95,7 +105,10 @@ impl NativeBlindbitClient {
 
         let http_client = NativeHttpClient::new();
 
-        Self { http_client, host_url }
+        Self {
+            http_client,
+            host_url,
+        }
     }
 
     pub fn host_url(&self) -> &str {
@@ -111,8 +124,12 @@ impl NativeBlindbitClient {
 impl BlindbitClient for NativeBlindbitClient {
     type Client = NativeHttpClient;
 
-    fn host_url(&self) -> &str { &self.host_url }
-    fn http_client(&self) -> &Self::Client { &self.http_client }
+    fn host_url(&self) -> &str {
+        &self.host_url
+    }
+    fn http_client(&self) -> &Self::Client {
+        &self.http_client
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -125,7 +142,9 @@ pub struct WasmBlindbitClient {
 
 #[cfg(target_arch = "wasm32")]
 impl WasmBlindbitClient {
-    pub fn http_client(&self) -> &WasmHttpClient { self.http_client.as_ref() }
+    pub fn http_client(&self) -> &WasmHttpClient {
+        self.http_client.as_ref()
+    }
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -136,7 +155,10 @@ impl WasmBlindbitClient {
             wasm_bindgen::throw_str("Failed to convert to JsHttpClient");
         });
         let wasm_client = WasmHttpClient::new(js_client);
-        Self { http_client: Rc::new(wasm_client), host_url }
+        Self {
+            http_client: Rc::new(wasm_client),
+            host_url,
+        }
     }
 }
 
@@ -144,6 +166,10 @@ impl WasmBlindbitClient {
 impl BlindbitClient for WasmBlindbitClient {
     type Client = WasmHttpClient;
 
-    fn host_url(&self) -> &str { &self.host_url }
-    fn http_client(&self) -> &Self::Client { self.http_client.as_ref() }
+    fn host_url(&self) -> &str {
+        &self.host_url
+    }
+    fn http_client(&self) -> &Self::Client {
+        self.http_client.as_ref()
+    }
 }

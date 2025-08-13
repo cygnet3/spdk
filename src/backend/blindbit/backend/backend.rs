@@ -9,9 +9,7 @@ use futures::{stream, Stream, StreamExt};
 
 use anyhow::Result;
 
-use crate::{
-    BlockData, SpentIndexData, UtxoData
-};
+use crate::{BlockData, SpentIndexData, UtxoData};
 
 use crate::backend::blindbit::client::BlindbitClient;
 
@@ -37,7 +35,7 @@ pub struct NativeBlindbitBackend {
 impl NativeBlindbitBackend {
     pub fn new(blindbit_client: NativeBlindbitClient) -> Self {
         Self {
-            client: blindbit_client
+            client: blindbit_client,
         }
     }
 }
@@ -55,7 +53,9 @@ impl ChainBackend for NativeBlindbitBackend {
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
-        let client = Arc::new(NativeBlindbitClient::new(self.client.host_url().to_string()));
+        let client = Arc::new(NativeBlindbitClient::new(
+            self.client.host_url().to_string(),
+        ));
 
         let res = stream::iter(range)
             .map(move |n| {
@@ -112,11 +112,10 @@ pub struct WasmBlindbitBackend {
 impl WasmBlindbitBackend {
     pub fn new(blindbit_client: WasmBlindbitClient) -> Self {
         Self {
-            client: blindbit_client
+            client: blindbit_client,
         }
     }
 }
-
 
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
@@ -134,7 +133,7 @@ impl ChainBackendWasm for WasmBlindbitBackend {
         // For WASM, we need to avoid Arc and use a different approach
         // Since WASM doesn't support threading well, we'll use a simpler approach
         let client = self.client.clone();
-        
+
         let res = stream::iter(range)
             .map(move |n| {
                 let client = client.clone();
