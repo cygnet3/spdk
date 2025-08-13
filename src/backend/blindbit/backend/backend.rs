@@ -9,7 +9,16 @@ use futures::{stream, Stream, StreamExt};
 
 use anyhow::Result;
 
-use crate::{backend::blindbit::BlindbitClient, BlockData, SpentIndexData, UtxoData};
+use crate::{
+    BlockData, SpentIndexData, UtxoData
+};
+
+use crate::backend::blindbit::client::BlindbitClient;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::backend::blindbit::client::NativeBlindbitClient;
+#[cfg(target_arch = "wasm32")]
+use crate::backend::blindbit::client::WasmBlindbitClient;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::backend::ChainBackend;
@@ -19,22 +28,23 @@ use crate::backend::ChainBackendWasm;
 
 const CONCURRENT_FILTER_REQUESTS: usize = 200;
 
-#[derive(Debug)]
-pub struct BlindbitBackend {
-    client: BlindbitClient,
+#[cfg(not(target_arch = "wasm32"))]
+pub struct NativeBlindbitBackend {
+    client: NativeBlindbitClient,
 }
 
-impl BlindbitBackend {
-    pub fn new(blindbit_url: String) -> Result<Self> {
-        Ok(Self {
-            client: BlindbitClient::new(blindbit_url)?,
-        })
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeBlindbitBackend {
+    pub fn new(blindbit_client: NativeBlindbitClient) -> Self {
+        Self {
+            client: blindbit_client
+        }
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
-impl ChainBackend for BlindbitBackend {
+impl ChainBackend for NativeBlindbitBackend {
     /// High-level function to get block data for a range of blocks.
     /// Block data includes all the information needed to determine if a block is relevant for scanning,
     /// but does not include utxos, or spent index.
@@ -45,7 +55,7 @@ impl ChainBackend for BlindbitBackend {
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
-        let client = Arc::new(self.client.clone());
+        let client = Arc::new(NativeBlindbitClient::new(self.client.host_url().to_string()));
 
         let res = stream::iter(range)
             .map(move |n| {
@@ -94,8 +104,23 @@ impl ChainBackend for BlindbitBackend {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub struct WasmBlindbitBackend {
+    client: WasmBlindbitClient,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WasmBlindbitBackend {
+    pub fn new(blindbit_client: WasmBlindbitClient) -> Self {
+        Self {
+            client: blindbit_client
+        }
+    }
+}
+
+
+#[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
-impl ChainBackendWasm for BlindbitBackend {
+impl ChainBackendWasm for WasmBlindbitBackend {
     /// High-level function to get block data for a range of blocks.
     /// Block data includes all the information needed to determine if a block is relevant for scanning,
     /// but does not include utxos, or spent index.

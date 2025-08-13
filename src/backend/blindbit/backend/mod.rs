@@ -1,3 +1,6 @@
 mod backend;
 
-pub use backend::BlindbitBackend;
+#[cfg(target_arch = "wasm32")]
+pub use backend::WasmBlindbitBackend;
+#[cfg(not(target_arch = "wasm32"))]
+pub use backend::NativeBlindbitBackend;
