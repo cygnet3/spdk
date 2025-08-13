@@ -1,6 +1,7 @@
 mod backend;
 #[cfg(feature = "blindbit-backend")]
 mod blindbit;
+mod http_client;
 mod structs;
 
 #[cfg(target_arch = "wasm32")]
