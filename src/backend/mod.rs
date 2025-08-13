@@ -13,7 +13,17 @@ pub use backend::ChainBackend;
 pub use structs::*;
 
 #[cfg(feature = "blindbit-backend")]
-pub use blindbit::BlindbitBackend;
+#[cfg(not(target_arch = "wasm32"))]
+pub use blindbit::backend::NativeBlindbitBackend;
 
 #[cfg(feature = "blindbit-backend")]
-pub use blindbit::BlindbitClient;
+#[cfg(target_arch = "wasm32")]
+pub use blindbit::backend::WasmBlindbitBackend;
+
+#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "blindbit-backend")]
+pub use blindbit::client::client::WasmBlindbitClient;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "blindbit-backend")]
+pub use blindbit::client::client::NativeBlindbitClient;
