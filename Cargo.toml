@@ -28,7 +28,7 @@ reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], defau
 wasm-bindgen = "0.2"
 
 [workspace.package]
-name = "sp_client"
+name = "sp-client"
 version = "0.1.0"
 edition = "2021"
 repository = "https://github.com/cygnet3/sp-client"
