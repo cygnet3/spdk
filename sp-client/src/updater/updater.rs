@@ -4,7 +4,7 @@ use bitcoin::{absolute::Height, BlockHash, OutPoint};
 
 use anyhow::Result;
 
-use crate::client::OwnedOutput;
+use crate::OwnedOutput;
 
 pub trait Updater {
     /// Ask the updater to record the scanning progress.
