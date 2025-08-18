@@ -7,10 +7,8 @@ use bitcoin::{
 use futures::Stream;
 use silentpayments::receiving::Label;
 
-use crate::updater::Updater;
-
 use spdk_core::{
-    BlockData, FilterData, UtxoData, OwnedOutput, SpClient,
+    BlockData, FilterData, OwnedOutput, SpClient, Updater, UtxoData
 };
 
 use crate::backend::ChainBackend;
