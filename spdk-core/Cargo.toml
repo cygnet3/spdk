@@ -1,0 +1,21 @@
+[package]
+name = "spdk-core"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Core dependencies - always available
+silentpayments.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bitcoin.workspace = true
+hex.workspace = true
+bdk_coin_select.workspace = true
+
+[features]
+default = []

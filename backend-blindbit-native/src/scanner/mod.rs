@@ -2,16 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Error, Result};
 use bitcoin::{
-    absolute::Height, bip158::BlockFilter, hashes::{sha256, Hash}, 
-    Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey
+    Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey, absolute::Height, bip158::BlockFilter
 };
 use futures::Stream;
 use silentpayments::receiving::Label;
 
-use crate::{
-    backend::{BlockData, FilterData, UtxoData},
-    client::{OwnedOutput, SpClient},
-    updater::Updater,
+use crate::updater::Updater;
+
+use spdk_core::{
+    BlockData, FilterData, UtxoData, OwnedOutput, SpClient,
 };
 
 use crate::backend::ChainBackend;
@@ -20,8 +19,7 @@ use crate::backend::ChainBackend;
 /// 
 /// This trait abstracts the core scanning functionality, allowing consumers
 /// to implement it with their own constraints and requirements.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 pub trait SpScanner {
     /// Scan a range of blocks for silent payment outputs and inputs
     /// 

@@ -1,13 +1,15 @@
-[package]
-name = "spdk"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "spdk-core",
+    "backend-blindbit-native",
+]
+resolver = "2"
 
-[lib]
-name = "spdk"
-crate-type = ["lib", "staticlib", "cdylib"]
+[workspace.dependencies]
+# Internal workspace crates
+spdk-core = { path = "spdk-core", version = "0.1.0" }
 
-[dependencies]
+# Core dependencies - shared across crates
 silentpayments = "0.4"
 anyhow = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
@@ -19,16 +21,5 @@ async-trait = "0.1"
 hex = { version = "0.4.3", features = ["serde"] }
 bdk_coin_select = "0.4.0"
 
-# WASM-incompatible dependencies - only include when not targeting WASM
-rayon = { version = "1.10.0", optional = true }
-reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false, optional = true }
-
-# WASM-specific dependencies
-wasm-bindgen = { version = "0.2", optional = true }
-
-[features]
-blindbit-backend = ["reqwest", "rayon"]
-default = []
-
-# WASM-specific features
-wasm = ["wasm-bindgen"]
+[workspace.package]
+repository = "https://github.com/cygnet3/spdk"

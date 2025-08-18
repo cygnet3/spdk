@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use bitcoin::{absolute::Height, Amount};
 use futures::Stream;
 
-use super::structs::{BlockData, SpentIndexData, UtxoData};
+use spdk_core::{BlockData, SpentIndexData, UtxoData};
 
 #[async_trait]
 pub trait ChainBackend {

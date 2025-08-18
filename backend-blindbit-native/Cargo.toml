@@ -1,0 +1,28 @@
+[package]
+name = "backend-blindbit-native"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[dependencies]
+# Core client dependency
+spdk-core.workspace = true
+
+# Async and futures
+futures.workspace = true
+async-trait.workspace = true
+log.workspace = true
+
+# Native-specific dependencies (not in workspace.dependencies)
+reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false }
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+anyhow.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+[features]
+default = []
