@@ -40,9 +40,44 @@ wasm-pack build --target web
 
 When building for WASM:
 - The `rayon` dependency is automatically disabled and parallel processing falls back to sequential processing
-- The `blindbit-backend` feature is available but requires appropriate HTTP client configuration for WASM
+- The `blindbit-backend` feature is available with **TypeScript HTTP client injection** for WASM
 - All core functionality remains available
+
+### HTTP Client in WASM
+
+The library uses a **TypeScript HTTP client injection** approach for WASM builds:
+
+- **Native builds**: Use `reqwest` for HTTP requests
+- **WASM builds**: Accept a TypeScript HTTP client that implements the required interface
+
+This approach provides several benefits:
+- **No bundle bloat**: TypeScript code doesn't increase WASM bundle size
+- **Familiar APIs**: Use standard `fetch()` API
+- **Better error handling**: TypeScript gives proper error types
+- **Flexibility**: Easy to add features like retry logic, caching, etc.
 
 ### Usage in Web Applications
 
-The library can be used in web applications through standard WASM interop. Note that some features like the `blindbit-backend` may require additional configuration for HTTP requests in the browser environment.
+The library can be used in web applications through standard WASM interop. For HTTP functionality in WASM:
+
+```typescript
+import { WasmHttpClient } from './http-client';
+import init, { BlindbitClient } from './pkg/sp_client';
+
+async function main() {
+  await init();
+  
+  const httpClient = new WasmHttpClient();
+  const blindbitClient = BlindbitClient.new_wasm(
+    "https://api.example.com/", 
+    httpClient
+  );
+  
+  const height = await blindbitClient.block_height_wasm();
+  console.log('Block height:', height);
+}
+
+main();
+```
+
+See the `examples/` directory for complete working examples and the `http-client.ts` file for the TypeScript HTTP client implementation.

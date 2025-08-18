@@ -104,40 +104,44 @@ impl SpClient {
         }
     }
 
+    #[cfg(feature = "blindbit-native")]
+    pub fn get_script_to_secret_map_par(
+        &self,
+        tweak_data_vec: Vec<PublicKey>,
+    ) -> Result<HashMap<[u8; 34], PublicKey>> {
+        let b_scan = &self.get_scan_key();
+
+        use rayon::prelude::*;
+
+        let shared_secrets: Vec<PublicKey> = tweak_data_vec
+            .into_par_iter()
+            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
+            .collect();
+
+        let items: Result<Vec<_>> = shared_secrets
+            .into_par_iter()
+            .map(|secret| {
+                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+
+                Ok((secret, spks.into_values()))
+            })
+            .collect();
+
+        let mut res = HashMap::new();
+        for (secret, spks) in items? {
+            for spk in spks {
+                res.insert(spk, secret);
+            }
+        }
+        Ok(res)
+    }
+
     pub fn get_script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
         let b_scan = &self.get_scan_key();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use rayon::prelude::*;
-
-            let shared_secrets: Vec<PublicKey> = tweak_data_vec
-                .into_par_iter()
-                .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
-                .collect();
-
-            let items: Result<Vec<_>> = shared_secrets
-                .into_par_iter()
-                .map(|secret| {
-                    let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
-
-                    Ok((secret, spks.into_values()))
-                })
-                .collect();
-
-            let mut res = HashMap::new();
-            for (secret, spks) in items? {
-                for spk in spks {
-                    res.insert(spk, secret);
-                }
-            }
-            Ok(res)
-        }
-
-        #[cfg(target_arch = "wasm32")]
         {
             // Sequential fallback for WASM
             let shared_secrets: Vec<PublicKey> = tweak_data_vec

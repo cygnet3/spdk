@@ -7,7 +7,6 @@ use futures::Stream;
 
 use super::structs::{BlockData, SpentIndexData, UtxoData};
 
-#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 pub trait ChainBackend {
     fn get_block_data_for_range(
@@ -24,8 +23,7 @@ pub trait ChainBackend {
     async fn block_height(&self) -> Result<Height>;
 }
 
-// WASM-specific version without Send bounds
-#[cfg(target_arch = "wasm32")]
+// WASM-specific version without Send bounds (no concurrency)
 #[async_trait(?Send)]
 pub trait ChainBackendWasm {
     fn get_block_data_for_range(

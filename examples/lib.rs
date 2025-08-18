@@ -6,11 +6,11 @@
 use bitcoin::{secp256k1::SecretKey, Network};
 use sp_client::{SpClient, SpendKey};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "blindbit-wasm")]
 use wasm_bindgen::prelude::*;
 
 /// Create a new silent payment client for WASM
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "blindbit-wasm")]
 #[wasm_bindgen]
 pub fn create_client(scan_key_hex: &str, network: &str) -> Result<String, JsValue> {
     // Parse the scan key
@@ -42,7 +42,7 @@ pub fn create_client(scan_key_hex: &str, network: &str) -> Result<String, JsValu
 }
 
 /// Get client fingerprint for WASM
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "blindbit-wasm")]
 #[wasm_bindgen]
 pub fn get_fingerprint(scan_key_hex: &str, network: &str) -> Result<String, JsValue> {
     // Parse the scan key
@@ -76,7 +76,7 @@ pub fn get_fingerprint(scan_key_hex: &str, network: &str) -> Result<String, JsVa
 }
 
 // Non-WASM example for testing
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "blindbit-native")]
 pub fn create_client_example() -> Result<String, Box<dyn std::error::Error>> {
     // Create a test scan key
     let scan_sk = SecretKey::from_slice(&[0x01; 32])?;
@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "blindbit-native")]
     fn test_create_client() {
         let result = create_client_example();
         assert!(result.is_ok());

@@ -13,12 +13,6 @@ use crate::{
     updater::Updater,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::backend::ChainBackend;
-
-#[cfg(target_arch = "wasm32")]
-use crate::backend::ChainBackendWasm;
-
 /// Trait for scanning silent payment blocks
 ///
 /// This trait abstracts the core scanning functionality, allowing consumers
@@ -83,22 +77,6 @@ pub trait SpScanner {
         spent_filter: FilterData,
     ) -> Result<HashSet<OutPoint>>;
 
-    /// Get the block data stream for a range of blocks
-    ///
-    /// # Arguments
-    /// * `range` - Range of block heights
-    /// * `dust_limit` - Minimum amount to consider
-    /// * `with_cutthrough` - Whether to use cutthrough optimization
-    ///
-    /// # Returns
-    /// * Stream of block data results
-    fn get_block_data_stream(
-        &self,
-        range: std::ops::RangeInclusive<u32>,
-        dust_limit: Amount,
-        with_cutthrough: bool,
-    ) -> std::pin::Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>;
-
     /// Check if scanning should be interrupted
     ///
     /// # Returns
@@ -145,14 +123,6 @@ pub trait SpScanner {
     /// Get the silent payment client
     fn client(&self) -> &SpClient;
 
-    /// Get the chain backend
-    #[cfg(not(target_arch = "wasm32"))]
-    fn backend(&self) -> &dyn ChainBackend;
-
-    /// Get the chain backend (WASM version)
-    #[cfg(target_arch = "wasm32")]
-    fn backend(&self) -> &dyn ChainBackendWasm;
-
     /// Get the updater
     fn updater(&mut self) -> &mut dyn Updater;
 
@@ -166,54 +136,54 @@ pub trait SpScanner {
         start: Height,
         end: Height,
         block_data_stream: impl Stream<Item = Result<BlockData>> + Unpin + Send,
-    ) -> Result<()> {
-        use futures::StreamExt;
-        use std::time::{Duration, Instant};
+    ) -> Result<()>;
+    //     use futures::StreamExt;
+    //     use std::time::{Duration, Instant};
 
-        let mut update_time = Instant::now();
-        let mut stream = block_data_stream;
+    //     let mut update_time = Instant::now();
+    //     let mut stream = block_data_stream;
 
-        while let Some(blockdata) = stream.next().await {
-            let blockdata = blockdata?;
-            let blkheight = blockdata.blkheight;
-            let blkhash = blockdata.blkhash;
+    //     while let Some(blockdata) = stream.next().await {
+    //         let blockdata = blockdata?;
+    //         let blkheight = blockdata.blkheight;
+    //         let blkhash = blockdata.blkhash;
 
-            // stop scanning and return if interrupted
-            if self.should_interrupt() {
-                self.save_state()?;
-                return Ok(());
-            }
+    //         // stop scanning and return if interrupted
+    //         if self.should_interrupt() {
+    //             self.save_state()?;
+    //             return Ok(());
+    //         }
 
-            let mut save_to_storage = false;
+    //         let mut save_to_storage = false;
 
-            // always save on last block or after 30 seconds since last save
-            if blkheight == end || update_time.elapsed() > Duration::from_secs(30) {
-                save_to_storage = true;
-            }
+    //         // always save on last block or after 30 seconds since last save
+    //         if blkheight == end || update_time.elapsed() > Duration::from_secs(30) {
+    //             save_to_storage = true;
+    //         }
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+    //         let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
 
-            if !found_outputs.is_empty() {
-                save_to_storage = true;
-                self.record_outputs(blkheight, blkhash, found_outputs)?;
-            }
+    //         if !found_outputs.is_empty() {
+    //             save_to_storage = true;
+    //             self.record_outputs(blkheight, blkhash, found_outputs)?;
+    //         }
 
-            if !found_inputs.is_empty() {
-                save_to_storage = true;
-                self.record_inputs(blkheight, blkhash, found_inputs)?;
-            }
+    //         if !found_inputs.is_empty() {
+    //             save_to_storage = true;
+    //             self.record_inputs(blkheight, blkhash, found_inputs)?;
+    //         }
 
-            // tell the updater we scanned this block
-            self.record_progress(start, blkheight, end)?;
+    //         // tell the updater we scanned this block
+    //         self.record_progress(start, blkheight, end)?;
 
-            if save_to_storage {
-                self.save_state()?;
-                update_time = Instant::now();
-            }
-        }
+    //         if save_to_storage {
+    //             self.save_state()?;
+    //             update_time = Instant::now();
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Scan UTXOs for a given block and secrets map
     ///
@@ -222,74 +192,74 @@ pub trait SpScanner {
         &self,
         blkheight: Height,
         secrets_map: HashMap<[u8; 34], bitcoin::secp256k1::PublicKey>,
-    ) -> Result<Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)>> {
-        let utxos = self.backend().utxos(blkheight).await?;
+    ) -> Result<Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)>>;
+    //     let utxos = self.backend().utxos(blkheight).await?;
 
-        let mut res: Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)> = vec![];
+    //     let mut res: Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)> = vec![];
 
-        // group utxos by the txid
-        let mut txmap: HashMap<Txid, Vec<UtxoData>> = HashMap::new();
-        for utxo in utxos {
-            txmap.entry(utxo.txid).or_default().push(utxo);
-        }
+    //     // group utxos by the txid
+    //     let mut txmap: HashMap<Txid, Vec<UtxoData>> = HashMap::new();
+    //     for utxo in utxos {
+    //         txmap.entry(utxo.txid).or_default().push(utxo);
+    //     }
 
-        for utxos in txmap.into_values() {
-            // check if we know the secret to any of the spks
-            let mut secret = None;
-            for utxo in utxos.iter() {
-                let spk = utxo.scriptpubkey.as_bytes();
-                if let Some(s) = secrets_map.get(spk) {
-                    secret = Some(s);
-                    break;
-                }
-            }
+    //     for utxos in txmap.into_values() {
+    //         // check if we know the secret to any of the spks
+    //         let mut secret = None;
+    //         for utxo in utxos.iter() {
+    //             let spk = utxo.scriptpubkey.as_bytes();
+    //             if let Some(s) = secrets_map.get(spk) {
+    //                 secret = Some(s);
+    //                 break;
+    //             }
+    //         }
 
-            // skip this tx if no secret is found
-            let secret = match secret {
-                Some(secret) => secret,
-                None => continue,
-            };
+    //         // skip this tx if no secret is found
+    //         let secret = match secret {
+    //             Some(secret) => secret,
+    //             None => continue,
+    //         };
 
-            let output_keys: Result<Vec<XOnlyPublicKey>> = utxos
-                .iter()
-                .filter_map(|x| {
-                    if x.scriptpubkey.is_p2tr() {
-                        Some(
-                            XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
-                                .map_err(Error::new),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+    //         let output_keys: Result<Vec<XOnlyPublicKey>> = utxos
+    //             .iter()
+    //             .filter_map(|x| {
+    //                 if x.scriptpubkey.is_p2tr() {
+    //                     Some(
+    //                         XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
+    //                             .map_err(Error::new),
+    //                     )
+    //                 } else {
+    //                     None
+    //                 }
+    //             })
+    //             .collect();
 
-            let ours = self
-                .client()
-                .sp_receiver
-                .scan_transaction(secret, output_keys?)?;
+    //         let ours = self
+    //             .client()
+    //             .sp_receiver
+    //             .scan_transaction(secret, output_keys?)?;
 
-            for utxo in utxos {
-                if !utxo.scriptpubkey.is_p2tr() || utxo.spent {
-                    continue;
-                }
+    //         for utxo in utxos {
+    //             if !utxo.scriptpubkey.is_p2tr() || utxo.spent {
+    //                 continue;
+    //             }
 
-                match XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..]) {
-                    Ok(xonly) => {
-                        for (label, map) in ours.iter() {
-                            if let Some(scalar) = map.get(&xonly) {
-                                res.push((label.clone(), utxo, *scalar));
-                                break;
-                            }
-                        }
-                    }
-                    Err(_) => todo!(),
-                }
-            }
-        }
+    //             match XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..]) {
+    //                 Ok(xonly) => {
+    //                     for (label, map) in ours.iter() {
+    //                         if let Some(scalar) = map.get(&xonly) {
+    //                             res.push((label.clone(), utxo, *scalar));
+    //                             break;
+    //                         }
+    //                     }
+    //                 }
+    //                 Err(_) => todo!(),
+    //             }
+    //         }
+    //     }
 
-        Ok(res)
-    }
+    //     Ok(res)
+    // }
 
     /// Check if block contains relevant output transactions
     ///
@@ -316,13 +286,7 @@ pub trait SpScanner {
     /// Get input hashes for owned outpoints
     ///
     /// This is a default implementation that can be overridden if needed
-    fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>> {
-        let mut map: HashMap<[u8; 8], OutPoint> = HashMap::new();
-
-        // This method needs access to owned_outpoints, which should be provided by the implementor
-        // For now, we'll return an empty map - implementors should override this method
-        Ok(map)
-    }
+    fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>>;
 
     /// Check if block contains relevant input transactions
     ///

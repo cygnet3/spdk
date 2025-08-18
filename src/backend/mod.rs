@@ -1,29 +1,24 @@
-mod backend;
-#[cfg(feature = "blindbit-backend")]
+mod chain_backend;
 mod blindbit;
 mod http_client;
-mod structs;
+pub mod structs;
 
-#[cfg(target_arch = "wasm32")]
-pub use backend::ChainBackendWasm;
+#[cfg(all(feature = "blindbit-wasm", target_arch = "wasm32"))]
+pub use chain_backend::ChainBackendWasm;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use backend::ChainBackend;
+#[cfg(all(feature = "blindbit-native", not(target_arch = "wasm32")))]
+pub use chain_backend::ChainBackend;
 
 pub use structs::*;
 
-#[cfg(feature = "blindbit-backend")]
-#[cfg(not(target_arch = "wasm32"))]
-pub use blindbit::backend::NativeBlindbitBackend;
+#[cfg(all(feature = "blindbit-native", not(target_arch = "wasm32")))]
+pub use crate::backend::blindbit::backend::native::NativeBlindbitBackend;
 
-#[cfg(feature = "blindbit-backend")]
-#[cfg(target_arch = "wasm32")]
-pub use blindbit::backend::WasmBlindbitBackend;
+#[cfg(all(feature = "blindbit-wasm", target_arch = "wasm32"))]
+pub use crate::backend::blindbit::backend::wasm::WasmBlindbitBackend;
 
-#[cfg(target_arch = "wasm32")]
-#[cfg(feature = "blindbit-backend")]
-pub use blindbit::client::client::WasmBlindbitClient;
+#[cfg(all(feature = "blindbit-wasm", target_arch = "wasm32"))]
+pub use blindbit::client::wasm::WasmBlindbitClient;
 
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "blindbit-backend")]
-pub use blindbit::client::client::NativeBlindbitClient;
+#[cfg(all(feature = "blindbit-native", not(target_arch = "wasm32")))]
+pub use blindbit::client::native::NativeBlindbitClient;

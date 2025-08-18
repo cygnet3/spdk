@@ -1,0 +1,29 @@
+{
+  "name": "sp-client-examples",
+  "version": "1.0.0",
+  "description": "Examples for using SP Client with TypeScript HTTP client in WASM",
+  "main": "test-wasm.js",
+  "scripts": {
+    "test": "node test-wasm.js",
+    "build": "cd .. && wasm-pack build --target web",
+    "dev": "cd .. && wasm-pack build --target web --dev"
+  },
+  "keywords": [
+    "wasm",
+    "rust",
+    "bitcoin",
+    "silent-payments",
+    "http-client"
+  ],
+  "author": "SP Client Team",
+  "license": "MIT",
+  "devDependencies": {
+    "wasm-pack": "^0.12.0"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
+
+
