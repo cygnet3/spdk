@@ -104,6 +104,7 @@ impl SpClient {
         }
     }
 
+    #[cfg(feature = "blindbit-backend")]
     pub fn get_script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
