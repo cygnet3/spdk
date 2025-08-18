@@ -1,14 +1,17 @@
-use std::{collections::HashMap, io::Write, str::FromStr};
+use std::{io::Write, str::FromStr};
 
 use bitcoin::hashes::Hash;
 use bitcoin::{
     key::constants::ONE,
-    secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
+    secp256k1::{Scalar, Secp256k1, SecretKey},
     Network, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashMap;
+use bitcoin::secp256k1::PublicKey;
 use silentpayments::utils as sp_utils;
+
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     bitcoin_hashes::sha256,
@@ -104,21 +107,40 @@ impl SpClient {
         }
     }
 
-    #[cfg(feature = "blindbit-backend")]
     pub fn get_script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
+        #[cfg(feature = "parallel")]
         use rayon::prelude::*;
+
         let b_scan = &self.get_scan_key();
 
+        #[cfg(feature = "parallel")]
         let shared_secrets: Vec<PublicKey> = tweak_data_vec
             .into_par_iter()
             .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
             .collect();
 
+        #[cfg(not(feature = "parallel"))]
+        let shared_secrets: Vec<PublicKey> = tweak_data_vec
+            .into_iter()
+            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
+            .collect();
+
+        #[cfg(feature = "parallel")]
         let items: Result<Vec<_>> = shared_secrets
             .into_par_iter()
+            .map(|secret| {
+                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+
+                Ok((secret, spks.into_values()))
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let items: Result<Vec<_>> = shared_secrets
+            .into_iter()
             .map(|secret| {
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 

@@ -1,0 +1,25 @@
+[package]
+name = "sp-client"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Core dependencies - always available
+silentpayments.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bitcoin.workspace = true
+hex.workspace = true
+bdk_coin_select.workspace = true
+
+# Optional for performance optimization
+rayon = { workspace = true, optional = true }
+
+[features]
+default = []
+parallel = ["rayon"]  # Enable parallel processing for better performance
