@@ -8,10 +8,10 @@ use bitcoin::{
 use futures::Stream;
 use silentpayments::receiving::Label;
 
-use crate::updater::Updater;
+// Updater now comes from sp-client
 
 use sp_client::{
-    BlockData, FilterData, UtxoData, OwnedOutput, SpClient,
+    BlockData, FilterData, UtxoData, OwnedOutput, SpClient, Updater,
 };
 
 use crate::backend::ChainBackend;
