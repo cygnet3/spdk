@@ -8,5 +8,5 @@ rustflags = [
     "-C", "link-arg=--export-table",
 ]
 
-[build]
-target = "wasm32-unknown-unknown" 
+# [build]
+# target = "wasm32-unknown-unknown"  # Commented out to allow workspace to build for native 
