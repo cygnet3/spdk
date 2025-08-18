@@ -1,15 +1,23 @@
-mod backend;
 mod client;
 pub mod constants;
-mod scanner;
-mod updater;
 
 pub use bdk_coin_select::FeeRate;
 pub use bitcoin;
 pub use silentpayments;
 pub use futures;
 
-pub use backend::*;
 pub use client::*;
-pub use scanner::SpScanner;
-pub use updater::Updater;
+
+#[cfg(feature = "blindbit-backend")]
+mod backend;
+#[cfg(feature = "blindbit-backend")]
+mod scanner;
+#[cfg(feature = "blindbit-backend")]
+mod updater;
+
+#[cfg(feature = "blindbit-backend")]
+pub use {
+    backend::*,
+    scanner::SpScanner,
+    updater::Updater,
+};
