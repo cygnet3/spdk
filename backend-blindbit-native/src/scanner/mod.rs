@@ -304,13 +304,7 @@ pub trait SpScanner {
     /// Get input hashes for owned outpoints
     /// 
     /// This is a default implementation that can be overridden if needed
-    fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>> {
-        let mut map: HashMap<[u8; 8], OutPoint> = HashMap::new();
-
-        // This method needs access to owned_outpoints, which should be provided by the implementor
-        // For now, we'll return an empty map - implementors should override this method
-        Ok(map)
-    }
+    fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>>;
 
     /// Check if block contains relevant input transactions
     /// 
