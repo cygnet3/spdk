@@ -2,6 +2,7 @@
 members = [
     "sp-client",
     "backend-blindbit-native",
+    "backend-blindbit-wasm",
 ]
 resolver = "2"
 
