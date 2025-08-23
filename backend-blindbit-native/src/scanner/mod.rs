@@ -20,8 +20,7 @@ use crate::backend::ChainBackend;
 /// 
 /// This trait abstracts the core scanning functionality, allowing consumers
 /// to implement it with their own constraints and requirements.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 pub trait SpScanner {
     /// Scan a range of blocks for silent payment outputs and inputs
     /// 
