@@ -20,8 +20,7 @@ use crate::backend::ChainBackend;
 /// 
 /// This trait abstracts the core scanning functionality, allowing consumers
 /// to implement it with their own constraints and requirements.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait(?Send)]
 pub trait SpScanner {
     /// Scan a range of blocks for silent payment outputs and inputs
     /// 
@@ -94,7 +93,7 @@ pub trait SpScanner {
         range: std::ops::RangeInclusive<u32>,
         dust_limit: Amount,
         with_cutthrough: bool,
-    ) -> std::pin::Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>;
+    ) -> std::pin::Pin<Box<dyn Stream<Item = Result<BlockData>>>>;
 
     /// Check if scanning should be interrupted
     /// 
@@ -157,7 +156,7 @@ pub trait SpScanner {
         &mut self,
         start: Height,
         end: Height,
-        block_data_stream: impl Stream<Item = Result<BlockData>> + Unpin + Send,
+        block_data_stream: impl Stream<Item = Result<BlockData>> + Unpin,
     ) -> Result<()> {
         use futures::StreamExt;
         use std::time::{Duration, Instant};
