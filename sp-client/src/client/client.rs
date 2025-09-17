@@ -8,9 +8,9 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
 use bitcoin::secp256k1::PublicKey;
 use silentpayments::utils as sp_utils;
+use std::collections::HashMap;
 
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
