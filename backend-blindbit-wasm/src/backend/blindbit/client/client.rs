@@ -1,6 +1,6 @@
+use anyhow::Result;
 use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, Txid};
 use reqwest::{Client, Url};
-use anyhow::Result;
 
 use crate::backend::blindbit::client::structs::InfoResponse;
 
@@ -30,11 +30,7 @@ impl BlindbitClient {
     pub async fn block_height(&self) -> Result<Height> {
         let url = self.host_url.join("block-height")?;
 
-        let res = self
-            .client
-            .get(url)
-            .send()
-            .await?;
+        let res = self.client.get(url).send().await?;
         let blkheight: BlockHeightResponse = serde_json::from_str(&res.text().await?)?;
         Ok(blkheight.block_height)
     }
