@@ -1,8 +1,10 @@
+#![allow(clippy::module_inception)]
 mod backend;
 mod client;
 pub mod constants;
 mod scanner;
 mod updater;
+pub mod utils;
 
 pub use bdk_coin_select::FeeRate;
 pub use bitcoin;

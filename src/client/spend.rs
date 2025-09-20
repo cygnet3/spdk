@@ -41,7 +41,7 @@ impl SpClient {
             .iter()
             .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
         {
-            return Err(Error::msg(format!("All outputs must be unspent")));
+            return Err(Error::msg("All outputs must be unspent".to_string()));
         }
 
         // used to estimate the size of a taproot output
@@ -98,7 +98,7 @@ impl SpClient {
                         )))
                     } else {
                         let mut op_return = PushBytesBuf::with_capacity(data_len);
-                        op_return.extend_from_slice(&data)?;
+                        op_return.extend_from_slice(data)?;
                         let script_pubkey = ScriptBuf::new_op_return(op_return);
 
                         Ok(TxOut {
@@ -145,8 +145,7 @@ impl SpClient {
         let change = coin_selector.drain(target, change_policy);
         let change_value = if change.is_some() { change.value } else { 0 };
         if change_value > 0 {
-            let change_address =
-                SilentPaymentAddress::try_from(self.sp_receiver.get_change_address())?;
+            let change_address = self.sp_receiver.get_change_address();
             recipients.push(Recipient {
                 address: RecipientAddress::SpAddress(change_address),
                 amount: Amount::from_sat(change_value),
@@ -177,7 +176,7 @@ impl SpClient {
             .iter()
             .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
         {
-            return Err(Error::msg(format!("All outputs must be unspent")));
+            return Err(Error::msg("All outputs must be unspent".to_string()));
         }
 
         // used to estimate the size of a taproot output
@@ -345,7 +344,7 @@ impl SpClient {
                         )));
                     }
                     let mut op_return = PushBytesBuf::with_capacity(data_len);
-                    op_return.extend_from_slice(&data)?;
+                    op_return.extend_from_slice(data)?;
                     let script = ScriptBuf::new_op_return(op_return);
                     Ok(TxOut {
                         value: recipient.amount,

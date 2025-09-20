@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::atomic::AtomicBool,
+    sync::{atomic::AtomicBool, mpsc},
     time::{Duration, Instant},
 };
 
@@ -12,7 +12,6 @@ use bitcoin::{
     secp256k1::{PublicKey, Scalar},
     Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
 };
-use futures::{pin_mut, Stream, StreamExt};
 use log::info;
 use silentpayments::receiving::Label;
 
@@ -47,7 +46,7 @@ impl<'a> SpScanner<'a> {
         }
     }
 
-    pub async fn scan_blocks(
+    pub fn scan_blocks(
         &mut self,
         start: Height,
         end: Height,
@@ -68,7 +67,7 @@ impl<'a> SpScanner<'a> {
                 .get_block_data_for_range(range, dust_limit, with_cutthrough);
 
         // process blocks using block data stream
-        self.process_blocks(start, end, block_data_stream).await?;
+        self.process_blocks(start, end, block_data_stream)?;
 
         // time elapsed for the scan
         info!(
@@ -79,17 +78,15 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_blocks(
+    fn process_blocks(
         &mut self,
         start: Height,
         end: Height,
-        block_data_stream: impl Stream<Item = Result<BlockData>>,
+        block_data_stream: mpsc::Receiver<Result<BlockData>>,
     ) -> Result<()> {
-        pin_mut!(block_data_stream);
-
         let mut update_time: Instant = Instant::now();
 
-        while let Some(blockdata) = block_data_stream.next().await {
+        while let Ok(blockdata) = block_data_stream.recv() {
             let blockdata = blockdata?;
             let blkheight = blockdata.blkheight;
             let blkhash = blockdata.blkhash;
@@ -107,7 +104,7 @@ impl<'a> SpScanner<'a> {
                 save_to_storage = true;
             }
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+            let (found_outputs, found_inputs) = self.process_block(blockdata)?;
 
             if !found_outputs.is_empty() {
                 save_to_storage = true;
@@ -133,7 +130,7 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_block(
+    fn process_block(
         &mut self,
         blockdata: BlockData,
     ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
@@ -145,14 +142,12 @@ impl<'a> SpScanner<'a> {
             ..
         } = blockdata;
 
-        let outs = self
-            .process_block_outputs(blkheight, tweaks, new_utxo_filter)
-            .await?;
+        let outs = self.process_block_outputs(blkheight, tweaks, new_utxo_filter)?;
 
         // after processing outputs, we add the found outputs to our list
         self.owned_outpoints.extend(outs.keys());
 
-        let ins = self.process_block_inputs(blkheight, spent_filter).await?;
+        let ins = self.process_block_inputs(blkheight, spent_filter)?;
 
         // after processing inputs, we remove the found inputs
         self.owned_outpoints.retain(|item| !ins.contains(item));
@@ -160,7 +155,7 @@ impl<'a> SpScanner<'a> {
         Ok((outs, ins))
     }
 
-    async fn process_block_outputs(
+    fn process_block_outputs(
         &self,
         blkheight: Height,
         tweaks: Vec<PublicKey>,
@@ -183,7 +178,7 @@ impl<'a> SpScanner<'a> {
             //if match: fetch and scan utxos
             if matched_outputs {
                 info!("matched outputs on: {}", blkheight);
-                let found = self.scan_utxos(blkheight, secrets_map).await?;
+                let found = self.scan_utxos(blkheight, secrets_map)?;
 
                 if !found.is_empty() {
                     for (label, utxo, tweak) in found {
@@ -209,7 +204,7 @@ impl<'a> SpScanner<'a> {
         Ok(res)
     }
 
-    async fn process_block_inputs(
+    fn process_block_inputs(
         &self,
         blkheight: Height,
         spent_filter: FilterData,
@@ -232,7 +227,7 @@ impl<'a> SpScanner<'a> {
         // if match: download spent data, collect the outpoints that are spent
         if matched_inputs {
             info!("matched inputs on: {}", blkheight);
-            let spent = self.backend.spent_index(blkheight).await?.data;
+            let spent = self.backend.spent_index(blkheight)?.data;
 
             for spent in spent {
                 let hex: &[u8] = spent.as_ref();
@@ -245,12 +240,12 @@ impl<'a> SpScanner<'a> {
         Ok(res)
     }
 
-    async fn scan_utxos(
+    fn scan_utxos(
         &self,
         blkheight: Height,
         secrets_map: HashMap<[u8; 34], PublicKey>,
     ) -> Result<Vec<(Option<Label>, UtxoData, Scalar)>> {
-        let utxos = self.backend.utxos(blkheight).await?;
+        let utxos = self.backend.utxos(blkheight)?;
 
         let mut res: Vec<(Option<Label>, UtxoData, Scalar)> = vec![];
 
@@ -351,7 +346,7 @@ impl<'a> SpScanner<'a> {
             let mut res = [0u8; 8];
             res.copy_from_slice(&hash[..8]);
 
-            map.insert(res, outpoint.clone());
+            map.insert(res, *outpoint);
         }
 
         Ok(map)
