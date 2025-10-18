@@ -1,0 +1,29 @@
+[package]
+name = "backend-blindbit-native"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core client dependency
+sp-client = { path = "../sp-client" }
+
+# Async and futures
+futures.workspace = true
+async-trait.workspace = true
+log.workspace = true
+
+# Native-specific dependencies
+rayon.workspace = true
+reqwest.workspace = true
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+anyhow.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+[features]
+default = []
