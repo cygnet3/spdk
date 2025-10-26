@@ -87,6 +87,12 @@ pub enum SpendKey {
     Public(PublicKey),
 }
 
+impl From<SecretKey> for SpendKey {
+    fn from(value: SecretKey) -> Self {
+        Self::Secret(value)
+    }
+}
+
 impl TryInto<SecretKey> for SpendKey {
     type Error = anyhow::Error;
     fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
