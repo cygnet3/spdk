@@ -44,7 +44,7 @@ impl TryFrom<String> for RecipientAddress {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if let Ok(sp_address) = SilentPaymentAddress::try_from(value.as_str()) {
-            Ok(Self::SpAddress(sp_address.into()))
+            Ok(Self::SpAddress(sp_address))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))
         } else if let Ok(data) = Vec::from_hex(&value) {
@@ -110,6 +110,7 @@ impl From<&SpendKey> for PublicKey {
 }
 
 impl From<SpendKey> for PublicKey {
+    #[allow(clippy::unconditional_recursion)]
     fn from(value: SpendKey) -> Self {
         value.into()
     }

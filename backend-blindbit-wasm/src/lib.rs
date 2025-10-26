@@ -23,6 +23,8 @@
 //! This crate uses `reqwest` which automatically uses the browser's `fetch()` API when
 //! compiled to WebAssembly.
 
+#![allow(clippy::module_inception)]
+
 mod backend;
 mod scanner;
 

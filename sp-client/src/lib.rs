@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 pub mod client;
 pub mod constants;
 pub mod types;
