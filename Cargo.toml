@@ -1,25 +1,36 @@
-[package]
-name = "sp_client"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "sp-client",
+    "backend-blindbit-native",
+    "backend-blindbit-wasm",
+]
+resolver = "2"
 
-[lib]
-name = "sp_client"
-crate-type = ["lib", "staticlib", "cdylib"]
-
-[dependencies]
+[workspace.dependencies]
+# Core dependencies - shared across crates
 silentpayments = "0.4"
 anyhow = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 bitcoin = { version = "0.31.1", features = ["serde", "rand", "base64"] }
-rayon = "1.10.0"
+bip39 = { version = "2.2.0" }
 futures = "0.3"
 log = "0.4"
 async-trait = "0.1"
-reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false, optional = true }
-hex = { version = "0.4.3", features = ["serde"], optional = true }
+hex = { version = "0.4.3", features = ["serde"] }
 bdk_coin_select = "0.4.0"
 
-[features]
-blindbit-backend = ["reqwest", "hex"]
+# Performance dependencies (optional)
+rayon = "1.10.0"
+
+# Native backend dependencies
+reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false }
+
+# WASM dependencies (for future use)
+wasm-bindgen = "0.2"
+
+[workspace.package]
+name = "sp-client"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/cygnet3/sp-client"

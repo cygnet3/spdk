@@ -12,8 +12,8 @@ use bitcoin::{
 use serde::{Deserialize, Serialize};
 use silentpayments::{receiving::Label, SilentPaymentAddress};
 
-type SpendingTxId = String;
-type MinedInBlock = String;
+type SpendingTxId = [u8; 32];
+type MinedInBlock = [u8; 32];
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum OutputSpendStatus {
@@ -44,7 +44,7 @@ impl TryFrom<String> for RecipientAddress {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if let Ok(sp_address) = SilentPaymentAddress::try_from(value.as_str()) {
-            Ok(Self::SpAddress(sp_address.into()))
+            Ok(Self::SpAddress(sp_address))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))
         } else if let Ok(data) = Vec::from_hex(&value) {
@@ -87,6 +87,12 @@ pub enum SpendKey {
     Public(PublicKey),
 }
 
+impl From<SecretKey> for SpendKey {
+    fn from(value: SecretKey) -> Self {
+        Self::Secret(value)
+    }
+}
+
 impl TryInto<SecretKey> for SpendKey {
     type Error = anyhow::Error;
     fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
@@ -110,6 +116,7 @@ impl From<&SpendKey> for PublicKey {
 }
 
 impl From<SpendKey> for PublicKey {
+    #[allow(clippy::unconditional_recursion)]
     fn from(value: SpendKey) -> Self {
         value.into()
     }

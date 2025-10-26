@@ -1,0 +1,33 @@
+[package]
+name = "backend-blindbit-wasm"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "WASM-only Blindbit backend - compile with --target wasm32-unknown-unknown"
+
+[dependencies]
+# Core client dependency
+sp-client = { path = "../sp-client" }
+
+# Async and futures
+futures.workspace = true
+async-trait.workspace = true
+log.workspace = true
+
+# WASM-specific dependencies
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4"
+
+# HTTP client for WASM
+reqwest = { version = "0.12", features = ["json"], default-features = false }
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+anyhow.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+[features]
+default = []

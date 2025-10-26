@@ -1,14 +1,16 @@
-use std::{collections::HashMap, io::Write, str::FromStr};
+use std::io::Write;
 
 use bitcoin::hashes::Hash;
 use bitcoin::{
-    key::constants::ONE,
-    secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
-    Network, XOnlyPublicKey,
+    secp256k1::{Secp256k1, SecretKey},
+    Network,
 };
 use serde::{Deserialize, Serialize};
 
+use bitcoin::secp256k1::{All, PublicKey};
 use silentpayments::utils as sp_utils;
+use std::collections::HashMap;
+
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     bitcoin_hashes::sha256,
@@ -18,7 +20,18 @@ use silentpayments::{
 
 use anyhow::{Error, Result};
 
-use crate::constants::NUMS;
+#[cfg(test)]
+use {
+    crate::constants::NUMS,
+    bitcoin::{
+        key::constants::ONE,
+        secp256k1::{Scalar, XOnlyPublicKey},
+    },
+    std::str::FromStr,
+};
+
+#[cfg(feature = "mnemonic")]
+use bitcoin::bip32;
 
 use super::SpendKey;
 
@@ -30,6 +43,7 @@ pub struct SpClient {
     network: Network,
 }
 
+#[cfg(test)]
 impl Default for SpClient {
     fn default() -> Self {
         let default_sk = SecretKey::from_slice(&[0xcd; 32]).unwrap();
@@ -54,7 +68,15 @@ impl Default for SpClient {
 
 impl SpClient {
     pub fn new(scan_sk: SecretKey, spend_key: SpendKey, network: Network) -> Result<Self> {
-        let secp = Secp256k1::signing_only();
+        let secp = Secp256k1::new();
+        Self::new_inner(scan_sk, spend_key, network, secp)
+    }
+    fn new_inner(
+        scan_sk: SecretKey,
+        spend_key: SpendKey,
+        network: Network,
+        secp: Secp256k1<All>,
+    ) -> Result<Self> {
         let scan_pubkey = scan_sk.public_key(&secp);
         let change_label = Label::new(scan_sk, 0);
 
@@ -70,6 +92,69 @@ impl SpClient {
             scan_pubkey,
             (&spend_key).into(),
             change_label,
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic(mnemonic: bip39::Mnemonic, network: Network) -> Result<Self> {
+        use bitcoin::bip32::ChildNumber;
+
+        Self::new_from_mnemonic_with_passphrase_and_account(
+            mnemonic,
+            "",
+            network,
+            ChildNumber::from_hardened_idx(0).expect("zero"),
+        )
+    }
+
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic_with_account(
+        mnemonic: bip39::Mnemonic,
+        network: Network,
+        account: bip32::ChildNumber,
+    ) -> Result<Self> {
+        Self::new_from_mnemonic_with_passphrase_and_account(mnemonic, "", network, account)
+    }
+
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic_with_passphrase_and_account(
+        mnemonic: bip39::Mnemonic,
+        pp: &str,
+        network: Network,
+        account: bip32::ChildNumber,
+    ) -> Result<Self> {
+        let secp = Secp256k1::new();
+        let seed = mnemonic.to_seed(pp);
+        let master_xpriv = bip32::Xpriv::new_master(network, &seed)
+            .map_err(|_| Error::msg("Fails to generate Xpriv from seed"))?;
+        let network_idx = match network {
+            Network::Bitcoin => 0u32,
+            _ => 1,
+        };
+        let base_deriv = vec![
+            bip32::ChildNumber::from_hardened_idx(352).expect("352"),
+            bip32::ChildNumber::from_hardened_idx(network_idx).expect("0 or 1"),
+            account,
+        ];
+
+        let mut scan_deriv = base_deriv.clone();
+        scan_deriv.push(bip32::ChildNumber::from_hardened_idx(1).expect("1"));
+        scan_deriv.push(bip32::ChildNumber::from_normal_idx(0).expect("0"));
+
+        let mut spend_deriv = base_deriv;
+        spend_deriv.push(bip32::ChildNumber::from_hardened_idx(0).expect("0"));
+        spend_deriv.push(bip32::ChildNumber::from_normal_idx(0).expect("0"));
+
+        let scan = master_xpriv
+            .derive_priv(&secp, &scan_deriv)
+            .map_err(|_| Error::msg("Fail to derive scan key"))?
+            .private_key;
+
+        let spend = master_xpriv
+            .derive_priv(&secp, &spend_deriv)
+            .map_err(|_| Error::msg("Fail to derive spend key"))?
+            .private_key;
+
+        Self::new_inner(scan, spend.into(), network, secp)
+    }
+
             sp_network,
         )?;
 
@@ -108,16 +193,36 @@ impl SpClient {
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
+        #[cfg(feature = "parallel")]
         use rayon::prelude::*;
+
         let b_scan = &self.get_scan_key();
 
+        #[cfg(feature = "parallel")]
         let shared_secrets: Vec<PublicKey> = tweak_data_vec
             .into_par_iter()
             .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
             .collect();
 
+        #[cfg(not(feature = "parallel"))]
+        let shared_secrets: Vec<PublicKey> = tweak_data_vec
+            .into_iter()
+            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
+            .collect();
+
+        #[cfg(feature = "parallel")]
         let items: Result<Vec<_>> = shared_secrets
             .into_par_iter()
+            .map(|secret| {
+                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+
+                Ok((secret, spks.into_values()))
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let items: Result<Vec<_>> = shared_secrets
+            .into_iter()
             .map(|secret| {
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
