@@ -20,6 +20,10 @@ bdk_coin_select.workspace = true
 # Optional for performance optimization
 rayon = { workspace = true, optional = true }
 
+# Optional for use bip39 mnemonics
+bip39 = { workspace = true, optional = true }
+
 [features]
-default = []
+default = ["mnemonic"]
+mnemonic = ["dep:bip39"] # Enable using bip39 mnemonics for create SpClient
 parallel = ["rayon"]  # Enable parallel processing for better performance
