@@ -1,10 +1,10 @@
 [package]
-name = "sp_client"
+name = "spdk"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "sp_client"
+name = "spdk"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
