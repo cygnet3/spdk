@@ -16,7 +16,7 @@ bitcoin.workspace = true
 futures.workspace = true
 serde.workspace = true
 silentpayments.workspace = true
-rayon.workspace = true
+rayon = {workspace = true, optional = true }
 log.workspace = true
 bdk_coin_select.workspace = true
 
