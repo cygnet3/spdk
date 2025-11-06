@@ -107,11 +107,19 @@ impl SpClient {
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
+        // if using rayon feature, import the preludes
+        #[cfg(feature = "rayon")]
         use rayon::prelude::*;
+
         let b_scan = &self.get_scan_key();
 
         // parallel iterator using rayon
+        #[cfg(feature = "rayon")]
         let tweak_data_iterator = tweak_data_vec.into_par_iter();
+
+        // regular iterator
+        #[cfg(not(feature = "rayon"))]
+        let tweak_data_iterator = tweak_data_vec.into_iter();
 
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
