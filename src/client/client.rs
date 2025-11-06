@@ -1,3 +1,4 @@
+use std::sync::mpsc;
 use std::{collections::HashMap, io::Write, str::FromStr};
 
 use bitcoin::hashes::Hash;
@@ -19,6 +20,7 @@ use silentpayments::{
 use anyhow::{Error, Result};
 
 use crate::constants::NUMS;
+use crate::utils::ThreadPool;
 
 use super::SpendKey;
 
@@ -108,25 +110,37 @@ impl SpClient {
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
-        use rayon::prelude::*;
-        let b_scan = &self.get_scan_key();
+        let b_scan = self.get_scan_key();
 
-        let shared_secrets: Vec<PublicKey> = tweak_data_vec
-            .into_par_iter()
-            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
-            .collect();
+        let pool = ThreadPool::new(20);
+        // TODO: maybe create a receiver pool to avoid cloning too much
 
-        let items: Result<Vec<_>> = shared_secrets
-            .into_par_iter()
-            .map(|secret| {
-                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+        fn process_spks_maps(
+            tweak: PublicKey,
+            b_scan: SecretKey,
+            sender: mpsc::Sender<(PublicKey, Vec<[u8; 34]>)>,
+            sp_receiver: Receiver,
+        ) {
+            let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, &b_scan);
+            let values = sp_receiver
+                .get_spks_from_shared_secret(&secret)
+                .unwrap()
+                .into_values()
+                .collect();
+            sender.send((secret, values)).unwrap()
+        }
 
-                Ok((secret, spks.into_values()))
-            })
-            .collect();
+        let len = tweak_data_vec.len();
+        let (sender, receiver) = mpsc::channel();
+        for tweak in tweak_data_vec {
+            let sender = sender.clone();
+            let sp_receiver = self.sp_receiver.clone();
+            pool.execute(move || process_spks_maps(tweak, b_scan, sender, sp_receiver));
+        }
 
         let mut res = HashMap::new();
-        for (secret, spks) in items? {
+        for _ in 0..len {
+            let (secret, spks) = receiver.recv().unwrap();
             for spk in spks {
                 res.insert(spk, secret);
             }
