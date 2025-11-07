@@ -21,4 +21,4 @@ log.workspace = true
 bdk_coin_select.workspace = true
 
 [features]
-default = ["backend-blindbit-v1"]
+default = ["backend-blindbit-v1", "rayon"]
