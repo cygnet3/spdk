@@ -21,4 +21,4 @@ hex = { version = "0.4.3", features = ["serde"], optional = true }
 bdk_coin_select = "0.4.0"
 
 [features]
-blindbit-backend = ["reqwest", "hex"]
+default = ["rayon"]
