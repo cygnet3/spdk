@@ -1,9 +1,12 @@
+pub mod backend;
 pub mod client;
 pub mod constants;
+pub mod scanner;
 pub mod types;
 pub mod updater;
 
 // Re-export core functionality
+pub use backend::{BlockDataIterator, ChainBackend};
 pub use client::*;
 pub use constants::*;
 pub use types::*;

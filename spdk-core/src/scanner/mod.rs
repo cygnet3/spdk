@@ -4,18 +4,14 @@ use anyhow::{Error, Result};
 use bitcoin::{
     absolute::Height, bip158::BlockFilter, Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
 };
-use futures::Stream;
 use silentpayments::receiving::Label;
 
-use spdk_core::{BlockData, FilterData, OwnedOutput, SpClient, Updater, UtxoData};
-
-use crate::backend::ChainBackend;
+use crate::{BlockData, ChainBackend, FilterData, OwnedOutput, SpClient, Updater, UtxoData};
 
 /// Trait for scanning silent payment blocks
 ///
 /// This trait abstracts the core scanning functionality, allowing consumers
 /// to implement it with their own constraints and requirements.
-#[async_trait::async_trait]
 pub trait SpScanner {
     /// Scan a range of blocks for silent payment outputs and inputs
     ///
@@ -24,7 +20,7 @@ pub trait SpScanner {
     /// * `end` - Ending block height (inclusive)
     /// * `dust_limit` - Minimum amount to consider (dust outputs are ignored)
     /// * `with_cutthrough` - Whether to use cutthrough optimization
-    async fn scan_blocks(
+    fn scan_blocks(
         &mut self,
         start: Height,
         end: Height,
@@ -39,7 +35,7 @@ pub trait SpScanner {
     ///
     /// # Returns
     /// * `(found_outputs, found_inputs)` - Tuple of found outputs and spent inputs
-    async fn process_block(
+    fn process_block(
         &mut self,
         blockdata: BlockData,
     ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)>;
@@ -53,7 +49,7 @@ pub trait SpScanner {
     ///
     /// # Returns
     /// * Map of outpoints to owned outputs
-    async fn process_block_outputs(
+    fn process_block_outputs(
         &self,
         blkheight: Height,
         tweaks: Vec<bitcoin::secp256k1::PublicKey>,
@@ -68,13 +64,13 @@ pub trait SpScanner {
     ///
     /// # Returns
     /// * Set of spent outpoints
-    async fn process_block_inputs(
+    fn process_block_inputs(
         &self,
         blkheight: Height,
         spent_filter: FilterData,
     ) -> Result<HashSet<OutPoint>>;
 
-    /// Get the block data stream for a range of blocks
+    /// Get the block data iterator for a range of blocks
     ///
     /// # Arguments
     /// * `range` - Range of block heights
@@ -82,13 +78,13 @@ pub trait SpScanner {
     /// * `with_cutthrough` - Whether to use cutthrough optimization
     ///
     /// # Returns
-    /// * Stream of block data results
-    fn get_block_data_stream(
+    /// * Iterator of block data results
+    fn get_block_data_iterator(
         &self,
         range: std::ops::RangeInclusive<u32>,
         dust_limit: Amount,
         with_cutthrough: bool,
-    ) -> std::pin::Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>;
+    ) -> crate::BlockDataIterator;
 
     /// Check if scanning should be interrupted
     ///
@@ -144,23 +140,19 @@ pub trait SpScanner {
 
     // Helper methods with default implementations
 
-    /// Process multiple blocks from a stream
+    /// Process multiple blocks from an iterator
     ///
     /// This is a default implementation that can be overridden if needed
-    async fn process_blocks(
-        &mut self,
-        start: Height,
-        end: Height,
-        block_data_stream: impl Stream<Item = Result<BlockData>> + Unpin + Send,
-    ) -> Result<()> {
-        use futures::StreamExt;
+    fn process_blocks<I>(&mut self, start: Height, end: Height, block_data_iter: I) -> Result<()>
+    where
+        I: Iterator<Item = Result<BlockData>>,
+    {
         use std::time::{Duration, Instant};
 
         let mut update_time = Instant::now();
-        let mut stream = block_data_stream;
 
-        while let Some(blockdata) = stream.next().await {
-            let blockdata = blockdata?;
+        for blockdata_result in block_data_iter {
+            let blockdata = blockdata_result?;
             let blkheight = blockdata.blkheight;
             let blkhash = blockdata.blkhash;
 
@@ -177,7 +169,7 @@ pub trait SpScanner {
                 save_to_storage = true;
             }
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+            let (found_outputs, found_inputs) = self.process_block(blockdata)?;
 
             if !found_outputs.is_empty() {
                 save_to_storage = true;
@@ -204,12 +196,12 @@ pub trait SpScanner {
     /// Scan UTXOs for a given block and secrets map
     ///
     /// This is a default implementation that can be overridden if needed
-    async fn scan_utxos(
+    fn scan_utxos(
         &self,
         blkheight: Height,
         secrets_map: HashMap<[u8; 34], bitcoin::secp256k1::PublicKey>,
     ) -> Result<Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)>> {
-        let utxos = self.backend().utxos(blkheight).await?;
+        let utxos = self.backend().utxos(blkheight)?;
 
         let mut res: Vec<(Option<Label>, UtxoData, bitcoin::secp256k1::Scalar)> = vec![];
 

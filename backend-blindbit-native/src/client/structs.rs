@@ -2,7 +2,7 @@
 use bitcoin::{absolute::Height, Amount, BlockHash, Network, ScriptBuf, Txid};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{FilterData, SpentIndexData, UtxoData};
+use spdk_core::{FilterData, SpentIndexData, UtxoData};
 
 #[derive(Debug, Deserialize)]
 pub struct BlockHeightResponse {

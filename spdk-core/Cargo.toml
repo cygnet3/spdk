@@ -5,7 +5,7 @@ edition = "2021"
 repository.workspace = true
 
 [lib]
-crate-type = ["lib", "staticlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 # Core dependencies - always available
@@ -16,6 +16,3 @@ serde_json.workspace = true
 bitcoin.workspace = true
 hex.workspace = true
 bdk_coin_select.workspace = true
-
-[features]
-default = []
