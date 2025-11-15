@@ -5,7 +5,20 @@ edition = "2021"
 repository.workspace = true
 
 [lib]
-crate-type = ["lib", "staticlib", "cdylib"]
+crate-type = ["rlib"]
+
+[features]
+# Default: both sync and async APIs available, with parallelization
+default = ["parallel", "async"]
+
+# Sync-only mode - excludes async code and async dependencies
+sync = []
+
+# Enable async APIs (included by default, excluded with sync)
+async = ["dep:futures", "dep:async-trait"]
+
+# Enable CPU parallelization with rayon (native only, recommended)
+parallel = ["dep:rayon"]
 
 [dependencies]
 # Core dependencies - always available
@@ -17,5 +30,10 @@ bitcoin.workspace = true
 hex.workspace = true
 bdk_coin_select.workspace = true
 
-[features]
-default = []
+# Async dependencies - optional
+futures = { version = "0.3", optional = true }
+async-trait = { version = "0.1", optional = true }
+
+# Parallelization (not available on WASM)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = { version = "1.10", optional = true }

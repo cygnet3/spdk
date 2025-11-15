@@ -8,13 +8,15 @@ repository.workspace = true
 # Core client dependency
 spdk-core.workspace = true
 
-# Async and futures
-futures.workspace = true
-async-trait.workspace = true
-log.workspace = true
+# URL parsing (minimal: ~20KB)
+url = "2.5"
 
-# Native-specific dependencies (not in workspace.dependencies)
-reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false }
+# Minimal HTTP client (optional, ~200KB + TLS adds ~600KB)
+# TLS support via rustls is required for HTTPS connections to blindbit
+ureq = { version = "2.10", default-features = false, features = ["json", "tls"], optional = true }
+
+# Logging
+log.workspace = true
 
 # Re-export some core types for convenience
 bitcoin.workspace = true
@@ -24,5 +26,23 @@ serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true
 
+# Async dependencies (optional)
+futures = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
 [features]
-default = []
+# Default: both sync and async APIs available
+default = ["async", "parallel"]
+
+# Enable async APIs
+async = ["spdk-core/async", "dep:futures", "dep:futures-util", "dep:async-trait"]
+
+# Enable CPU parallelization
+parallel = ["spdk-core/parallel"]
+
+# Sync-only mode - excludes async code (backwards compatible)
+sync = []
+
+# Minimal HTTP client implementation using ureq
+ureq-client = ["ureq"]
