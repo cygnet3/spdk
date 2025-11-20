@@ -2,6 +2,7 @@
 members = [
     "spdk-core",
     "backend-blindbit-native",
+    "backend-blindbit-wasm",
 ]
 resolver = "2"
 
