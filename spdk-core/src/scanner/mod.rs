@@ -652,7 +652,8 @@ pub trait AsyncSpScanner: Send + Sync {
                         .filter(|utxo| utxo.scriptpubkey.is_p2tr() && !utxo.spent)
                         .filter_map(|utxo| {
                             let xonly =
-                                XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..]).ok()?;
+                                XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..])
+                                    .ok()?;
                             ours.iter().find_map(|(label, map)| {
                                 map.get(&xonly)
                                     .map(|scalar| (label.clone(), utxo.clone(), *scalar))
