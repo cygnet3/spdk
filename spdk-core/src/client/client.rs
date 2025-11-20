@@ -1,14 +1,17 @@
-use std::{collections::HashMap, io::Write, str::FromStr};
+use std::{io::Write, str::FromStr};
 
 use bitcoin::hashes::Hash;
 use bitcoin::{
     key::constants::ONE,
-    secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
+    secp256k1::{Scalar, Secp256k1, SecretKey},
     Network, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 
+use bitcoin::secp256k1::PublicKey;
 use silentpayments::utils as sp_utils;
+use std::collections::HashMap;
+
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     bitcoin_hashes::sha256,
@@ -108,16 +111,42 @@ impl SpClient {
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
-        use rayon::prelude::*;
         let b_scan = &self.get_scan_key();
 
+        // Use parallel iteration for CPU-intensive ECDH calculations
+        #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
+        let shared_secrets: Vec<PublicKey> = {
+            use rayon::prelude::*;
+            tweak_data_vec
+                .into_par_iter()
+                .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
+                .collect()
+        };
+
+        // Sequential fallback (WASM or no parallel feature)
+        #[cfg(not(all(not(target_arch = "wasm32"), feature = "parallel")))]
         let shared_secrets: Vec<PublicKey> = tweak_data_vec
-            .into_par_iter()
+            .into_iter()
             .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
             .collect();
 
+        // Use parallel iteration for CPU-intensive SPK derivation
+        #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
+        let items: Result<Vec<_>> = {
+            use rayon::prelude::*;
+            shared_secrets
+                .into_par_iter()
+                .map(|secret| {
+                    let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+                    Ok((secret, spks.into_values()))
+                })
+                .collect()
+        };
+
+        // Sequential fallback (WASM or no parallel feature)
+        #[cfg(not(all(not(target_arch = "wasm32"), feature = "parallel")))]
         let items: Result<Vec<_>> = shared_secrets
-            .into_par_iter()
+            .into_iter()
             .map(|secret| {
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
