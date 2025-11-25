@@ -101,6 +101,8 @@ impl<H: HttpClient + Clone + 'static> AsyncBlindbitBackend<H> {
 }
 
 // Implement the AsyncChainBackend trait for AsyncBlindbitBackend
+// Native backend only - not available for WASM
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl<H: HttpClient + Clone + 'static> AsyncChainBackend for AsyncBlindbitBackend<H> {
     fn get_block_data_stream(

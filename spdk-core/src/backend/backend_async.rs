@@ -20,7 +20,8 @@ pub type BlockDataStream = Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>
 pub type BlockDataStream = Pin<Box<dyn Stream<Item = Result<BlockData>>>>;
 
 /// Async version of ChainBackend for non-blocking I/O operations
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait AsyncChainBackend: Send + Sync {
     /// Get a stream of block data for a range of blocks
     ///

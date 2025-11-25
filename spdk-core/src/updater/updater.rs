@@ -40,7 +40,8 @@ pub trait Updater {
 /// Async version of Updater for non-blocking I/O operations
 /// Available by default, excluded when "sync" feature is enabled
 #[cfg(feature = "async")]
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait AsyncUpdater: Send + Sync {
     /// Ask the updater to record the scanning progress.
     ///

@@ -405,7 +405,8 @@ pub(crate) trait SyncSpScannerTrait {
 /// This trait provides async methods for scanning silent payment blocks.
 /// Consumers should use the concrete `SpScanner` type instead of implementing this trait.
 #[cfg(feature = "async")]
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub(crate) trait AsyncSpScannerTrait: Send + Sync {
     /// Scan a range of blocks for silent payment outputs and inputs
     ///
@@ -537,6 +538,65 @@ pub(crate) trait AsyncSpScannerTrait: Send + Sync {
     /// Process multiple blocks from a stream
     ///
     /// This is a default implementation that can be overridden if needed
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn process_blocks(
+        &mut self,
+        start: Height,
+        end: Height,
+        mut block_data_stream: crate::backend::BlockDataStream,
+    ) -> Result<()> {
+        use futures::StreamExt;
+        use std::time::{Duration, Instant};
+
+        let mut update_time = Instant::now();
+
+        while let Some(blockdata_result) = block_data_stream.next().await {
+            let blockdata = blockdata_result?;
+            let blkheight = blockdata.blkheight;
+            let blkhash = blockdata.blkhash;
+
+            // stop scanning and return if interrupted
+            if self.should_interrupt() {
+                self.save_state().await?;
+                return Ok(());
+            }
+
+            let mut save_to_storage = false;
+
+            // always save on last block or after 30 seconds since last save
+            if blkheight == end || update_time.elapsed() > Duration::from_secs(30) {
+                save_to_storage = true;
+            }
+
+            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+
+            if !found_outputs.is_empty() {
+                save_to_storage = true;
+                self.record_outputs(blkheight, blkhash, found_outputs)
+                    .await?;
+            }
+
+            if !found_inputs.is_empty() {
+                save_to_storage = true;
+                self.record_inputs(blkheight, blkhash, found_inputs).await?;
+            }
+
+            // tell the updater we scanned this block
+            self.record_progress(start, blkheight, end).await?;
+
+            if save_to_storage {
+                self.save_state().await?;
+                update_time = Instant::now();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Process multiple blocks from a stream (WASM version)
+    ///
+    /// This is a default implementation that can be overridden if needed
+    #[cfg(target_arch = "wasm32")]
     async fn process_blocks(
         &mut self,
         start: Height,
