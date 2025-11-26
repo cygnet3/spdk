@@ -698,7 +698,7 @@ pub trait AsyncSpScanner: Send + Sync {
                         if x.scriptpubkey.is_p2tr() {
                             Some(
                                 XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
-                                    .map_err(|e| anyhow::Error::new(e)),
+                                    .map_err(anyhow::Error::new),
                             )
                         } else {
                             None
