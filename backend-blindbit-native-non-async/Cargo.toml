@@ -10,12 +10,8 @@ spdk-core.workspace = true
 spdk-core.default-features = false
 spdk-core.features = ["sync"]
 
-# URL parsing (minimal: ~20KB)
-url = {version = "2.5", default-features = false}
-
-# Minimal HTTP client (optional, ~200KB + TLS adds ~600KB)
 # TLS support via rustls is required for HTTPS connections to blindbit
-ureq = { version = "3.1.4", default-features = false, features = [ "native-tls", "vendored","gzip"]}
+ureq = { version = "3.1.4", default-features = false, features = [ "gzip"]}
 
 # Logging
 log.workspace = true
