@@ -198,117 +198,13 @@ pub trait SpScanner {
         Ok(())
     }
 
-    /// Process multiple blocks in parallel (only on native platforms with cutthrough enabled)
-    ///
-    /// This method takes advantage of the fact that with cutthrough optimization,
-    /// blocks are independent and can be processed concurrently. The CPU-intensive
-    /// cryptographic operations benefit significantly from parallel execution.
+    /// Helper method to process blocks sequentially
     ///
     /// # Arguments
     /// * `start` - Start height
     /// * `end` - End height
     /// * `block_data_iter` - Iterator of block data
-    ///
-    /// # Returns
-    /// * Result indicating success or failure
-    ///
-    /// # Note
-    /// This is only available on non-WASM platforms with the `parallel` feature. Otherwise, use `process_blocks`.
-    #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
-    fn process_blocks_parallel<I>(
-        &mut self,
-        start: Height,
-        end: Height,
-        block_data_iter: I,
-    ) -> Result<()>
-    where
-        I: Iterator<Item = Result<BlockData>>,
-        Self: Sync,
-    {
-        use std::time::{Duration, Instant};
-
-        // Collect all blocks first (they're already fetched concurrently in async version)
-        let block_data_vec: Vec<BlockData> = block_data_iter.collect::<Result<Vec<_>>>()?;
-
-        let total_blocks = block_data_vec.len();
-        if total_blocks == 0 {
-            return Ok(());
-        }
-
-        // Process blocks in parallel - this is safe with cutthrough because:
-        // 1. Output detection only depends on the block's tweaks and our static keys
-        // 2. Input detection won't see short-lived UTXOs (cutthrough removes them)
-        // 3. No inter-block dependencies exist
-        let results: Vec<_> = block_data_vec
-            .into_par_iter()
-            .map(|blockdata| {
-                let blkheight = blockdata.blkheight;
-                let blkhash = blockdata.blkhash;
-
-                // Process outputs (CPU-intensive crypto operations)
-                let found_outputs = self.process_block_outputs(
-                    blkheight,
-                    blockdata.tweaks,
-                    blockdata.new_utxo_filter,
-                )?;
-
-                // Process inputs (filter matching)
-                let found_inputs = self.process_block_inputs(blkheight, blockdata.spent_filter)?;
-
-                Ok((blkheight, blkhash, found_outputs, found_inputs))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        // Sequential recording phase (requires &mut self)
-        // This is fast compared to the crypto operations above
-        let mut update_time = Instant::now();
-        for (idx, (blkheight, blkhash, found_outputs, found_inputs)) in
-            results.into_iter().enumerate()
-        {
-            // Check for interruption periodically
-            if idx % 10 == 0 && self.should_interrupt() {
-                self.save_state()?;
-                return Ok(());
-            }
-
-            let mut save_to_storage = false;
-
-            // Save on last block or after 30 seconds
-            if blkheight == end || update_time.elapsed() > Duration::from_secs(30) {
-                save_to_storage = true;
-            }
-
-            if !found_outputs.is_empty() {
-                save_to_storage = true;
-                self.record_outputs(blkheight, blkhash, found_outputs)?;
-            }
-
-            if !found_inputs.is_empty() {
-                save_to_storage = true;
-                self.record_inputs(blkheight, blkhash, found_inputs)?;
-            }
-
-            self.record_progress(start, blkheight, end)?;
-
-            if save_to_storage {
-                self.save_state()?;
-                update_time = Instant::now();
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Helper method to automatically choose between parallel and sequential block processing
-    ///
-    /// On native platforms with cutthrough enabled, this uses parallel processing for better
-    /// performance. Otherwise, it falls back to sequential processing.
-    ///
-    /// # Arguments
-    /// * `start` - Start height
-    /// * `end` - End height
-    /// * `block_data_iter` - Iterator of block data
-    /// * `with_cutthrough` - Whether cutthrough is enabled (required for parallel processing safety)
+    /// * `with_cutthrough` - Whether cutthrough is enabled (unused, kept for API compatibility)
     ///
     /// # Returns
     /// * Result indicating success or failure
@@ -317,19 +213,12 @@ pub trait SpScanner {
         start: Height,
         end: Height,
         block_data_iter: I,
-        with_cutthrough: bool,
+        _with_cutthrough: bool,
     ) -> Result<()>
     where
         I: Iterator<Item = Result<BlockData>>,
-        Self: Sync,
     {
-        // Use parallel processing on native platforms with parallel feature when cutthrough is enabled
-        #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
-        if with_cutthrough {
-            return self.process_blocks_parallel(start, end, block_data_iter);
-        }
-
-        // Fall back to sequential processing
+        // Always use sequential processing
         self.process_blocks(start, end, block_data_iter)
     }
 
