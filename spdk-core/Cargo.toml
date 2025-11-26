@@ -1,0 +1,39 @@
+[package]
+name = "spdk-core"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Default: both sync and async APIs available, with parallelization
+default = ["parallel", "async"]
+
+# Sync-only mode - excludes async code and async dependencies
+sync = []
+
+# Enable async APIs (included by default, excluded with sync)
+async = ["dep:futures", "dep:async-trait"]
+
+# Enable CPU parallelization with rayon (native only, recommended)
+parallel = ["dep:rayon"]
+
+[dependencies]
+# Core dependencies - always available
+silentpayments.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bitcoin.workspace = true
+hex.workspace = true
+bdk_coin_select.workspace = true
+
+# Async dependencies - optional
+futures = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
+# Parallelization (not available on WASM)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = { workspace = true, optional = true }
