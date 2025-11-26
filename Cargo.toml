@@ -8,7 +8,8 @@ resolver = "2"
 
 [workspace.dependencies]
 # Internal workspace crates
-spdk-core = { path = "spdk-core", version = "0.1.0" }
+# NOTE: if default-features == true, it cannot be disabled by crates using spdk-core.workspace = true
+spdk-core = { path = "spdk-core", version = "0.1.0" , default-features = false}
 
 # Core dependencies - shared across crates
 silentpayments = "0.4"

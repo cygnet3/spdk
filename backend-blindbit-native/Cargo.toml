@@ -42,7 +42,7 @@ default = ["async"]
 async = ["spdk-core/async",  "dep:futures-util"]
 
 # Sync-only mode - excludes async code (backwards compatible)
-sync = []
+sync = ["spdk-core/sync"]
 
 # Minimal HTTP client implementation using ureq
 ureq-client = ["ureq"]
