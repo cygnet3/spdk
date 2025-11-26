@@ -486,8 +486,6 @@ pub trait SpScanner {
     }
 
     /// Get input hashes for owned outpoints
-    ///
-    /// This is a default implementation that can be overridden if needed
     fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>>;
 
     /// Check if block contains relevant input transactions
@@ -867,8 +865,6 @@ pub trait AsyncSpScanner: Send + Sync {
     }
 
     /// Get input hashes for owned outpoints
-    ///
-    /// This is a default implementation that can be overridden if needed
     async fn get_input_hashes(&self, blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>>;
 
     /// Check if block contains relevant input transactions
