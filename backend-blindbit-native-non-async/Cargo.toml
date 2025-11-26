@@ -7,6 +7,8 @@ repository.workspace = true
 [dependencies]
 # Core client dependency
 spdk-core.workspace = true
+spdk-core.default-features = false
+spdk-core.features = ["sync"]
 
 # URL parsing (minimal: ~20KB)
 url = "2.5"
@@ -31,6 +33,6 @@ rayon.workspace = true
 rayon.optional = true
 
 [features]
-default = ["rayon"]
-rayon = ["dep:rayon"]
+default = []
+rayon = ["dep:rayon", "spdk-core/parallel"]
 
