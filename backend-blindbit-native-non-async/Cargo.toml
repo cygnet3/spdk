@@ -1,0 +1,36 @@
+[package]
+name = "backend-blindbit-native-non-async"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[dependencies]
+# Core client dependency
+spdk-core.workspace = true
+
+# URL parsing (minimal: ~20KB)
+url = "2.5"
+
+# Minimal HTTP client (optional, ~200KB + TLS adds ~600KB)
+# TLS support via rustls is required for HTTPS connections to blindbit
+ureq = { version = "2.10", default-features = false, features = ["json", "tls", "gzip"]}
+
+# Logging
+log.workspace = true
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+anyhow.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+# Parallelization
+rayon.workspace = true
+rayon.optional = true
+
+[features]
+default = ["rayon"]
+rayon = ["dep:rayon"]
+
