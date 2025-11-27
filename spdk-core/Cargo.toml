@@ -29,6 +29,7 @@ serde_json.workspace = true
 bitcoin.workspace = true
 hex.workspace = true
 bdk_coin_select.workspace = true
+log.workspace = true
 
 # Async dependencies - optional
 futures = { workspace = true, optional = true }
