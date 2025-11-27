@@ -2,6 +2,7 @@
 #[cfg(all(feature = "async", feature = "sync"))]
 compile_error!("Cannot use both sync & async features together");
 
+pub mod account;
 pub mod backend;
 pub mod client;
 pub mod constants;
