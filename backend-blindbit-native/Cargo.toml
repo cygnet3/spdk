@@ -26,17 +26,20 @@ serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true
 
+#Async dependencies
+# block_on() needs futures and async-trait
+futures = { workspace = true}
+async-trait = { workspace = true}
+
 # Async dependencies (optional)
-futures = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-async-trait = { workspace = true, optional = true }
 
 [features]
 # Default: both sync and async APIs available
 default = ["async"]
 
 # Enable async APIs
-async = ["spdk-core/async", "dep:futures", "dep:futures-util", "dep:async-trait"]
+async = ["spdk-core/async",  "dep:futures-util"]
 
 # Sync-only mode - excludes async code (backwards compatible)
 sync = []
