@@ -1,8 +1,9 @@
 use super::SpendKey;
 use anyhow::{Error, Result};
 use bitcoin::{
+    bip32,
     hashes::Hash,
-    secp256k1::{PublicKey, Secp256k1, SecretKey},
+    secp256k1::{All, PublicKey, Secp256k1, SecretKey},
     Network,
 };
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,15 @@ impl Default for SpClient {
 
 impl SpClient {
     pub fn new(scan_sk: SecretKey, spend_key: SpendKey, network: Network) -> Result<Self> {
-        let secp = Secp256k1::signing_only();
+        let secp = Secp256k1::new();
+        Self::new_inner(scan_sk, spend_key, network, secp)
+    }
+    fn new_inner(
+        scan_sk: SecretKey,
+        spend_key: SpendKey,
+        network: Network,
+        secp: Secp256k1<All>,
+    ) -> Result<Self> {
         let scan_pubkey = scan_sk.public_key(&secp);
         let change_label = Label::new(scan_sk, 0);
 
@@ -78,6 +87,70 @@ impl SpClient {
             sp_receiver,
             network,
         })
+    }
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic(mnemonic: bip39::Mnemonic, network: Network) -> Result<Self> {
+        use bitcoin::bip32::ChildNumber;
+
+        Self::new_from_mnemonic_with_passphrase_and_account(
+            mnemonic,
+            "",
+            network,
+            ChildNumber::from_hardened_idx(0).expect("zero"),
+        )
+    }
+
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic_with_account(
+        mnemonic: bip39::Mnemonic,
+        network: Network,
+        account: bip32::ChildNumber,
+    ) -> Result<Self> {
+        Self::new_from_mnemonic_with_passphrase_and_account(mnemonic, "", network, account)
+    }
+
+    #[cfg(feature = "mnemonic")]
+    pub fn new_from_mnemonic_with_passphrase_and_account(
+        mnemonic: bip39::Mnemonic,
+        pp: &str,
+        network: Network,
+        account: bip32::ChildNumber,
+    ) -> Result<Self> {
+        use bitcoin::bip32;
+
+        let secp = Secp256k1::new();
+        let seed = mnemonic.to_seed(pp);
+        let master_xpriv = bip32::Xpriv::new_master(network, &seed)
+            .map_err(|_| Error::msg("Fails to generate Xpriv from seed"))?;
+        let network_idx = match network {
+            Network::Bitcoin => 0u32,
+            _ => 1,
+        };
+        let base_deriv = vec![
+            bip32::ChildNumber::from_hardened_idx(352).expect("352"),
+            bip32::ChildNumber::from_hardened_idx(network_idx).expect("0 or 1"),
+            account,
+        ];
+
+        let mut scan_deriv = base_deriv.clone();
+        scan_deriv.push(bip32::ChildNumber::from_hardened_idx(1).expect("1"));
+        scan_deriv.push(bip32::ChildNumber::from_normal_idx(0).expect("0"));
+
+        let mut spend_deriv = base_deriv;
+        spend_deriv.push(bip32::ChildNumber::from_hardened_idx(0).expect("0"));
+        spend_deriv.push(bip32::ChildNumber::from_normal_idx(0).expect("0"));
+
+        let scan = master_xpriv
+            .derive_priv(&secp, &scan_deriv)
+            .map_err(|_| Error::msg("Fail to derive scan key"))?
+            .private_key;
+
+        let spend = master_xpriv
+            .derive_priv(&secp, &spend_deriv)
+            .map_err(|_| Error::msg("Fail to derive spend key"))?
+            .private_key;
+
+        Self::new_inner(scan, spend.into(), network, secp)
     }
 
     pub fn get_receiving_address(&self) -> SilentPaymentAddress {

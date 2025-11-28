@@ -19,6 +19,8 @@ pub use types::*;
 pub use updater::Updater;
 // Re-export commonly used external types
 pub use bdk_coin_select::FeeRate;
+#[cfg(feature = "mnemonic")]
+pub use bip39;
 pub use bitcoin;
 pub use silentpayments;
 
