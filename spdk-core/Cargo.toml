@@ -24,6 +24,10 @@ parallel = ["dep:rayon"]
 mnemonic = ["dep:bip39"] # Enable using bip39 mnemonics for create SpClient
 rand = ["bip39/rand"]
 
+# rust-bitcoin versions
+bitcoin_31 = ["bitcoin/31", "silentpayments/secp_28"]
+bitcoin_32 = ["bitcoin/32", "silentpayments/secp_29"]
+
 [dependencies]
 # Core dependencies - always available
 silentpayments.workspace = true

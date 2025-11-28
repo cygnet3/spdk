@@ -10,13 +10,13 @@ resolver = "2"
 # Internal workspace crates
 # NOTE: if default-features == true, it cannot be disabled by crates using spdk-core.workspace = true
 spdk-core = { path = "spdk-core", version = "0.1.0" , default-features = false}
+bitcoin = { path = "bitcoin" }
 
 # Core dependencies - shared across crates
 silentpayments = "0.4"
 anyhow = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
-bitcoin = { version = "0.31.1", features = ["serde", "rand", "base64"] }
 rayon = "1.10.0"
 futures = "0.3"
 futures-util = "0.3.31"

@@ -2,13 +2,12 @@ use super::SpendKey;
 use anyhow::{Error, Result};
 use bitcoin::{
     bip32,
-    hashes::Hash,
     secp256k1::{All, PublicKey, Secp256k1, SecretKey},
     Network,
 };
 use serde::{Deserialize, Serialize};
 use silentpayments::{
-    bitcoin_hashes::sha256,
+    bitcoin_hashes::{sha256, Hash},
     receiving::{Label, Receiver},
     utils as sp_utils, Network as SpNetwork, SilentPaymentAddress,
 };
