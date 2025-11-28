@@ -4,11 +4,15 @@ use bdk_coin_select::{
     Candidate, ChangePolicy, CoinSelector, DrainWeights, FeeRate, Target, TargetFee, TargetOutputs,
     TR_DUST_RELAY_MIN_VALUE,
 };
+#[cfg(feature = "bitcoin_32")]
+use bitcoin::hashes::Hash;
+#[cfg(feature = "bitcoin_31")]
+use bitcoin::secp256k1::ThirtyTwoByteHash;
 use bitcoin::{
     absolute::LockTime,
     key::TapTweak,
     script::PushBytesBuf,
-    secp256k1::{Keypair, Message, Secp256k1, SecretKey, ThirtyTwoByteHash},
+    secp256k1::{Keypair, Message, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache},
     taproot::Signature,
     transaction::Version,
@@ -384,7 +388,10 @@ impl SpClient {
             )?,
             None => cache.taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)?,
         };
+        #[cfg(feature = "bitcoin_31")]
         let msg = Message::from_digest(sighash.into_32());
+        #[cfg(feature = "bitcoin_32")]
+        let msg = Message::from_digest(*sighash.as_raw_hash().as_byte_array());
         Ok(msg)
     }
 
@@ -441,7 +448,15 @@ impl SpClient {
             let sig = secp.sign_schnorr_with_aux_rand(&msg, &keypair, aux_rand);
 
             let mut witness = Witness::new();
-            witness.push(Signature { sig, hash_ty }.to_vec());
+            #[cfg(feature = "bitcoin_31")]
+            let signature = Signature { sig, hash_ty }.to_vec();
+            #[cfg(feature = "bitcoin_32")]
+            let signature = Signature {
+                signature: sig,
+                sighash_type: hash_ty,
+            }
+            .to_vec();
+            witness.push(signature);
 
             signed.input[i].witness = witness;
         }
