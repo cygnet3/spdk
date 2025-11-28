@@ -1,29 +1,24 @@
-use std::{io::Write, str::FromStr};
-
-use bitcoin::hashes::Hash;
+use super::SpendKey;
+use anyhow::{Error, Result};
 use bitcoin::{
-    key::constants::ONE,
-    secp256k1::{Scalar, Secp256k1, SecretKey},
-    Network, XOnlyPublicKey,
+    hashes::Hash,
+    secp256k1::{PublicKey, Secp256k1, SecretKey},
+    Network,
 };
 use serde::{Deserialize, Serialize};
-
-use bitcoin::secp256k1::PublicKey;
-use silentpayments::utils as sp_utils;
-use std::collections::HashMap;
-
-use silentpayments::Network as SpNetwork;
 use silentpayments::{
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
-    SilentPaymentAddress,
+    utils as sp_utils, Network as SpNetwork, SilentPaymentAddress,
 };
+use std::{collections::HashMap, io::Write};
 
-use anyhow::{Error, Result};
-
-use crate::constants::NUMS;
-
-use super::SpendKey;
+#[cfg(test)]
+use {
+    crate::constants::NUMS,
+    bitcoin::{key::constants::ONE, secp256k1::Scalar, XOnlyPublicKey},
+    std::str::FromStr,
+};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct SpClient {
@@ -33,6 +28,7 @@ pub struct SpClient {
     network: Network,
 }
 
+#[cfg(test)]
 impl Default for SpClient {
     fn default() -> Self {
         let default_sk = SecretKey::from_slice(&[0xcd; 32]).unwrap();
