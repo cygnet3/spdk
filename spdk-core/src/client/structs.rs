@@ -115,3 +115,9 @@ impl From<SpendKey> for PublicKey {
         value.into()
     }
 }
+
+impl From<SecretKey> for SpendKey {
+    fn from(value: SecretKey) -> Self {
+        Self::Secret(value)
+    }
+}
