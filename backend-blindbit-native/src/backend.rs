@@ -38,11 +38,16 @@ impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
     /// These need to be fetched separately afterwards, if it is determined this block is relevant.
     fn get_block_data_for_range(
         &self,
-        range: RangeInclusive<u32>,
+        mut range: RangeInclusive<u32>,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> BlockDataIterator {
         let client = self.client.clone();
+
+        // blindbit will return an error 500 for genesis block
+        if *range.start() == 0 {
+            range = RangeInclusive::new(1, *range.end());
+        }
 
         // Convert range to iterator that fetches block data synchronously
         let iter = range.map(move |n| {
