@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::{collections::HashMap, ops::RangeInclusive};
 
 use anyhow::Result;
 use bitcoin::{absolute::Height, Amount};
@@ -30,4 +30,14 @@ pub trait ChainBackend {
     fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>>;
 
     fn block_height(&self) -> Result<Height>;
+
+    fn infos(&self) -> Result<HashMap<String, String>> {
+        Ok(HashMap::new())
+    }
+
+    // NOTE: can be useful in get_block_data_for_range() if we want silently
+    // trim range.min() to taproot activation height only on mainnet
+    fn network(&self) -> Option<bitcoin::Network> {
+        None
+    }
 }
