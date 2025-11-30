@@ -47,7 +47,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     pub fn get_block_data_for_range(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> spdk_core::BlockDataIterator {
         #[cfg(feature = "rayon")]
@@ -63,7 +63,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     pub fn get_block_data_for_range_thread_pool(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> spdk_core::BlockDataIterator {
         use crate::thread_pool::ThreadPool;
@@ -88,7 +88,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     pub fn get_block_data_for_range_rayon(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> spdk_core::BlockDataIterator {
         let client = Arc::new(self.client.clone());
@@ -134,7 +134,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
 
 fn get_block_data_for_height<H>(
     height: u32,
-    dust_limit: Amount,
+    dust_limit: Option<Amount>,
     with_cutthrough: bool,
     sender: mpsc::Sender<Result<BlockData, anyhow::Error>>,
     client: Arc<BlindbitClient<H>>,
@@ -190,7 +190,7 @@ impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
     fn get_block_data_for_range(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> spdk_core::BlockDataIterator {
         self.get_block_data_for_range(range, dust_limit, with_cutthrough)

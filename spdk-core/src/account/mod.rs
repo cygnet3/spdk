@@ -68,7 +68,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         &mut self,
         start: bitcoin::absolute::Height,
         end: bitcoin::absolute::Height,
-        dust_limit: bitcoin::Amount,
+        dust_limit: Option<bitcoin::Amount>,
         with_cutthrough: bool,
     ) -> anyhow::Result<()> {
         self.stop = false;
@@ -213,7 +213,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
     fn get_block_data_iterator(
         &self,
         range: std::ops::RangeInclusive<u32>,
-        dust_limit: bitcoin::Amount,
+        dust_limit: Option<bitcoin::Amount>,
         with_cutthrough: bool,
     ) -> crate::BlockDataIterator {
         self.backend

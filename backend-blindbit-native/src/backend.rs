@@ -39,7 +39,7 @@ impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
     fn get_block_data_for_range(
         &self,
         mut range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> BlockDataIterator {
         let client = self.client.clone();
