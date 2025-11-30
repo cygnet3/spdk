@@ -21,7 +21,7 @@ pub trait ChainBackend {
     fn get_block_data_for_range(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> BlockDataIterator;
 

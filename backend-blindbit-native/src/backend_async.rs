@@ -46,7 +46,7 @@ impl<H: HttpClient + Clone + 'static> AsyncBlindbitBackend<H> {
     pub fn get_block_data_stream(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send + 'static>> {
         let client = Arc::new(self.client.clone());
@@ -106,7 +106,7 @@ impl<H: HttpClient + Clone + 'static> AsyncChainBackend for AsyncBlindbitBackend
     fn get_block_data_stream(
         &self,
         range: RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> BlockDataStream {
         self.get_block_data_stream(range, dust_limit, with_cutthrough)

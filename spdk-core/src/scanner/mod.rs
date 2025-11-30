@@ -29,7 +29,7 @@ pub trait SpScanner {
         &mut self,
         start: Height,
         end: Height,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> Result<()>;
 
@@ -87,7 +87,7 @@ pub trait SpScanner {
     fn get_block_data_iterator(
         &self,
         range: std::ops::RangeInclusive<u32>,
-        dust_limit: Amount,
+        dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> crate::BlockDataIterator;
 

@@ -44,21 +44,29 @@ impl<H: HttpClient> BlindbitClient<H> {
         Ok(blkheight.block_height)
     }
 
-    pub fn tweaks(&self, block_height: Height, dust_limit: Amount) -> Result<Vec<PublicKey>> {
+    pub fn tweaks(
+        &self,
+        block_height: Height,
+        dust_limit: Option<Amount>,
+    ) -> Result<Vec<PublicKey>> {
         let url = join(&self.host_url, &format!("tweaks/{}", block_height));
-        let body = self.http_client.get(
-            url.as_str(),
-            &[("dustLimit", dust_limit.to_sat().to_string())],
-        )?;
+        let params = dust_limit
+            .map(|dl| vec![("dustLimit", dl.to_sat().to_string())])
+            .unwrap_or_default();
+        let body = self.http_client.get(url.as_str(), &params)?;
         Ok(serde_json::from_str(&body)?)
     }
 
-    pub fn tweak_index(&self, block_height: Height, dust_limit: Amount) -> Result<Vec<PublicKey>> {
+    pub fn tweak_index(
+        &self,
+        block_height: Height,
+        dust_limit: Option<Amount>,
+    ) -> Result<Vec<PublicKey>> {
         let url = join(&self.host_url, &format!("tweak-index/{}", block_height));
-        let body = self.http_client.get(
-            url.as_str(),
-            &[("dustLimit", dust_limit.to_sat().to_string())],
-        )?;
+        let params = dust_limit
+            .map(|dl| vec![("dustLimit", dl.to_sat().to_string())])
+            .unwrap_or_default();
+        let body = self.http_client.get(url.as_str(), &params)?;
         Ok(serde_json::from_str(&body)?)
     }
 
