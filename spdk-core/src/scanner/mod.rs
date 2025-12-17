@@ -13,7 +13,10 @@ use silentpayments::receiving::Label;
 #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
 use rayon::prelude::*;
 
-use crate::{BlockData, ChainBackend, FilterData, OwnedOutput, OutputSpendStatus, SpClient, Updater, UtxoData};
+use crate::{
+    BlockData, ChainBackend, FilterData, OutputSpendStatus, OwnedOutput, SpClient, Updater,
+    UtxoData,
+};
 
 /// Internal trait for synchronous scanning of silent payment blocks
 ///
@@ -653,7 +656,8 @@ pub(crate) trait AsyncSpScannerTrait: Send + Sync {
                         .filter(|utxo| utxo.scriptpubkey.is_p2tr() && !utxo.spent)
                         .filter_map(|utxo| {
                             let xonly =
-                                XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..]).ok()?;
+                                XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..])
+                                    .ok()?;
                             ours.iter().find_map(|(label, map)| {
                                 map.get(&xonly)
                                     .map(|scalar| (label.clone(), utxo.clone(), *scalar))
@@ -890,7 +894,7 @@ impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U>
         let spent_filter = blockdata.spent_filter;
 
         let found_outputs = self.process_block_outputs(blkheight, tweaks, new_utxo_filter)?;
-        
+
         // Update owned outpoints with newly found outputs
         for outpoint in found_outputs.keys() {
             self.owned_outpoints.insert(*outpoint);
@@ -918,18 +922,15 @@ impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U>
 
         let candidate_spks: Vec<_> = secrets_map.keys().collect();
         let filter = BlockFilter::new(&new_utxo_filter.data);
-        let matched = Self::check_block_outputs(
-            filter,
-            new_utxo_filter.block_hash,
-            candidate_spks,
-        )?;
+        let matched =
+            Self::check_block_outputs(filter, new_utxo_filter.block_hash, candidate_spks)?;
 
         if !matched {
             return Ok(HashMap::new());
         }
 
         let found_utxos = self.scan_utxos(blkheight, secrets_map)?;
-        
+
         let mut outputs = HashMap::new();
         for (label, utxo, tweak) in found_utxos {
             let outpoint = OutPoint::new(utxo.txid, utxo.vout);
@@ -1005,7 +1006,8 @@ impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U>
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> crate::BlockDataIterator {
-        self.backend.get_block_data_for_range(range, dust_limit, with_cutthrough)
+        self.backend
+            .get_block_data_for_range(range, dust_limit, with_cutthrough)
     }
 
     fn should_interrupt(&self) -> bool {
@@ -1022,7 +1024,8 @@ impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U>
         block_hash: BlockHash,
         outputs: HashMap<OutPoint, OwnedOutput>,
     ) -> Result<()> {
-        self.updater.record_block_outputs(height, block_hash, outputs)
+        self.updater
+            .record_block_outputs(height, block_hash, outputs)
     }
 
     fn record_inputs(
@@ -1063,7 +1066,9 @@ impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U>
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> SpScanner<'a, B, U> {
+impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater>
+    SpScanner<'a, B, U>
+{
     /// Create a new SpScanner instance
     ///
     /// # Arguments
@@ -1141,7 +1146,7 @@ impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> 
         let found_outputs = self
             .process_block_outputs(blkheight, tweaks, new_utxo_filter)
             .await?;
-        
+
         // Update owned outpoints with newly found outputs
         for outpoint in found_outputs.keys() {
             self.owned_outpoints.insert(*outpoint);
@@ -1169,18 +1174,15 @@ impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> 
 
         let candidate_spks: Vec<_> = secrets_map.keys().collect();
         let filter = BlockFilter::new(&new_utxo_filter.data);
-        let matched = Self::check_block_outputs(
-            filter,
-            new_utxo_filter.block_hash,
-            candidate_spks,
-        )?;
+        let matched =
+            Self::check_block_outputs(filter, new_utxo_filter.block_hash, candidate_spks)?;
 
         if !matched {
             return Ok(HashMap::new());
         }
 
         let found_utxos = self.scan_utxos(blkheight, secrets_map).await?;
-        
+
         let mut outputs = HashMap::new();
         for (label, utxo, tweak) in found_utxos {
             let outpoint = OutPoint::new(utxo.txid, utxo.vout);
@@ -1256,7 +1258,8 @@ impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> 
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> crate::backend::BlockDataStream {
-        self.backend.get_block_data_stream(range, dust_limit, with_cutthrough)
+        self.backend
+            .get_block_data_stream(range, dust_limit, with_cutthrough)
     }
 
     fn should_interrupt(&self) -> bool {
@@ -1284,7 +1287,9 @@ impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> 
         block_hash: BlockHash,
         inputs: HashSet<OutPoint>,
     ) -> Result<()> {
-        self.updater.record_block_inputs(height, block_hash, inputs).await
+        self.updater
+            .record_block_inputs(height, block_hash, inputs)
+            .await
     }
 
     async fn record_progress(&mut self, start: Height, current: Height, end: Height) -> Result<()> {

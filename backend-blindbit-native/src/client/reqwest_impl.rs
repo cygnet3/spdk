@@ -86,7 +86,7 @@ impl HttpClient for ReqwestClient {
     async fn get(&self, url: &str, query_params: &[(&str, String)]) -> Result<String> {
         // Build request with query parameters
         let mut request = self.client.get(url);
-        
+
         for (key, value) in query_params {
             request = request.query(&[(key, value)]);
         }
@@ -124,4 +124,3 @@ impl HttpClient for ReqwestClient {
         Ok(response)
     }
 }
-
