@@ -11,9 +11,19 @@ use spdk_core::{BlockData, BlockDataIterator, ChainBackend, SpentIndexData, Utxo
 /// Synchronous Blindbit backend implementation, generic over the HTTP client.
 ///
 /// This uses `block_on` to convert async HTTP calls to synchronous operations.
-/// For better performance, consider using `AsyncBlindbitBackend` with the `async` feature.
+/// Requests are processed sequentially with no concurrency.
 ///
-/// Consumers must provide their own HTTP client implementation by implementing the `HttpClient` trait.
+/// # Performance Note
+///
+/// For better performance, consider using `AsyncBlindbitBackend` with the `async` feature,
+/// which supports 200+ concurrent requests.
+///
+/// # HTTP Client Recommendation
+///
+/// - **Efficient:** Use with `UreqClient` (blocking HTTP, minimal overhead)
+/// - **Inefficient:** Using with `ReqwestClient` pulls in tokio runtime but blocks every request
+///
+/// Consumers can also implement their own `HttpClient` trait.
 pub struct BlindbitBackend<H: HttpClient> {
     client: BlindbitClient<H>,
 }
