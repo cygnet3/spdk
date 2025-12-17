@@ -27,10 +27,11 @@ serde_json.workspace = true
 hex.workspace = true
 
 # The HttpClient trait is async, so async-trait is always required
+# Same futures is always required
 async-trait.workspace = true
+futures.workspace = true
 
 # Other async dependencies (optional)
-futures = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
@@ -41,7 +42,7 @@ default = ["sync", "async"]
 
 # Enable sync backend (BlindbitBackend) - wraps async HTTP calls with block_on
 # Note: Sequential processing only, no concurrency
-sync = ["dep:futures"]
+sync = []
 
 # Enable async backend (AsyncBlindbitBackend) - truly async with concurrent requests
 # Recommended for production use with high throughput requirements
