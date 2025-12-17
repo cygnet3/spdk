@@ -1,23 +1,25 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 
 #[cfg(not(all(not(target_arch = "wasm32"), feature = "parallel")))]
 use anyhow::Error;
 use anyhow::Result;
 use bitcoin::{
-    absolute::Height, bip158::BlockFilter, Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
+    absolute::Height, bip158::BlockFilter, hashes::Hash as _, Amount, BlockHash, OutPoint, Txid,
+    XOnlyPublicKey,
 };
 use silentpayments::receiving::Label;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
 use rayon::prelude::*;
 
-use crate::{BlockData, ChainBackend, FilterData, OwnedOutput, SpClient, Updater, UtxoData};
+use crate::{BlockData, ChainBackend, FilterData, OwnedOutput, OutputSpendStatus, SpClient, Updater, UtxoData};
 
-/// Trait for scanning silent payment blocks
+/// Internal trait for synchronous scanning of silent payment blocks
 ///
-/// This trait abstracts the core scanning functionality, allowing consumers
-/// to implement it with their own constraints and requirements.
-pub trait SpScanner {
+/// This trait abstracts the core scanning functionality.
+/// Consumers should use the concrete `SpScanner` type instead of implementing this trait.
+pub(crate) trait SyncSpScannerTrait {
     /// Scan a range of blocks for silent payment outputs and inputs
     ///
     /// # Arguments
@@ -395,14 +397,13 @@ pub trait SpScanner {
     }
 }
 
-/// Async version of SpScanner for non-blocking I/O operations
+/// Internal trait for async scanning of silent payment blocks
 ///
-/// This trait provides async methods for scanning silent payment blocks,
-/// allowing for concurrent operations and better integration with async ecosystems.
-/// Particularly useful for WASM targets and UI applications.
+/// This trait provides async methods for scanning silent payment blocks.
+/// Consumers should use the concrete `SpScanner` type instead of implementing this trait.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-pub trait AsyncSpScanner: Send + Sync {
+pub(crate) trait AsyncSpScannerTrait: Send + Sync {
     /// Scan a range of blocks for silent payment outputs and inputs
     ///
     /// # Arguments
@@ -771,5 +772,544 @@ pub trait AsyncSpScanner: Send + Sync {
         } else {
             Ok(false)
         }
+    }
+}
+
+// =============================================================================
+// Concrete SpScanner Implementation
+// =============================================================================
+
+/// Public scanner implementation for silent payments
+///
+/// This type conditionally implements either synchronous or asynchronous scanning
+/// based on the `async` feature flag. Consumers should use this type instead of
+/// implementing the scanner traits directly.
+///
+/// # Type Parameters
+/// * `B` - The chain backend type (sync or async depending on feature flags)
+/// * `U` - The updater type (sync or async depending on feature flags)
+#[cfg(not(feature = "async"))]
+pub struct SpScanner<'a, B: ChainBackend, U: Updater> {
+    client: SpClient,
+    backend: B,
+    updater: U,
+    owned_outpoints: HashSet<OutPoint>,
+    keep_scanning: &'a AtomicBool,
+}
+
+/// Public scanner implementation for silent payments (async variant)
+///
+/// This type conditionally implements either synchronous or asynchronous scanning
+/// based on the `async` feature flag. Consumers should use this type instead of
+/// implementing the scanner traits directly.
+///
+/// # Type Parameters
+/// * `B` - The async chain backend type
+/// * `U` - The async updater type
+#[cfg(feature = "async")]
+pub struct SpScanner<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> {
+    client: SpClient,
+    backend: B,
+    updater: U,
+    owned_outpoints: HashSet<OutPoint>,
+    keep_scanning: &'a AtomicBool,
+}
+
+// Synchronous implementation
+#[cfg(not(feature = "async"))]
+impl<'a, B: ChainBackend, U: Updater> SpScanner<'a, B, U> {
+    /// Create a new SpScanner instance
+    ///
+    /// # Arguments
+    /// * `client` - The silent payment client
+    /// * `backend` - The chain backend for blockchain data access
+    /// * `updater` - The updater for tracking scan progress
+    /// * `owned_outpoints` - Set of outpoints to track for spent detection
+    /// * `keep_scanning` - Atomic bool reference for interrupting the scan
+    pub fn new(
+        client: SpClient,
+        backend: B,
+        updater: U,
+        owned_outpoints: HashSet<OutPoint>,
+        keep_scanning: &'a AtomicBool,
+    ) -> Self {
+        Self {
+            client,
+            backend,
+            updater,
+            owned_outpoints,
+            keep_scanning,
+        }
+    }
+
+    /// Scan a range of blocks for silent payment outputs and inputs
+    ///
+    /// # Arguments
+    /// * `start` - Starting block height (inclusive)
+    /// * `end` - Ending block height (inclusive)
+    /// * `dust_limit` - Minimum amount to consider (dust outputs are ignored)
+    /// * `with_cutthrough` - Whether to use cutthrough optimization
+    pub fn scan_blocks(
+        &mut self,
+        start: Height,
+        end: Height,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> Result<()> {
+        SyncSpScannerTrait::scan_blocks(self, start, end, dust_limit, with_cutthrough)
+    }
+
+    fn interrupt_requested(&self) -> bool {
+        !self
+            .keep_scanning
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl<'a, B: ChainBackend, U: Updater> SyncSpScannerTrait for SpScanner<'a, B, U> {
+    fn scan_blocks(
+        &mut self,
+        start: Height,
+        end: Height,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> Result<()> {
+        let range = start.to_consensus_u32()..=end.to_consensus_u32();
+        let block_data_iter = self.get_block_data_iterator(range, dust_limit, with_cutthrough);
+        self.process_blocks_auto(start, end, block_data_iter, with_cutthrough)
+    }
+
+    fn process_block(
+        &mut self,
+        blockdata: BlockData,
+    ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
+        let blkheight = blockdata.blkheight;
+        let tweaks = blockdata.tweaks;
+        let new_utxo_filter = blockdata.new_utxo_filter;
+        let spent_filter = blockdata.spent_filter;
+
+        let found_outputs = self.process_block_outputs(blkheight, tweaks, new_utxo_filter)?;
+        
+        // Update owned outpoints with newly found outputs
+        for outpoint in found_outputs.keys() {
+            self.owned_outpoints.insert(*outpoint);
+        }
+
+        let found_inputs = self.process_block_inputs(blkheight, spent_filter)?;
+
+        Ok((found_outputs, found_inputs))
+    }
+
+    fn process_block_outputs(
+        &self,
+        blkheight: Height,
+        tweaks: Vec<bitcoin::secp256k1::PublicKey>,
+        new_utxo_filter: FilterData,
+    ) -> Result<HashMap<OutPoint, OwnedOutput>> {
+        if tweaks.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let secrets_map = self.client.get_script_to_secret_map(tweaks)?;
+        if secrets_map.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let candidate_spks: Vec<_> = secrets_map.keys().collect();
+        let filter = BlockFilter::new(&new_utxo_filter.data);
+        let matched = Self::check_block_outputs(
+            filter,
+            new_utxo_filter.block_hash,
+            candidate_spks,
+        )?;
+
+        if !matched {
+            return Ok(HashMap::new());
+        }
+
+        let found_utxos = self.scan_utxos(blkheight, secrets_map)?;
+        
+        let mut outputs = HashMap::new();
+        for (label, utxo, tweak) in found_utxos {
+            let outpoint = OutPoint::new(utxo.txid, utxo.vout);
+            let owned_output = OwnedOutput {
+                blockheight: blkheight,
+                tweak: tweak.to_be_bytes(),
+                amount: utxo.value,
+                script: utxo.scriptpubkey,
+                label,
+                spend_status: OutputSpendStatus::Unspent,
+            };
+            outputs.insert(outpoint, owned_output);
+        }
+
+        Ok(outputs)
+    }
+
+    fn process_block_inputs(
+        &self,
+        blkheight: Height,
+        spent_filter: FilterData,
+    ) -> Result<HashSet<OutPoint>> {
+        if self.owned_outpoints.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let input_hashes = self.get_input_hashes(spent_filter.block_hash)?;
+        if input_hashes.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let filter = BlockFilter::new(&spent_filter.data);
+        let matched = self.check_block_inputs(
+            filter,
+            spent_filter.block_hash,
+            input_hashes.keys().copied().collect(),
+        )?;
+
+        if !matched {
+            return Ok(HashSet::new());
+        }
+
+        // Get the actual spent inputs from spent index
+        let spent_index = self.backend.spent_index(blkheight)?;
+        let spent_inputs: HashSet<OutPoint> = spent_index
+            .data
+            .into_iter()
+            .filter_map(|bytes| {
+                if bytes.len() >= 36 {
+                    let mut txid_bytes = [0u8; 32];
+                    txid_bytes.copy_from_slice(&bytes[0..32]);
+                    let hash = bitcoin::hashes::sha256d::Hash::from_byte_array(txid_bytes);
+                    let txid = Txid::from_raw_hash(hash);
+                    let vout = u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]);
+                    let outpoint = OutPoint::new(txid, vout);
+                    if self.owned_outpoints.contains(&outpoint) {
+                        Some(outpoint)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(spent_inputs)
+    }
+
+    fn get_block_data_iterator(
+        &self,
+        range: std::ops::RangeInclusive<u32>,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> crate::BlockDataIterator {
+        self.backend.get_block_data_for_range(range, dust_limit, with_cutthrough)
+    }
+
+    fn should_interrupt(&self) -> bool {
+        self.interrupt_requested()
+    }
+
+    fn save_state(&mut self) -> Result<()> {
+        self.updater.save_to_persistent_storage()
+    }
+
+    fn record_outputs(
+        &mut self,
+        height: Height,
+        block_hash: BlockHash,
+        outputs: HashMap<OutPoint, OwnedOutput>,
+    ) -> Result<()> {
+        self.updater.record_block_outputs(height, block_hash, outputs)
+    }
+
+    fn record_inputs(
+        &mut self,
+        height: Height,
+        block_hash: BlockHash,
+        inputs: HashSet<OutPoint>,
+    ) -> Result<()> {
+        self.updater.record_block_inputs(height, block_hash, inputs)
+    }
+
+    fn record_progress(&mut self, start: Height, current: Height, end: Height) -> Result<()> {
+        self.updater.record_scan_progress(start, current, end)
+    }
+
+    fn client(&self) -> &SpClient {
+        &self.client
+    }
+
+    fn backend(&self) -> &dyn ChainBackend {
+        &self.backend
+    }
+
+    fn updater(&mut self) -> &mut dyn Updater {
+        &mut self.updater
+    }
+
+    fn get_input_hashes(&self, _blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>> {
+        let mut input_hashes = HashMap::new();
+        for outpoint in &self.owned_outpoints {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&outpoint.txid[..8]);
+            input_hashes.insert(hash, *outpoint);
+        }
+        Ok(input_hashes)
+    }
+}
+
+// Async implementation
+#[cfg(feature = "async")]
+impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> SpScanner<'a, B, U> {
+    /// Create a new SpScanner instance
+    ///
+    /// # Arguments
+    /// * `client` - The silent payment client
+    /// * `backend` - The async chain backend for blockchain data access
+    /// * `updater` - The async updater for tracking scan progress
+    /// * `owned_outpoints` - Set of outpoints to track for spent detection
+    /// * `keep_scanning` - Atomic bool reference for interrupting the scan
+    pub fn new(
+        client: SpClient,
+        backend: B,
+        updater: U,
+        owned_outpoints: HashSet<OutPoint>,
+        keep_scanning: &'a AtomicBool,
+    ) -> Self {
+        Self {
+            client,
+            backend,
+            updater,
+            owned_outpoints,
+            keep_scanning,
+        }
+    }
+
+    /// Scan a range of blocks for silent payment outputs and inputs
+    ///
+    /// # Arguments
+    /// * `start` - Starting block height (inclusive)
+    /// * `end` - Ending block height (inclusive)
+    /// * `dust_limit` - Minimum amount to consider (dust outputs are ignored)
+    /// * `with_cutthrough` - Whether to use cutthrough optimization
+    pub async fn scan_blocks(
+        &mut self,
+        start: Height,
+        end: Height,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> Result<()> {
+        AsyncSpScannerTrait::scan_blocks(self, start, end, dust_limit, with_cutthrough).await
+    }
+
+    fn interrupt_requested(&self) -> bool {
+        !self
+            .keep_scanning
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+#[cfg(feature = "async")]
+#[async_trait::async_trait]
+impl<'a, B: crate::backend::AsyncChainBackend, U: crate::updater::AsyncUpdater> AsyncSpScannerTrait
+    for SpScanner<'a, B, U>
+{
+    async fn scan_blocks(
+        &mut self,
+        start: Height,
+        end: Height,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> Result<()> {
+        let range = start.to_consensus_u32()..=end.to_consensus_u32();
+        let block_data_stream = self.get_block_data_stream(range, dust_limit, with_cutthrough);
+        self.process_blocks(start, end, block_data_stream).await
+    }
+
+    async fn process_block(
+        &mut self,
+        blockdata: BlockData,
+    ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
+        let blkheight = blockdata.blkheight;
+        let tweaks = blockdata.tweaks;
+        let new_utxo_filter = blockdata.new_utxo_filter;
+        let spent_filter = blockdata.spent_filter;
+
+        let found_outputs = self
+            .process_block_outputs(blkheight, tweaks, new_utxo_filter)
+            .await?;
+        
+        // Update owned outpoints with newly found outputs
+        for outpoint in found_outputs.keys() {
+            self.owned_outpoints.insert(*outpoint);
+        }
+
+        let found_inputs = self.process_block_inputs(blkheight, spent_filter).await?;
+
+        Ok((found_outputs, found_inputs))
+    }
+
+    async fn process_block_outputs(
+        &self,
+        blkheight: Height,
+        tweaks: Vec<bitcoin::secp256k1::PublicKey>,
+        new_utxo_filter: FilterData,
+    ) -> Result<HashMap<OutPoint, OwnedOutput>> {
+        if tweaks.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let secrets_map = self.client.get_script_to_secret_map(tweaks)?;
+        if secrets_map.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let candidate_spks: Vec<_> = secrets_map.keys().collect();
+        let filter = BlockFilter::new(&new_utxo_filter.data);
+        let matched = Self::check_block_outputs(
+            filter,
+            new_utxo_filter.block_hash,
+            candidate_spks,
+        )?;
+
+        if !matched {
+            return Ok(HashMap::new());
+        }
+
+        let found_utxos = self.scan_utxos(blkheight, secrets_map).await?;
+        
+        let mut outputs = HashMap::new();
+        for (label, utxo, tweak) in found_utxos {
+            let outpoint = OutPoint::new(utxo.txid, utxo.vout);
+            let owned_output = OwnedOutput {
+                blockheight: blkheight,
+                tweak: tweak.to_be_bytes(),
+                amount: utxo.value,
+                script: utxo.scriptpubkey,
+                label,
+                spend_status: OutputSpendStatus::Unspent,
+            };
+            outputs.insert(outpoint, owned_output);
+        }
+
+        Ok(outputs)
+    }
+
+    async fn process_block_inputs(
+        &self,
+        blkheight: Height,
+        spent_filter: FilterData,
+    ) -> Result<HashSet<OutPoint>> {
+        if self.owned_outpoints.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let input_hashes = self.get_input_hashes(spent_filter.block_hash).await?;
+        if input_hashes.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let filter = BlockFilter::new(&spent_filter.data);
+        let matched = self.check_block_inputs(
+            filter,
+            spent_filter.block_hash,
+            input_hashes.keys().copied().collect(),
+        )?;
+
+        if !matched {
+            return Ok(HashSet::new());
+        }
+
+        // Get the actual spent inputs from spent index
+        let spent_index = self.backend.spent_index(blkheight).await?;
+        let spent_inputs: HashSet<OutPoint> = spent_index
+            .data
+            .into_iter()
+            .filter_map(|bytes| {
+                if bytes.len() >= 36 {
+                    let mut txid_bytes = [0u8; 32];
+                    txid_bytes.copy_from_slice(&bytes[0..32]);
+                    let hash = bitcoin::hashes::sha256d::Hash::from_byte_array(txid_bytes);
+                    let txid = Txid::from_raw_hash(hash);
+                    let vout = u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]);
+                    let outpoint = OutPoint::new(txid, vout);
+                    if self.owned_outpoints.contains(&outpoint) {
+                        Some(outpoint)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(spent_inputs)
+    }
+
+    fn get_block_data_stream(
+        &self,
+        range: std::ops::RangeInclusive<u32>,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> crate::backend::BlockDataStream {
+        self.backend.get_block_data_stream(range, dust_limit, with_cutthrough)
+    }
+
+    fn should_interrupt(&self) -> bool {
+        self.interrupt_requested()
+    }
+
+    async fn save_state(&mut self) -> Result<()> {
+        self.updater.save_to_persistent_storage().await
+    }
+
+    async fn record_outputs(
+        &mut self,
+        height: Height,
+        block_hash: BlockHash,
+        outputs: HashMap<OutPoint, OwnedOutput>,
+    ) -> Result<()> {
+        self.updater
+            .record_block_outputs(height, block_hash, outputs)
+            .await
+    }
+
+    async fn record_inputs(
+        &mut self,
+        height: Height,
+        block_hash: BlockHash,
+        inputs: HashSet<OutPoint>,
+    ) -> Result<()> {
+        self.updater.record_block_inputs(height, block_hash, inputs).await
+    }
+
+    async fn record_progress(&mut self, start: Height, current: Height, end: Height) -> Result<()> {
+        self.updater.record_scan_progress(start, current, end).await
+    }
+
+    fn client(&self) -> &SpClient {
+        &self.client
+    }
+
+    fn backend(&self) -> &dyn crate::backend::AsyncChainBackend {
+        &self.backend
+    }
+
+    fn updater(&mut self) -> &mut dyn crate::updater::AsyncUpdater {
+        &mut self.updater
+    }
+
+    async fn get_input_hashes(&self, _blkhash: BlockHash) -> Result<HashMap<[u8; 8], OutPoint>> {
+        let mut input_hashes = HashMap::new();
+        for outpoint in &self.owned_outpoints {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&outpoint.txid[..8]);
+            input_hashes.insert(hash, *outpoint);
+        }
+        Ok(input_hashes)
     }
 }

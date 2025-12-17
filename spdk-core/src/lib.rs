@@ -9,6 +9,7 @@ pub mod updater;
 pub use backend::{BlockDataIterator, ChainBackend};
 pub use client::*;
 pub use constants::*;
+// SpScanner is the concrete implementation - consumers don't implement traits anymore
 pub use scanner::SpScanner;
 pub use types::*;
 pub use updater::Updater;
@@ -17,10 +18,8 @@ pub use bdk_coin_select::FeeRate;
 pub use bitcoin;
 pub use silentpayments;
 
-// Async types available by default, excluded when "sync" feature is enabled
+// Async types available when "async" feature is enabled
 #[cfg(feature = "async")]
 pub use backend::{AsyncChainBackend, BlockDataStream};
-#[cfg(feature = "async")]
-pub use scanner::AsyncSpScanner;
 #[cfg(feature = "async")]
 pub use updater::AsyncUpdater;
