@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod client;
 pub mod constants;
+pub mod psbt;
 pub mod scanner;
 pub mod types;
 pub mod updater;

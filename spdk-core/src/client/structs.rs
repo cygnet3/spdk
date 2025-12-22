@@ -2,12 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use bitcoin::{
-    absolute::Height,
-    address::NetworkUnchecked,
-    hex::{DisplayHex, FromHex},
-    key::Secp256k1,
-    secp256k1::{PublicKey, SecretKey},
-    Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
+    Address, Amount, Network, OutPoint, ScriptBuf, Transaction, absolute::Height, address::NetworkUnchecked, hex::{DisplayHex, FromHex}, key::Secp256k1, secp256k1::{PublicKey, SecretKey}
 };
 use serde::{Deserialize, Serialize};
 use silentpayments::{receiving::Label, SilentPaymentAddress};

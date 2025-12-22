@@ -407,7 +407,7 @@ pub(crate) trait SyncSpScannerTrait {
 #[cfg(feature = "async")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub(crate) trait AsyncSpScanner: Send + Sync {
+pub(crate) trait AsyncSpScannerTrait: Send + Sync {
     /// Scan a range of blocks for silent payment outputs and inputs
     ///
     /// # Arguments
