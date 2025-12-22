@@ -28,6 +28,13 @@ reqwest = { version = "0.12.4", features = [
   "gzip",
 ], default-features = false }
 secp256k1 = { version = "0.29.0", features = ["rand"] }
+psbt-v2 = { git = "https://github.com/tcharding/rust-psbt.git", branch = "master", features = ["silent-payments"] }
+thiserror = "1.0"
+base64 = "0.22"
+sha2 = "0.10"
+hmac = "0.12"
+dnssec-prover = "0.1"
+tempfile = "3.8"
 
 [workspace.package]
 repository = "https://github.com/cygnet3/spdk"
