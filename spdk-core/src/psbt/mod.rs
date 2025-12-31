@@ -15,9 +15,8 @@ pub mod roles;
 
 // Re-export commonly used types from core
 pub use core::{
-    aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint,
-    get_input_outpoint_bytes, get_input_pubkey, get_input_txid, get_input_vout,
-    AggregatedShare, AggregatedShares, Bip375PsbtExt, EcdhShareData,
-    Error, PsbtInput, PsbtOutput, Result, SilentPaymentPsbt,
+    aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint, get_input_outpoint_bytes,
+    get_input_pubkey, get_input_txid, get_input_vout, AggregatedShare, AggregatedShares,
+    Bip375PsbtExt, EcdhShareData, Error, GlobalFieldsExt, InputFieldsExt, OutputFieldsExt,
+    PsbtInput, PsbtKey, PsbtOutput, Result, SilentPaymentPsbt,
 };
-

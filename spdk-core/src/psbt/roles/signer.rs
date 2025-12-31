@@ -7,11 +7,14 @@
 //! - **P2TR SP inputs**: Use [`sign_sp_inputs()`] with tweaked key + Schnorr → `tap_key_sig`
 //! - **Mixed transactions**: Call both functions as needed for different input types
 
-use crate::psbt::core::{Bip375PsbtExt, EcdhShareData, Error, PsbtInput, Result, SilentPaymentPsbt};
-use crate::psbt::crypto::{
-    apply_tweak_to_privkey, compute_ecdh_share, dleq_generate_proof, sign_p2pkh_input,
-    sign_p2tr_input, sign_p2wpkh_input,
+use crate::psbt::core::{
+    Bip375PsbtExt, EcdhShareData, Error, PsbtInput, Result, SilentPaymentPsbt,
 };
+use crate::psbt::crypto::{
+    apply_tweak_to_privkey, compute_ecdh_share, dleq_generate_proof, pubkey_to_p2wpkh_script,
+    sign_p2pkh_input, sign_p2tr_input, sign_p2wpkh_input,
+};
+use bitcoin::key::TapTweak;
 use bitcoin::ScriptBuf;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::collections::HashSet;
@@ -84,10 +87,10 @@ pub fn add_ecdh_shares_partial(
             *base_privkey
         };
 
-        // For P2TR inputs, the public key is x-only (implicitly even Y).
-        // If our private key produces an odd Y point, we must negate it
-        // to match the on-chain public key for DLEQ verification.
-        if input.witness_utxo.script_pubkey.is_p2tr() {
+        // For P2TR Silent Payment inputs ONLY, check parity and negate if needed.
+        // Regular P2TR inputs (BIP-86) use the internal key for ECDH, not the tweaked key.
+        // The BIP-341 tweak is only for scriptPubKey generation, not for ECDH computation.
+        if psbt.get_input_sp_tweak(input_idx).is_some() {
             let keypair = secp256k1::Keypair::from_secret_key(secp, &privkey);
             let (_, parity) = keypair.x_only_public_key();
             if parity == secp256k1::Parity::Odd {
@@ -320,11 +323,60 @@ fn extract_tx_for_signing(psbt: &SilentPaymentPsbt) -> Result<bitcoin::Transacti
     })
 }
 
+pub fn get_signable_inputs(
+    _secp: &Secp256k1<secp256k1::All>,
+    psbt: &SilentPaymentPsbt,
+    public_key: &PublicKey,
+) -> Vec<usize> {
+    let mut signable = Vec::new();
+    let bitcoin_pubkey = bitcoin::PublicKey::new(*public_key);
+
+    for (idx, input) in psbt.inputs.iter().enumerate() {
+        if input.partial_sigs.contains_key(&bitcoin_pubkey) || input.tap_key_sig.is_some() {
+            continue;
+        }
+
+        if let Some(witness_utxo) = &input.witness_utxo {
+            if witness_utxo.script_pubkey.is_p2wpkh() {
+                let expected_script = pubkey_to_p2wpkh_script(public_key);
+                if witness_utxo.script_pubkey == expected_script {
+                    signable.push(idx);
+                }
+            } else if witness_utxo.script_pubkey.is_p2tr() {
+                let (xonly, _) = public_key.x_only_public_key();
+                let tweaked_pubkey = xonly.dangerous_assume_tweaked();
+
+                use bitcoin::ScriptBuf;
+                let expected_script = ScriptBuf::new_p2tr_tweaked(tweaked_pubkey);
+                if witness_utxo.script_pubkey == expected_script {
+                    signable.push(idx);
+                }
+            }
+        }
+    }
+
+    signable
+}
+
+pub fn get_unsigned_inputs(psbt: &SilentPaymentPsbt) -> Vec<usize> {
+    psbt.inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, input)| {
+            if input.partial_sigs.is_empty() && input.tap_key_sig.is_none() {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::psbt::roles::{constructor::add_inputs, creator::create_psbt};
     use crate::psbt::core::PsbtInput;
+    use crate::psbt::roles::{constructor::add_inputs, creator::create_psbt};
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
     use secp256k1::SecretKey;
 
