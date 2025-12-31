@@ -1,6 +1,6 @@
 fn main() {
     let target = std::env::var("TARGET").expect("TARGET environment variable not set");
-    
+
     if !target.contains("wasm32") {
         panic!(
             "\n\n\
@@ -17,4 +17,3 @@ fn main() {
         );
     }
 }
-
