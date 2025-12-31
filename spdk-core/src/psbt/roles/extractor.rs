@@ -144,14 +144,14 @@ fn extract_output(psbt: &SilentPaymentPsbt, output_idx: usize) -> Result<TxOut> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::psbt::core::{PsbtInput, PsbtOutput};
+    use crate::psbt::crypto::pubkey_to_p2wpkh_script;
     use crate::psbt::roles::{
         constructor::{add_inputs, add_outputs},
         creator::create_psbt,
         input_finalizer::finalize_inputs,
         signer::{add_ecdh_shares_full, sign_inputs},
     };
-    use crate::psbt::core::{PsbtInput, PsbtOutput};
-    use crate::psbt::crypto::pubkey_to_p2wpkh_script;
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use silentpayments::SilentPaymentAddress;
@@ -233,7 +233,9 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
-        let sp_address = SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, 0).unwrap();
+        let sp_address =
+            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, 0)
+                .unwrap();
 
         // Create inputs with private keys
         let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();

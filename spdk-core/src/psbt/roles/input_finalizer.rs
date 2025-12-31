@@ -4,7 +4,7 @@
 
 use crate::psbt::core::{aggregate_ecdh_shares, Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
 use crate::psbt::crypto::{
-    apply_label_to_spend_key, derive_silent_payment_output_pubkey, pubkey_to_p2tr_script,
+    apply_label_to_spend_key, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
 };
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::collections::HashMap;
@@ -49,18 +49,15 @@ pub fn finalize_inputs(
             if let Some(privkeys) = scan_privkeys {
                 if let Some(scan_privkey) = privkeys.get(&scan_key) {
                     spend_key_to_use =
-                        apply_label_to_spend_key(secp, &spend_key, scan_privkey, label)
-                            .map_err(|e| {
-                                Error::Other(format!("Failed to apply label tweak: {}", e))
-                            })?;
+                        apply_label_to_spend_key(secp, &spend_key, scan_privkey, label).map_err(
+                            |e| Error::Other(format!("Failed to apply label tweak: {}", e)),
+                        )?;
                 }
             }
         }
 
         // Get or initialize the output index for this scan key
-        let k = *scan_key_output_indices
-            .get(&scan_key)
-            .unwrap_or(&0);
+        let k = *scan_key_output_indices.get(&scan_key).unwrap_or(&0);
 
         // Derive the output public key using BIP-352
         let ecdh_secret = aggregated_share.serialize();
@@ -72,8 +69,11 @@ pub fn finalize_inputs(
         )
         .map_err(|e| Error::Other(format!("Output derivation failed: {}", e)))?;
 
-        // Create P2TR output script
-        let output_script = pubkey_to_p2tr_script(&output_pubkey);
+        // Create P2TR output script from already-tweaked Silent Payment output key
+        // The output_pubkey is already tweaked via BIP-352 derivation, so we use
+        // tweaked_key_to_p2tr_script (no additional BIP-341 tweak needed)
+
+        let output_script = tweaked_key_to_p2tr_script(&output_pubkey);
 
         // Add output script to PSBT
         psbt.outputs[output_idx].script_pubkey = output_script;
@@ -92,12 +92,14 @@ pub fn finalize_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::psbt::roles::{constructor::add_outputs, creator::create_psbt, signer::add_ecdh_shares_full};
     use crate::psbt::core::{PsbtInput, PsbtOutput};
+    use crate::psbt::roles::{
+        constructor::add_outputs, creator::create_psbt, signer::add_ecdh_shares_full,
+    };
     use bitcoin::hashes::Hash;
     use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
     use secp256k1::SecretKey;
-    use silentpayments::{SilentPaymentAddress, Network as SpNetwork};
+    use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
     #[test]
     fn test_finalize_inputs_basic() {
@@ -112,13 +114,14 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
-        let sp_address = SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+        let sp_address =
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
 
         // Add output
         let outputs = vec![PsbtOutput::silent_payment(
             Amount::from_sat(50000),
             sp_address,
-            None
+            None,
         )];
         add_outputs(&mut psbt, &outputs).unwrap();
 
@@ -181,7 +184,8 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
-        let sp_address = SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+        let sp_address =
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
 
         // Add output
         let outputs = vec![PsbtOutput::silent_payment(
@@ -232,13 +236,14 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
-        let sp_address = SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+        let sp_address =
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
 
         // Add output
         let outputs = vec![PsbtOutput::silent_payment(
             Amount::from_sat(50000),
             sp_address,
-            None
+            None,
         )];
         add_outputs(&mut psbt, &outputs).unwrap();
 

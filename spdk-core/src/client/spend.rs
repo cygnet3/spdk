@@ -5,7 +5,15 @@ use bdk_coin_select::{
     TR_DUST_RELAY_MIN_VALUE,
 };
 use bitcoin::{
-    Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness, absolute::LockTime, hashes::Hash, key::TapTweak, script::PushBytesBuf, secp256k1::{Keypair, Message, Secp256k1, SecretKey}, sighash::{Prevouts, SighashCache}, taproot::Signature, transaction::Version
+    absolute::LockTime,
+    hashes::Hash,
+    key::TapTweak,
+    script::PushBytesBuf,
+    secp256k1::{Keypair, Message, Secp256k1, SecretKey},
+    sighash::{Prevouts, SighashCache},
+    taproot::Signature,
+    transaction::Version,
+    Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
 
 use silentpayments::{receiving::Label, utils as sp_utils};
@@ -13,8 +21,11 @@ use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
 use anyhow::{Error, Result};
 
-use crate::{constants::{DATA_CARRIER_SIZE, NUMS}, psbt::SilentPaymentPsbt};
 use crate::psbt::core::PsbtOutput;
+use crate::{
+    constants::{DATA_CARRIER_SIZE, NUMS},
+    psbt::SilentPaymentPsbt,
+};
 
 use super::{
     OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
@@ -436,7 +447,13 @@ impl SpClient {
             let sig = secp.sign_schnorr_with_aux_rand(&msg, &keypair, aux_rand);
 
             let mut witness = Witness::new();
-            witness.push(Signature { signature: sig, sighash_type: hash_ty }.to_vec());
+            witness.push(
+                Signature {
+                    signature: sig,
+                    sighash_type: hash_ty,
+                }
+                .to_vec(),
+            );
 
             signed.input[i].witness = witness;
         }
@@ -473,58 +490,100 @@ impl SpClient {
         crate::psbt::roles::creator::create_psbt(0, 0)
     }
 
-    pub fn add_recipients_to_psbt(&self, psbt: &mut SilentPaymentPsbt, recipients: &[Recipient]) -> Result<()> {
-        let outputs = recipients.into_iter().map(|recipient| {
-            match &recipient.address {
-                RecipientAddress::LegacyAddress(address) => {
-                    if address.is_valid_for_network(self.get_network()) {
-                        Ok(PsbtOutput::Regular(TxOut { value: recipient.amount, script_pubkey: address.assume_checked_ref().script_pubkey() }))
-                    } else {
-                        Err(Error::msg(format!("{} is not valid for network {}", address.assume_checked_ref().to_string(), self.get_network())))
-                    }
-                }
-                RecipientAddress::SpAddress(sp_address) => {
-                    // First check the network
-                    if sp_address.get_network() != self.get_network().to_core_arg().try_into().expect("Network conversion should always succeed") {
-                        return Err(Error::msg(format!("{} is not valid for network {}", sp_address.to_string(), self.get_network())));
-                    }
-
-                    // Now the easy cases, our receiving or change address
-                    if *sp_address == self.get_receiving_address() {
-                        return Ok(PsbtOutput::SilentPayment { amount: recipient.amount, address: *sp_address, label: None });
-                    } else if *sp_address == self.sp_receiver.get_change_address() {
-                        return Ok(PsbtOutput::SilentPayment { amount: recipient.amount, address: self.get_receiving_address(), label: Some(0) });
-                    }
-
-                    let secp = Secp256k1::signing_only();
-
-                    // Now the harder cases, a labelled address for us
-                    if sp_address.get_scan_key() == self.get_scan_key().public_key(&secp) {
-                        // This is one labelled address for us, we should be able to look up the label
-                        // For now let's just ask the receiver how many labels it knows, derive all labels from 1 to n and test them all
-                        // We can make this safer and less awkward
-                        let labels = self.sp_receiver.list_labels();
-                        let max_i = labels.len() as u32; // a wallet can't know more labels than U32MAX
-                        for i in 1..max_i { // We don't check for 0 we already checked change
-                            let label = Label::new(self.get_scan_key(), i);
-                            let candidate = self.sp_receiver.get_receiving_address_for_label(&label)?; // If this fails, it means we have gaps in our labels, which is bad
-                            if candidate == *sp_address {
-                                return Ok(PsbtOutput::SilentPayment { amount: recipient.amount, address: self.get_receiving_address(), label: Some(i) });
-                            }
+    pub fn add_recipients_to_psbt(
+        &self,
+        psbt: &mut SilentPaymentPsbt,
+        recipients: &[Recipient],
+    ) -> Result<()> {
+        let outputs = recipients
+            .into_iter()
+            .map(|recipient| {
+                match &recipient.address {
+                    RecipientAddress::LegacyAddress(address) => {
+                        if address.is_valid_for_network(self.get_network()) {
+                            Ok(PsbtOutput::Regular(TxOut {
+                                value: recipient.amount,
+                                script_pubkey: address.assume_checked_ref().script_pubkey(),
+                            }))
+                        } else {
+                            Err(Error::msg(format!(
+                                "{} is not valid for network {}",
+                                address.assume_checked_ref().to_string(),
+                                self.get_network()
+                            )))
                         }
-                        // Adding an output that pays us to a label we don't know about
-                        // We should register this label first, otherwise there's a risk we don't find it during transaction scan
-                        return Err(Error::msg("Unknown label"));
-                    } else {
-                        // This is someone else address, we can't tell if it's labelled
-                        Ok(PsbtOutput::SilentPayment { amount: recipient.amount, address: *sp_address, label: None })
+                    }
+                    RecipientAddress::SpAddress(sp_address) => {
+                        // First check the network
+                        if sp_address.get_network()
+                            != self
+                                .get_network()
+                                .to_core_arg()
+                                .try_into()
+                                .expect("Network conversion should always succeed")
+                        {
+                            return Err(Error::msg(format!(
+                                "{} is not valid for network {}",
+                                sp_address.to_string(),
+                                self.get_network()
+                            )));
+                        }
+
+                        // Now the easy cases, our receiving or change address
+                        if *sp_address == self.get_receiving_address() {
+                            return Ok(PsbtOutput::SilentPayment {
+                                amount: recipient.amount,
+                                address: *sp_address,
+                                label: None,
+                            });
+                        } else if *sp_address == self.sp_receiver.get_change_address() {
+                            return Ok(PsbtOutput::SilentPayment {
+                                amount: recipient.amount,
+                                address: self.get_receiving_address(),
+                                label: Some(0),
+                            });
+                        }
+
+                        let secp = Secp256k1::signing_only();
+
+                        // Now the harder cases, a labelled address for us
+                        if sp_address.get_scan_key() == self.get_scan_key().public_key(&secp) {
+                            // This is one labelled address for us, we should be able to look up the label
+                            // For now let's just ask the receiver how many labels it knows, derive all labels from 1 to n and test them all
+                            // We can make this safer and less awkward
+                            let labels = self.sp_receiver.list_labels();
+                            let max_i = labels.len() as u32; // a wallet can't know more labels than U32MAX
+                            for i in 1..max_i {
+                                // We don't check for 0 we already checked change
+                                let label = Label::new(self.get_scan_key(), i);
+                                let candidate =
+                                    self.sp_receiver.get_receiving_address_for_label(&label)?; // If this fails, it means we have gaps in our labels, which is bad
+                                if candidate == *sp_address {
+                                    return Ok(PsbtOutput::SilentPayment {
+                                        amount: recipient.amount,
+                                        address: self.get_receiving_address(),
+                                        label: Some(i),
+                                    });
+                                }
+                            }
+                            // Adding an output that pays us to a label we don't know about
+                            // We should register this label first, otherwise there's a risk we don't find it during transaction scan
+                            return Err(Error::msg("Unknown label"));
+                        } else {
+                            // This is someone else address, we can't tell if it's labelled
+                            Ok(PsbtOutput::SilentPayment {
+                                amount: recipient.amount,
+                                address: *sp_address,
+                                label: None,
+                            })
+                        }
+                    }
+                    RecipientAddress::Data(_) => {
+                        unimplemented!()
                     }
                 }
-                RecipientAddress::Data(_) => {
-                    unimplemented!()
-                }
-            }
-        }).collect::<Result<Vec<PsbtOutput>>>()?;
+            })
+            .collect::<Result<Vec<PsbtOutput>>>()?;
         crate::psbt::roles::constructor::add_outputs(psbt, &outputs)?;
         Ok(())
     }
