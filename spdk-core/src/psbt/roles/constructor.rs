@@ -62,7 +62,11 @@ pub fn add_outputs(psbt: &mut SilentPaymentPsbt, outputs: &[PsbtOutput]) -> Resu
                 psbt_output.amount = psbt_v2::bitcoin::Amount::from_sat(txout.value.to_sat());
                 psbt_output.script_pubkey = txout.script_pubkey.clone();
             }
-            PsbtOutput::SilentPayment { amount, address, label } => {
+            PsbtOutput::SilentPayment {
+                amount,
+                address,
+                label,
+            } => {
                 let psbt_output = &mut psbt.outputs[i];
                 // Convert between potentially different bitcoin::Amount types
                 psbt_output.amount = psbt_v2::bitcoin::Amount::from_sat(amount.to_sat());
