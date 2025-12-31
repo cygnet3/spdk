@@ -4,8 +4,7 @@
 
 use crate::psbt::core::{aggregate_ecdh_shares, Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
 use crate::psbt::crypto::{
-    apply_label_to_spend_key, derive_silent_payment_output_pubkey, pubkey_to_p2tr_script,
-    tweaked_key_to_p2tr_script,
+    apply_label_to_spend_key, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
 };
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::collections::HashMap;

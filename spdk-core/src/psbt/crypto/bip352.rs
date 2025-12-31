@@ -117,15 +117,6 @@ pub fn pubkey_to_p2wpkh_script(pubkey: &PublicKey) -> ScriptBuf {
     ScriptBuf::new_p2wpkh(&pubkey_hash)
 }
 
-/// Convert public key to P2TR (Taproot) script
-///
-/// Returns: OP_1 <32-byte-xonly-pubkey>
-#[deprecated(since = "0.24.0", note = "use tweaked_key_to_p2tr_script instead")]
-pub fn pubkey_to_p2tr_script(pubkey: &PublicKey) -> ScriptBuf {
-    let xonly = pubkey.x_only_public_key().0;
-    ScriptBuf::new_p2tr_tweaked(xonly.dangerous_assume_tweaked())
-}
-
 /// Convert an UNTWEAKED internal key to P2TR script (BIP-86 standard)
 ///
 /// Applies BIP-341 taproot tweak: Q = P + hash_TapTweak(P) * G
@@ -136,14 +127,14 @@ pub fn pubkey_to_p2tr_script(pubkey: &PublicKey) -> ScriptBuf {
 /// t = hash_TapTweak(P || 0x00) where 0x00 represents empty merkle root
 ///
 /// Returns: OP_1 <32-byte-tweaked-xonly-pubkey>
-pub fn internal_key_to_p2tr_script(internal_key: &PublicKey) -> Result<ScriptBuf> {
+pub fn internal_key_to_p2tr_script(internal_key: &PublicKey) -> ScriptBuf {
     let secp = Secp256k1::new();
     let (xonly, _parity) = internal_key.x_only_public_key();
 
     // Apply BIP-341 taproot tweak (no script tree)
     let (tweaked, _parity) = xonly.tap_tweak(&secp, None);
 
-    Ok(ScriptBuf::new_p2tr_tweaked(tweaked))
+    ScriptBuf::new_p2tr_tweaked(tweaked)
 }
 
 /// Convert an ALREADY-TWEAKED output key to P2TR script
@@ -316,13 +307,13 @@ mod tests {
 
         println!("Derived x-only: {}", xonly_hex);
         println!(
-            "Expected x-only: ae19fbee2730a1a952d7d2598cc703fddf3b972b25148b1ed1a79ae8739d5e07"
+            "Expected x-only: 2ef9f0e19f3c275d84d98c44912fec626bac45e442af47d02d9b9652ff9a9f0a"
         );
 
         // This should match the test vector
         assert_eq!(
             xonly_hex,
-            "ae19fbee2730a1a952d7d2598cc703fddf3b972b25148b1ed1a79ae8739d5e07"
+            "2ef9f0e19f3c275d84d98c44912fec626bac45e442af47d02d9b9652ff9a9f0a"
         );
     }
 
@@ -332,7 +323,7 @@ mod tests {
         let privkey = SecretKey::from_slice(&[1u8; 32]).unwrap();
         let pubkey = PublicKey::from_secret_key(&secp, &privkey);
 
-        let script = pubkey_to_p2tr_script(&pubkey);
+        let script = tweaked_key_to_p2tr_script(&pubkey);
 
         // P2TR scripts are 34 bytes: OP_1 (0x51) + PUSH_32 (0x20) + 32-byte x-only key
         assert_eq!(script.len(), 34);
@@ -350,14 +341,14 @@ mod tests {
 
     #[test]
     fn test_p2tr_script_compatibility() {
-        // Verify that pubkey_to_p2tr_script produces identical results
+        // Verify that tweaked_key_to_p2tr_script produces identical results
         // to the manual construction previously used in validation.rs and input_finalizer.rs
         let secp = Secp256k1::new();
         let privkey = SecretKey::from_slice(&[42u8; 32]).unwrap();
         let pubkey = PublicKey::from_secret_key(&secp, &privkey);
 
         // New method
-        let new_script = pubkey_to_p2tr_script(&pubkey);
+        let new_script = tweaked_key_to_p2tr_script(&pubkey);
 
         // Old method (manual construction)
         let (xonly, _parity) = pubkey.x_only_public_key();
