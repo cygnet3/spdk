@@ -4,7 +4,7 @@
 
 use crate::psbt::core::{Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
 use crate::psbt::crypto::dleq_verify_proof;
-use secp256k1::{PublicKey, Secp256k1};
+use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 use std::collections::HashSet;
 
 /// Validation level for PSBT checks
@@ -262,10 +262,10 @@ fn validate_output_scripts(
     psbt: &SilentPaymentPsbt,
 ) -> Result<()> {
     use crate::psbt::core::{
-        aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint_bytes
+        aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint_bytes,
     };
     use crate::psbt::crypto::{
-        compute_input_hash, derive_silent_payment_output_pubkey, pubkey_to_p2tr_script,
+        compute_input_hash, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
     };
     use std::collections::HashMap;
 
@@ -350,7 +350,7 @@ fn validate_output_scripts(
             derive_silent_payment_output_pubkey(secp, &spend_key, &shared_secret_bytes, k)
                 .map_err(|e| Error::Other(format!("Failed to derive output pubkey: {}", e)))?;
 
-        let expected_script = pubkey_to_p2tr_script(&expected_pubkey);
+        let expected_script = tweaked_key_to_p2tr_script(&expected_pubkey);
 
         if output.script_pubkey != expected_script {
             return Err(Error::Other(format!(
@@ -396,7 +396,32 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
             }
 
             if let Some(proof) = share.dleq_proof {
-                let input_pubkey = get_input_pubkey(psbt, input_idx)?;
+                let mut input_pubkey = get_input_pubkey(psbt, input_idx)?;
+
+                // If this is a Silent Payment input, derive the tweaked public key
+                if let Some(tweak) = psbt.get_input_sp_tweak(input_idx) {
+                    let tweak_scalar = Scalar::from_be_bytes(tweak)
+                        .map_err(|_| Error::Other("Invalid SP tweak scalar".to_string()))?;
+                    let tweak_key = SecretKey::from_slice(&tweak_scalar.to_be_bytes())?;
+                    let tweak_point = PublicKey::from_secret_key(secp, &tweak_key);
+
+                    input_pubkey = input_pubkey.combine(&tweak_point)?; // A' = A + tweak*G
+
+                    // Handle parity for P2TR Silent Payment inputs ONLY
+                    // Regular P2TR inputs use the internal key for ECDH, not the tweaked key
+                    let input = psbt
+                        .inputs
+                        .get(input_idx)
+                        .ok_or(Error::InvalidInputIndex(input_idx))?;
+                    if let Some(ref witness_utxo) = input.witness_utxo {
+                        if witness_utxo.script_pubkey.is_p2tr() {
+                            let (_, parity) = input_pubkey.x_only_public_key();
+                            if parity == secp256k1::Parity::Odd {
+                                input_pubkey = input_pubkey.negate(secp);
+                            }
+                        }
+                    }
+                }
 
                 let is_valid = dleq_verify_proof(
                     secp,
@@ -458,16 +483,16 @@ pub fn validate_ready_for_extraction(psbt: &SilentPaymentPsbt) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::psbt::core::{PsbtInput, PsbtOutput};
+    use crate::psbt::crypto::pubkey_to_p2wpkh_script;
     use crate::psbt::roles::{
         constructor::{add_inputs, add_outputs},
         creator::create_psbt,
     };
-    use crate::psbt::core::{PsbtInput, PsbtOutput};
-    use crate::psbt::crypto::pubkey_to_p2wpkh_script;
     use bitcoin::hashes::Hash;
     use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
     use secp256k1::SecretKey;
-    use silentpayments::{SilentPaymentAddress, Network as SpNetwork};
+    use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
     #[test]
     fn test_validate_psbt_version() {
@@ -528,10 +553,15 @@ mod tests {
         let spend_priv = SecretKey::from_slice(&[3u8; 32]).unwrap();
         let spend_pub = PublicKey::from_secret_key(&secp, &spend_priv);
 
-        let sp_addr = SilentPaymentAddress::new(scan_pub, spend_pub, SpNetwork::Regtest, 0).unwrap();
+        let sp_addr =
+            SilentPaymentAddress::new(scan_pub, spend_pub, SpNetwork::Regtest, 0).unwrap();
 
         // Add SP output
-        let outputs = vec![PsbtOutput::silent_payment(Amount::from_sat(10000), sp_addr, None)];
+        let outputs = vec![PsbtOutput::silent_payment(
+            Amount::from_sat(10000),
+            sp_addr,
+            None,
+        )];
         add_outputs(&mut psbt, &outputs).unwrap();
 
         // Add dummy inputs so we have something to check against

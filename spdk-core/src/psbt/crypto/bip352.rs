@@ -120,8 +120,43 @@ pub fn pubkey_to_p2wpkh_script(pubkey: &PublicKey) -> ScriptBuf {
 /// Convert public key to P2TR (Taproot) script
 ///
 /// Returns: OP_1 <32-byte-xonly-pubkey>
+#[deprecated(since = "0.24.0", note = "use tweaked_key_to_p2tr_script instead")]
 pub fn pubkey_to_p2tr_script(pubkey: &PublicKey) -> ScriptBuf {
     let xonly = pubkey.x_only_public_key().0;
+    ScriptBuf::new_p2tr_tweaked(xonly.dangerous_assume_tweaked())
+}
+
+/// Convert an UNTWEAKED internal key to P2TR script (BIP-86 standard)
+///
+/// Applies BIP-341 taproot tweak: Q = P + hash_TapTweak(P) * G
+/// Use this for regular BIP-86 taproot addresses where the internal key
+/// needs to be tweaked according to BIP-341.
+///
+/// For keypath-only spends (no script tree), the tweak is computed as:
+/// t = hash_TapTweak(P || 0x00) where 0x00 represents empty merkle root
+///
+/// Returns: OP_1 <32-byte-tweaked-xonly-pubkey>
+pub fn internal_key_to_p2tr_script(internal_key: &PublicKey) -> Result<ScriptBuf> {
+    let secp = Secp256k1::new();
+    let (xonly, _parity) = internal_key.x_only_public_key();
+
+    // Apply BIP-341 taproot tweak (no script tree)
+    let (tweaked, _parity) = xonly.tap_tweak(&secp, None);
+
+    Ok(ScriptBuf::new_p2tr_tweaked(tweaked))
+}
+
+/// Convert an ALREADY-TWEAKED output key to P2TR script
+///
+/// Use this for Silent Payment outputs where the pubkey is already
+/// tweaked via BIP-352 derivation: output_pubkey = spend_key + t_k * G
+///
+/// The key has already been modified by the Silent Payment protocol,
+/// so no additional BIP-341 taproot tweak should be applied.
+///
+/// Returns: OP_1 <32-byte-xonly-pubkey>
+pub fn tweaked_key_to_p2tr_script(tweaked_output_key: &PublicKey) -> ScriptBuf {
+    let xonly = tweaked_output_key.x_only_public_key().0;
     ScriptBuf::new_p2tr_tweaked(xonly.dangerous_assume_tweaked())
 }
 
