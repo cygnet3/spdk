@@ -211,8 +211,9 @@ impl VirtualWallet {
                 let (final_pubkey, tweak) = if has_sp_tweak {
                     // Generate a deterministic tweak for this UTXO
                     let tweak = Self::generate_demo_tweak(idx);
-                    let tweaked_privkey = crate::psbt::crypto::apply_tweak_to_privkey(&privkey, &tweak)
-                        .expect("Valid tweak");
+                    let tweaked_privkey =
+                        crate::psbt::crypto::apply_tweak_to_privkey(&privkey, &tweak)
+                            .expect("Valid tweak");
                     let tweaked_pubkey = PublicKey::from_secret_key(&secp, &tweaked_privkey);
                     (tweaked_pubkey, Some(tweak))
                 } else {
