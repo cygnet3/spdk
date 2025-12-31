@@ -5,6 +5,7 @@
 
 use super::error::{CryptoError, Result};
 use bitcoin::hashes::{sha256, Hash, HashEngine};
+use psbt_v2::v2::dleq::DleqProof;
 use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 
 // Tagged hash tags for BIP-374
@@ -78,7 +79,7 @@ pub fn dleq_generate_proof(
     b: &PublicKey,
     r: &[u8; 32],
     m: Option<&[u8; 32]>,
-) -> Result<[u8; 64]> {
+) -> Result<DleqProof> {
     // Compute A = a*G and C = a*B
     let a_point = PublicKey::from_secret_key(secp, a);
     let a_scalar: Scalar = (*a).into();
@@ -131,9 +132,12 @@ pub fn dleq_generate_proof(
     let s = Scalar::from(s_key);
 
     // Construct proof: e || s
-    let mut proof = [0u8; 64];
-    proof[0..32].copy_from_slice(&e.to_be_bytes());
-    proof[32..64].copy_from_slice(&s.to_be_bytes());
+    let mut proof_bytes = [0u8; 64];
+    proof_bytes[0..32].copy_from_slice(&e.to_be_bytes());
+    proof_bytes[32..64].copy_from_slice(&s.to_be_bytes());
+
+    // Verify the proof before returning
+    let proof = DleqProof(proof_bytes);
 
     // Verify the proof before returning
     if !dleq_verify_proof(secp, &a_point, b, &c_point, &proof, m)? {
@@ -161,14 +165,14 @@ pub fn dleq_verify_proof(
     a: &PublicKey,
     b: &PublicKey,
     c: &PublicKey,
-    proof: &[u8; 64],
+    proof: &DleqProof,
     m: Option<&[u8; 32]>,
 ) -> Result<bool> {
     // Parse proof: e || s
     let mut e_bytes = [0u8; 32];
     let mut s_bytes = [0u8; 32];
-    e_bytes.copy_from_slice(&proof[0..32]);
-    s_bytes.copy_from_slice(&proof[32..64]);
+    e_bytes.copy_from_slice(&proof.0[0..32]);
+    s_bytes.copy_from_slice(&proof.0[32..64]);
 
     let e = Scalar::from_be_bytes(e_bytes).map_err(|_| CryptoError::DleqVerificationFailed)?;
     let s = Scalar::from_be_bytes(s_bytes).map_err(|_| CryptoError::DleqVerificationFailed)?;
@@ -277,7 +281,7 @@ mod tests {
         let mut proof = dleq_generate_proof(&secp, &a, &b, &rand_aux, None).unwrap();
 
         // Corrupt the proof by flipping a bit
-        proof[0] ^= 1;
+        proof.0[0] ^= 1;
 
         // Verification should fail
         let valid = dleq_verify_proof(&secp, &a_pub, &b, &c, &proof, None).unwrap();

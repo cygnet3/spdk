@@ -3,12 +3,81 @@
 //! Core types for silent payments in PSBTs.
 
 use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxOut};
+use psbt_v2::v2::dleq::DleqProof;
 use secp256k1::{PublicKey, SecretKey};
 use silentpayments::SilentPaymentAddress;
 
 // ============================================================================
 // Core BIP-352/BIP-375 Protocol Types
 // ============================================================================
+
+/// A silent payment address for PSBT (BIP-375).
+///
+/// Contains a scan public key and spend public key, with an optional label.
+/// This type is used when storing silent payment addresses in PSBT outputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SilentPaymentOutputInfo {
+    /// Scan public key (33 bytes compressed).
+    pub scan_key: PublicKey,
+    /// Spend public key (33 bytes compressed).
+    pub spend_key: PublicKey,
+    /// Optional label for change outputs.
+    pub label: Option<u32>,
+}
+
+impl SilentPaymentOutputInfo {
+    /// Creates a new silent payment address.
+    pub fn new(scan_key: PublicKey, spend_key: PublicKey, label: Option<u32>) -> Self {
+        Self {
+            scan_key,
+            spend_key,
+            label,
+        }
+    }
+
+    /// Creates an address without a label.
+    pub fn without_label(scan_key: PublicKey, spend_key: PublicKey) -> Self {
+        Self::new(scan_key, spend_key, None)
+    }
+
+    /// Serializes to bytes (scan_key || spend_key).
+    ///
+    /// Format: 66 bytes - scan_key (33) || spend_key (33)
+    /// Note: Label is stored separately in PSBT
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(66);
+        bytes.extend_from_slice(&self.scan_key.serialize());
+        bytes.extend_from_slice(&self.spend_key.serialize());
+        bytes
+    }
+
+    /// Deserializes from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The byte length is not 66
+    /// - The public keys are invalid
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, super::Error> {
+        if bytes.len() != 66 {
+            return Err(super::Error::InvalidAddress(format!(
+                "Invalid length: expected 66 bytes, got {}",
+                bytes.len()
+            )));
+        }
+
+        let scan_key = PublicKey::from_slice(&bytes[0..33])
+            .map_err(|e| super::Error::InvalidAddress(e.to_string()))?;
+        let spend_key: PublicKey = PublicKey::from_slice(&bytes[33..66])
+            .map_err(|e| super::Error::InvalidAddress(e.to_string()))?;
+
+        Ok(Self {
+            scan_key,
+            spend_key,
+            label: None,
+        })
+    }
+}
 
 /// ECDH share for a silent payment output
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,12 +87,12 @@ pub struct EcdhShareData {
     /// ECDH share value (33 bytes compressed public key)
     pub share: PublicKey,
     /// Optional DLEQ proof (64 bytes)
-    pub dleq_proof: Option<[u8; 64]>,
+    pub dleq_proof: Option<DleqProof>,
 }
 
 impl EcdhShareData {
     /// Create a new ECDH share
-    pub fn new(scan_key: PublicKey, share: PublicKey, dleq_proof: Option<[u8; 64]>) -> Self {
+    pub fn new(scan_key: PublicKey, share: PublicKey, dleq_proof: Option<DleqProof>) -> Self {
         Self {
             scan_key,
             share,
@@ -132,8 +201,16 @@ impl PsbtOutput {
     }
 
     /// Create a silent payment output
-    pub fn silent_payment(amount: Amount, address: SilentPaymentAddress, label: Option<u32>) -> Self {
-        Self::SilentPayment { amount, address, label }
+    pub fn silent_payment(
+        amount: Amount,
+        address: SilentPaymentAddress,
+        label: Option<u32>,
+    ) -> Self {
+        Self::SilentPayment {
+            amount,
+            address,
+            label,
+        }
     }
 
     /// Check if this is a silent payment output
