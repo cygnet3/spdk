@@ -19,3 +19,9 @@ pub use core::{
     Bip375PsbtExt, EcdhShareData, Error, GlobalFieldsExt, InputFieldsExt, OutputFieldsExt,
     PsbtInput, PsbtKey, PsbtOutput, Result, SilentPaymentPsbt,
 };
+
+// Re-export DleqProof from psbt_v2 (used in EcdhShareData)
+pub use psbt_v2::v2::dleq::DleqProof;
+
+// Re-export rust-dleq types and conversion functions from crypto module
+pub use crypto::dleq::{from_psbt_v2_proof, to_psbt_v2_proof, DleqError, RustDleqProof};
