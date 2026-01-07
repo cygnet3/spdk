@@ -8,6 +8,7 @@ pub struct BlockData {
     pub spent_filter: FilterData,
 }
 
+#[derive(Clone)]
 pub struct UtxoData {
     pub txid: Txid,
     pub vout: u32,

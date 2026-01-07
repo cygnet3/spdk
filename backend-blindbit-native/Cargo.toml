@@ -1,0 +1,60 @@
+[package]
+name = "backend-blindbit-native"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[dependencies]
+# Core client dependency
+spdk-core.workspace = true
+
+# URL parsing (minimal: ~20KB)
+url = "2.5"
+
+# Minimal HTTP client (optional, ~200KB + TLS adds ~600KB)
+# TLS support via rustls is required for HTTPS connections to blindbit
+ureq = { version = "2.10", default-features = false, features = ["json", "tls"], optional = true }
+
+# Logging
+log.workspace = true
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+anyhow.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+# The HttpClient trait is async, so async-trait is always required
+# Same futures is always required
+async-trait.workspace = true
+futures.workspace = true
+
+# Other async dependencies (optional)
+futures-util = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+
+[features]
+# Default: both sync and async backends available, no bundled HTTP client
+default = ["sync", "async"]
+
+# Enable sync backend (BlindbitBackend) - wraps async HTTP calls with block_on
+# Note: Sequential processing only, no concurrency
+sync = []
+
+# Enable async backend (AsyncBlindbitBackend) - truly async with concurrent requests
+# Recommended for production use with high throughput requirements
+async = ["sync", "spdk-core/async", "dep:futures-util"]
+
+# Minimal HTTP client implementation using ureq (blocking, wrapped in async trait)
+# Enables sync backend automatically since it provides the dependencies
+# Good choice: ureq is blocking by nature, minimal overhead with sync backend
+ureq-client = ["sync", "dep:ureq"]
+
+# Async HTTP client implementation using reqwest (truly async)
+# Enables sync backend automatically since it provides the dependencies
+# Warning: Using reqwest with sync backend is inefficient - pulls in tokio runtime
+# but blocks on every request. Prefer ureq-client for sync or enable async feature.
+reqwest-client = ["sync", "dep:tokio", "dep:reqwest"]
