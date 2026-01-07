@@ -4,6 +4,26 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use spdk_core::{FilterData, SpentIndexData, UtxoData};
 
+mod hex_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use bitcoin::hex::DisplayHex;
+        serializer.serialize_str(&bytes.to_lower_hex_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        bitcoin::hex::FromHex::from_hex(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BlockHeightResponse {
     pub block_height: Height,
@@ -50,7 +70,7 @@ impl From<SpentIndexResponse> for SpentIndexData {
 #[derive(Deserialize, Debug)]
 #[serde(transparent)]
 pub struct MyHex {
-    #[serde(with = "hex::serde")]
+    #[serde(with = "hex_serde")]
     pub hex: Vec<u8>,
 }
 

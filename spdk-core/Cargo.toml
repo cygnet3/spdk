@@ -42,7 +42,6 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bitcoin.workspace = true
-hex.workspace = true
 bdk_coin_select.workspace = true
 
 # Silent payments address parsing (minimal dependency)

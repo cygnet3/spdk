@@ -33,7 +33,6 @@ bitcoin.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-hex.workspace = true
 
 [features]
 # Default includes the full-featured reqwest client

@@ -1,6 +1,7 @@
 use crate::protocol::Error;
 use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use bitcoin::secp256k1::{PublicKey, Scalar, SecretKey};
+use bitcoin::hex::FromHex;
 
 sha256t_hash_newtype! {
     pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
@@ -79,14 +80,9 @@ pub(crate) fn calculate_input_hash(
 
     // should probably just use an OutPoints type properly at some point
     for (txid, vout) in outpoints_data {
-        let mut bytes: Vec<u8> = hex::decode(txid.as_str())?;
-
-        if bytes.len() != 32 {
-            return Err(Error::GenericError(format!(
-                "Invalid outpoint hex representation: {}",
-                txid
-            )));
-        }
+        let mut bytes = <[u8; 32]>::from_hex(txid.as_str()).map_err(|_| {
+            Error::GenericError(format!("Invalid outpoint hex representation: {}", txid))
+        })?;
 
         // txid in string format is big endian and we need little endian
         bytes.reverse();

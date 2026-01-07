@@ -29,6 +29,7 @@ use crate::protocol::{
 };
 use bimap::BiMap;
 use bitcoin::secp256k1::{self, Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
+use bitcoin::hex::{DisplayHex, FromHex};
 use sp_address::Network;
 use serde::{
     de::{self, SeqAccess, Visitor},
@@ -58,7 +59,7 @@ impl Label {
     }
 
     pub fn as_string(&self) -> String {
-        hex::encode(self.as_inner().to_be_bytes())
+        self.as_inner().to_be_bytes().to_lower_hex_string()
     }
 }
 
@@ -93,10 +94,7 @@ impl TryFrom<&str> for Label {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Label> {
-        // Is it valid hex?
-        let bytes = hex::decode(s)?;
-        // Is it 32B long?
-        let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+        let bytes = <[u8; 32]>::from_hex(s).map_err(|_| {
             Error::InvalidLabel("Label must be 32 bytes (256 bits) long".to_owned())
         })?;
         // Is it on the curve? If yes, push it on our labels list

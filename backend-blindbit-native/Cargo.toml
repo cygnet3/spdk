@@ -23,7 +23,6 @@ bitcoin.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-hex.workspace = true
 
 # The HttpClient trait is async, so async-trait is always required
 # Same futures is always required

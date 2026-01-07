@@ -32,13 +32,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[cfg(any(feature = "sending", feature = "receiving"))]
-impl From<hex::FromHexError> for Error {
-    fn from(e: hex::FromHexError) -> Self {
-        Error::InvalidLabel(e.to_string())
-    }
-}
-
 impl From<secp256k1::Error> for Error {
     fn from(e: secp256k1::Error) -> Self {
         Error::Secp256k1Error(e)
