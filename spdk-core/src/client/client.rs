@@ -9,19 +9,15 @@ use bitcoin::{
 use serde::{Deserialize, Serialize};
 
 use bitcoin::secp256k1::PublicKey;
-use silentpayments::utils as sp_utils;
 use std::collections::HashMap;
-
-use silentpayments::Network as SpNetwork;
-use silentpayments::{
-    bitcoin_hashes::sha256,
-    receiving::{Label, Receiver},
-    SilentPaymentAddress,
-};
 
 use anyhow::{Error, Result};
 
 use crate::constants::NUMS;
+use crate::protocol::receiving::{Label, Receiver};
+use crate::protocol::utils;
+use bitcoin_hashes::sha256;
+use sp_address::{Network as SpNetwork, SilentPaymentAddress};
 
 use super::SpendKey;
 
@@ -119,7 +115,7 @@ impl SpClient {
             use rayon::prelude::*;
             tweak_data_vec
                 .into_par_iter()
-                .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
+                .map(|tweak| utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
                 .collect()
         };
 

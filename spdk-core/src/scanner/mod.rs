@@ -1,3 +1,26 @@
+//! Blockchain scanner for silent payments.
+//!
+//! This module provides the [`SpScanner`] type for efficiently scanning the blockchain
+//! to detect silent payment outputs belonging to a wallet.
+//!
+//! ## Features
+//!
+//! - Requires the `scanner` feature (enabled by default via `wallet`)
+//! - Optional CPU parallelization with the `parallel` feature (native platforms only)
+//! - Supports both sync and async backends
+//!
+//! ## Usage
+//!
+//! ```ignore
+//! use spdk_core::{SpScanner, SpClient};
+//!
+//! let scanner = SpScanner::new(client, backend, updater, keep_scanning);
+//! scanner.scan_blocks(start_height, end_height, dust_limit, cutthrough)?;
+//! ```
+//!
+//! The scanner uses BIP158 compact block filters to efficiently identify relevant
+//! transactions before fetching full transaction data.
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 
@@ -8,7 +31,7 @@ use bitcoin::{
     absolute::Height, bip158::BlockFilter, hashes::Hash as _, Amount, BlockHash, OutPoint, Txid,
     XOnlyPublicKey,
 };
-use silentpayments::receiving::Label;
+use crate::protocol::receiving::Label;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "parallel"))]
 use rayon::prelude::*;

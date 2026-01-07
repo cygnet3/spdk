@@ -21,7 +21,6 @@ log.workspace = true
 # Re-export some core types for convenience
 bitcoin.workspace = true
 anyhow.workspace = true
-silentpayments.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true

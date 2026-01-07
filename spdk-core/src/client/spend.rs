@@ -15,8 +15,8 @@ use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
 
-use silentpayments::utils as sp_utils;
-use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
+use crate::protocol::utils as sp_utils;
+use sp_address::{Network as SpNetwork, SilentPaymentAddress};
 
 use anyhow::{Error, Result};
 
@@ -294,7 +294,7 @@ impl SpClient {
             })
             .collect();
 
-        let sp_address2xonlypubkeys = silentpayments::sending::generate_recipient_pubkeys(
+        let sp_address2xonlypubkeys = crate::protocol::sending::generate_recipient_pubkeys(
             sp_addresses,
             unsigned_transaction.partial_secret,
         )?;

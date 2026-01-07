@@ -31,7 +31,6 @@ wasm-bindgen-futures = "0.4.55"
 # Re-export some core types for convenience
 bitcoin.workspace = true
 anyhow.workspace = true
-silentpayments.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true

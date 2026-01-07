@@ -4,13 +4,6 @@ version = "0.1.0"
 edition = "2021"
 repository.workspace = true
 
-[profile.release]
-opt-level = "z"          # Optimize for size
-lto = true               # Enable Link Time Optimization
-codegen-units = 1        # Single codegen unit for better optimization
-strip = true             # Strip symbols
-panic = "abort"          # Smaller panic implementation
-
 [lib]
 crate-type = ["rlib"]
 

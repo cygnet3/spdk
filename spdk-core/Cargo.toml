@@ -8,8 +8,8 @@ repository.workspace = true
 crate-type = ["rlib"]
 
 [features]
-# Default: both sync and async APIs available, with parallelization
-default = ["parallel", "async"]
+# Default: full wallet functionality with async and parallelization
+default = ["wallet", "parallel", "async"]
 
 # Sync-only mode - excludes async code and async dependencies
 sync = []
@@ -20,15 +20,40 @@ async = ["dep:futures", "dep:async-trait"]
 # Enable CPU parallelization with rayon (native only, recommended)
 parallel = ["dep:rayon"]
 
+# Silent payments protocol features
+sending = ["dep:bitcoin_hashes", "dep:hex-conservative"]
+receiving = ["dep:bitcoin_hashes", "dep:hex-conservative", "dep:bimap"]
+
+# Client module (scanning/receiving only, no spending)
+client = ["receiving"]
+
+# Enable spending functionality (requires both client and sending)
+spending = ["client", "sending"]
+
+# Scanner module (requires client for scanning context)
+scanner = ["client"]
+
+# Convenience feature: full wallet (spending + scanning)
+wallet = ["spending", "scanner"]
+
 [dependencies]
 # Core dependencies - always available
-silentpayments.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bitcoin.workspace = true
 hex.workspace = true
 bdk_coin_select.workspace = true
+
+# Silent payments address parsing (minimal dependency)
+sp-address = { workspace = true, features = ["serde"] }
+
+# Only needed for sending/receiving silent payments
+bitcoin_hashes = { version = "0.13.0", optional = true }
+hex-conservative = { version = "1.0.1", optional = true }
+
+# Only needed for receiving silent payments
+bimap = { version = "0.6.3", optional = true }
 
 # Async dependencies - optional
 futures = { workspace = true, optional = true }

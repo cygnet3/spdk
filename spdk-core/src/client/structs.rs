@@ -10,7 +10,8 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{receiving::Label, SilentPaymentAddress};
+use crate::protocol::receiving::Label;
+use sp_address::SilentPaymentAddress;
 
 type SpendingTxId = [u8; 32];
 type MinedInBlock = [u8; 32];
