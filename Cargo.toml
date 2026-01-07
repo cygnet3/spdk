@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "spdk-core",
+    "sp-address",
     "backend-blindbit-native",
     "backend-blindbit-wasm",
 ]
@@ -9,6 +10,7 @@ resolver = "2"
 [workspace.dependencies]
 # Internal workspace crates
 spdk-core = { path = "spdk-core", version = "0.1.0" }
+sp-address = { path = "sp-address", version = "0.1.0" }
 
 # Core dependencies - shared across crates
 silentpayments = "0.4"
