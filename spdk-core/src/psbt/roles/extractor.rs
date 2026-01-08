@@ -277,7 +277,7 @@ mod tests {
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
 
         // Finalize inputs (compute output scripts)
-        finalize_inputs(&secp, &mut psbt, None).unwrap();
+        finalize_inputs(&secp, &mut psbt).unwrap();
 
         // Sign inputs
         sign_inputs(&secp, &mut psbt, &inputs).unwrap();

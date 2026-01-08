@@ -105,15 +105,22 @@ pub trait Bip375PsbtExt {
     ///
     /// Field type: PSBT_OUT_SP_V0_LABEL (0x0a)
     ///
+    /// **Important:** This field is metadata only. When present, the spend key in
+    /// PSBT_OUT_SP_V0_INFO is already labeled. The label value is not used for
+    /// cryptographic derivation during finalization.
+    ///
     /// # Arguments
     /// * `output_index` - Index of the output
     fn get_output_sp_label(&self, output_index: usize) -> Option<u32>;
 
     /// Set silent payment label for an output
     ///
+    /// **Important:** When setting this field, ensure that the spend key in
+    /// PSBT_OUT_SP_V0_INFO is already labeled. This field is metadata only.
+    ///
     /// # Arguments
     /// * `output_index` - Index of the output
-    /// * `label` - The label value
+    /// * `label` - The label value (0 = change, 1+ = labeled receiving addresses)
     fn set_output_sp_label(&mut self, output_index: usize, label: u32) -> Result<()>;
 
     // ===== Silent Payment Spending =====
@@ -259,8 +266,8 @@ impl Bip375PsbtExt for Psbt {
             };
             let scan_key = PublicKey::from_slice(&bytes[..33]).ok();
             let spend_key = PublicKey::from_slice(&bytes[33..]).ok();
-            if scan_key.is_some() && spend_key.is_some() {
-                return Some((scan_key.unwrap(), spend_key.unwrap()));
+            if let (Some(scan_key), Some(spend_key)) = (scan_key, spend_key) {
+                return Some((scan_key, spend_key));
             }
         }
 
@@ -389,7 +396,7 @@ fn get_global_dleq_proof(psbt: &Psbt, scan_key: &PublicKey) -> Option<DleqProof>
     psbt.global
         .sp_dleq_proofs
         .get(&scan_key_compressed)
-        .map(|proof| *proof)
+        .copied()
 }
 
 fn add_global_dleq_proof(psbt: &mut Psbt, scan_key: &PublicKey, proof: DleqProof) -> Result<()> {
@@ -412,10 +419,7 @@ fn get_input_dleq_proof(
     let scan_key_compressed =
         CompressedPublicKey::try_from(bitcoin::PublicKey::new(*scan_key)).ok()?;
 
-    input
-        .sp_dleq_proofs
-        .get(&scan_key_compressed)
-        .map(|proof| *proof)
+    input.sp_dleq_proofs.get(&scan_key_compressed).copied()
 }
 
 fn add_input_dleq_proof(
@@ -566,7 +570,6 @@ pub fn get_output_sp_keys(
     })?;
     Ok((sp_info.0, sp_info.1))
 }
-/// Get silent payment keys (scan_key, spend_key) from output SP_V0_INFO field
 
 // ============================================================================
 // Display Extension Traits

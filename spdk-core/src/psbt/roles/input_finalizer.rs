@@ -3,17 +3,14 @@
 //! Aggregates ECDH shares and computes final output scripts for silent payments.
 
 use crate::psbt::core::{aggregate_ecdh_shares, Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
-use crate::psbt::crypto::{
-    apply_label_to_spend_key, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
-};
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use crate::psbt::crypto::{derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script};
+use secp256k1::{PublicKey, Secp256k1};
 use std::collections::HashMap;
 
 /// Finalize inputs by computing output scripts from ECDH shares
 pub fn finalize_inputs(
     secp: &Secp256k1<secp256k1::All>,
     psbt: &mut SilentPaymentPsbt,
-    scan_privkeys: Option<&HashMap<PublicKey, SecretKey>>,
 ) -> Result<()> {
     // Aggregate ECDH shares by scan key (detects global vs per-input automatically)
     let aggregated_shares = aggregate_ecdh_shares(psbt)?;
@@ -41,21 +38,6 @@ pub fn finalize_inputs(
 
         let aggregated_share = aggregated.aggregated_share;
 
-        // Check for label and apply if present and we have scan private key
-        let mut spend_key_to_use = spend_key.clone();
-
-        if let Some(label) = psbt.get_output_sp_label(output_idx) {
-            // If we have the scan private key, apply the label tweak to spend key
-            if let Some(privkeys) = scan_privkeys {
-                if let Some(scan_privkey) = privkeys.get(&scan_key) {
-                    spend_key_to_use =
-                        apply_label_to_spend_key(secp, &spend_key, scan_privkey, label).map_err(
-                            |e| Error::Other(format!("Failed to apply label tweak: {}", e)),
-                        )?;
-                }
-            }
-        }
-
         // Get or initialize the output index for this scan key
         let k = *scan_key_output_indices.get(&scan_key).unwrap_or(&0);
 
@@ -63,7 +45,7 @@ pub fn finalize_inputs(
         let ecdh_secret = aggregated_share.serialize();
         let output_pubkey = derive_silent_payment_output_pubkey(
             secp,
-            &spend_key_to_use, // Use labeled spend key if label was applied
+            &spend_key,
             &ecdh_secret,
             k, // Use per-scan-key index
         )
@@ -160,7 +142,7 @@ mod tests {
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
 
         // Finalize inputs (compute output scripts)
-        finalize_inputs(&secp, &mut psbt, None).unwrap();
+        finalize_inputs(&secp, &mut psbt).unwrap();
 
         // Verify output script was added
         let script = &psbt.outputs[0].script_pubkey;
@@ -212,7 +194,7 @@ mod tests {
         add_ecdh_shares_partial(&secp, &mut psbt, &inputs, &[scan_key], &[0], false).unwrap();
 
         // Finalize should fail due to incomplete coverage
-        let result = finalize_inputs(&secp, &mut psbt, None);
+        let result = finalize_inputs(&secp, &mut psbt);
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::IncompleteEcdhCoverage(0))));
     }
@@ -276,7 +258,7 @@ mod tests {
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
 
         // Finalize inputs (compute output scripts)
-        finalize_inputs(&secp, &mut psbt, None).unwrap();
+        finalize_inputs(&secp, &mut psbt).unwrap();
 
         // Verify tx_modifiable_flags is cleared after finalization
         assert_eq!(
