@@ -24,7 +24,7 @@ pub fn finalize_inputs(
     // Process each output
     for output_idx in 0..psbt.num_outputs() {
         // Check if this is a silent payment output
-        let (scan_key, spend_key) = match psbt.get_output_sp_info_v0(output_idx) {
+        let (scan_key, spend_key) = match psbt.get_output_sp_info(output_idx) {
             Some(keys) => keys,
             None => continue, // Not a silent payment output, skip
         };

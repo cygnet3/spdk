@@ -34,7 +34,7 @@ pub fn validate_psbt(
     validate_sp_tweak_fields(psbt, false)?;
 
     // Check if this PSBT has silent payment outputs
-    let has_sp_outputs = (0..psbt.num_outputs()).any(|i| psbt.get_output_sp_info_v0(i).is_some());
+    let has_sp_outputs = (0..psbt.num_outputs()).any(|i| psbt.get_output_sp_info(i).is_some());
 
     if has_sp_outputs {
         // Rule 6: Segwit version restrictions (must be v0 or v1 for silent payments)
@@ -98,7 +98,7 @@ fn validate_output_fields(psbt: &SilentPaymentPsbt) -> Result<()> {
         // Amount is mandatory in struct
 
         // Check if this is a silent payment output
-        let has_sp_address = psbt.get_output_sp_info_v0(i).is_some();
+        let has_sp_address = psbt.get_output_sp_info(i).is_some();
         let has_script = !output.script_pubkey.is_empty();
 
         // Output must have either a script OR a silent payment address
@@ -216,7 +216,7 @@ fn validate_ecdh_coverage(psbt: &SilentPaymentPsbt) -> Result<()> {
     // Collect all scan keys from outputs
     let mut scan_keys = HashSet::new();
     for i in 0..psbt.num_outputs() {
-        if let Some((scan_key, _spend_key)) = psbt.get_output_sp_info_v0(i) {
+        if let Some((scan_key, _spend_key)) = psbt.get_output_sp_info(i) {
             scan_keys.insert(scan_key);
         }
     }
@@ -331,7 +331,7 @@ fn validate_output_scripts(
             continue;
         }
 
-        let (scan_key, spend_key) = match psbt.get_output_sp_info_v0(output_idx) {
+        let (scan_key, spend_key) = match psbt.get_output_sp_info(output_idx) {
             Some(keys) => keys,
             None => continue,
         };
