@@ -116,9 +116,13 @@ pub enum PsbtOutput {
     SilentPayment {
         /// Amount to send
         amount: Amount,
-        /// Silent payment address
+        /// Silent payment address (if label is present, this is the already-labeled address)
         address: SilentPaymentAddress,
-        /// Optional label (useful for detecting change outputs)
+        /// Optional label metadata (useful for detecting change outputs)
+        ///
+        /// When present, the address field contains the final labeled address.
+        /// The label value is informational only and is not used for derivation.
+        /// Conventional values: 0 = change, 1+ = labeled receiving addresses.
         label: Option<u32>,
     },
 }
