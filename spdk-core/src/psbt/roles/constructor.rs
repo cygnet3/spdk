@@ -74,7 +74,7 @@ pub fn add_outputs(psbt: &mut SilentPaymentPsbt, outputs: &[PsbtOutput]) -> Resu
                 // which is computed during finalization
 
                 // Set BIP-375 fields
-                psbt.set_output_sp_info_v0(i, address)?;
+                psbt.set_output_sp_info(i, address)?;
 
                 if let Some(label) = label {
                     psbt.set_output_sp_label(i, *label)?;

@@ -88,14 +88,14 @@ pub trait Bip375PsbtExt {
     ///
     /// # Arguments
     /// * `output_index` - Index of the output
-    fn get_output_sp_info_v0(&self, output_index: usize) -> Option<(PublicKey, PublicKey)>;
+    fn get_output_sp_info(&self, output_index: usize) -> Option<(PublicKey, PublicKey)>;
 
     /// Set silent payment v0 keys for an output
     ///
     /// # Arguments
     /// * `output_index` - Index of the output
     /// * `address` - The silent payment address
-    fn set_output_sp_info_v0(
+    fn set_output_sp_info(
         &mut self,
         output_index: usize,
         address: &SilentPaymentAddress,
@@ -250,7 +250,7 @@ impl Bip375PsbtExt for Psbt {
         Ok(())
     }
 
-    fn get_output_sp_info_v0(&self, output_index: usize) -> Option<(PublicKey, PublicKey)> {
+    fn get_output_sp_info(&self, output_index: usize) -> Option<(PublicKey, PublicKey)> {
         let output = self.outputs.get(output_index)?;
 
         if let Some(bytes) = &output.sp_v0_info {
@@ -267,7 +267,7 @@ impl Bip375PsbtExt for Psbt {
         None
     }
 
-    fn set_output_sp_info_v0(
+    fn set_output_sp_info(
         &mut self,
         output_index: usize,
         address: &SilentPaymentAddress,
@@ -374,7 +374,7 @@ impl Bip375PsbtExt for Psbt {
     fn get_output_scan_keys(&self) -> Vec<PublicKey> {
         let mut scan_keys = Vec::new();
         for output_idx in 0..self.outputs.len() {
-            if let Some(sp_info) = self.get_output_sp_info_v0(output_idx) {
+            if let Some(sp_info) = self.get_output_sp_info(output_idx) {
                 scan_keys.push(sp_info.0);
             }
         }
@@ -561,7 +561,7 @@ pub fn get_output_sp_keys(
     output_idx: usize,
 ) -> Result<(PublicKey, PublicKey)> {
     // Use the extension trait method via SilentPaymentPsbt wrapper
-    let sp_info = psbt.get_output_sp_info_v0(output_idx).ok_or_else(|| {
+    let sp_info = psbt.get_output_sp_info(output_idx).ok_or_else(|| {
         Error::MissingField(format!("Output {} missing PSBT_OUT_SP_V0_INFO", output_idx))
     })?;
     Ok((sp_info.0, sp_info.1))
@@ -1071,10 +1071,10 @@ mod tests {
                 .unwrap();
 
         // Set address
-        psbt.set_output_sp_info_v0(0, &address).unwrap();
+        psbt.set_output_sp_info(0, &address).unwrap();
 
         // Retrieve address
-        let retrieved = psbt.get_output_sp_info_v0(0);
+        let retrieved = psbt.get_output_sp_info(0);
         assert_eq!(
             retrieved.map(|res| (res.0, res.1)),
             Some((address.get_scan_key(), address.get_spend_key()))
