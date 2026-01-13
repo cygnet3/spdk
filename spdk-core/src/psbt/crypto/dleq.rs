@@ -38,12 +38,13 @@ pub fn from_psbt_v2_proof(proof: &PsbtV2DleqProof) -> RustDleqProof {
 /// Generate a DLEQ proof using rust-dleq
 ///
 /// Proves that log_G(A) = log_B(C), i.e., A = a*G and C = a*B for some secret a.
+///   ex. log_G(input_key*G) = log_B(input_key*scan_key)
 /// Returns proof in psbt-v2 format for compatibility.
 ///
 /// # Arguments
 /// * `secp` - Secp256k1 context
-/// * `a` - Secret scalar (private key)
-/// * `b` - Public key B
+/// * `input_key` - input sum (private key)
+/// * `scan_key` - receiver scan key (public key)
 /// * `r` - 32 bytes of randomness for aux randomization
 /// * `m` - Optional 32-byte message to include in proof
 ///
@@ -51,12 +52,12 @@ pub fn from_psbt_v2_proof(proof: &PsbtV2DleqProof) -> RustDleqProof {
 /// PsbtV2DleqProof (64-byte proof: e || s)
 pub fn dleq_generate_proof(
     secp: &Secp256k1<secp256k1::All>,
-    a: &SecretKey,
-    b: &PublicKey,
+    input_key: &SecretKey,
+    scan_key: &PublicKey,
     r: &[u8; 32],
     m: Option<&[u8; 32]>,
 ) -> Result<PsbtV2DleqProof> {
-    let proof = rust_dleq::generate_dleq_proof(secp, a, b, r, m)
+    let proof = rust_dleq::generate_dleq_proof(secp, input_key, scan_key, r, m)
         .map_err(|e| CryptoError::DleqGenerationFailed(format!("rust-dleq error: {:?}", e)))?;
 
     Ok(to_psbt_v2_proof(&proof))
@@ -65,26 +66,27 @@ pub fn dleq_generate_proof(
 /// Verify a DLEQ proof using rust-dleq
 ///
 /// Verifies that log_G(A) = log_B(C).
+///   ex. log_G(input_public) = log_B(ecdh_share)
 /// Accepts proof in psbt-v2 format for compatibility.
 ///
 /// # Arguments
 /// * `secp` - Secp256k1 context
-/// * `a` - Public key A = a*G
-/// * `b` - Public key B
-/// * `c` - Public key C = a*B
+/// * `input_public` - input sum (public key) = a*G
+/// * `scan_key` - receiver scan key (public key)
+/// * `ecdh_share` - ECDH share (public key) C = a*B
 /// * `proof` - 64-byte proof in psbt-v2 format
 /// * `m` - Optional 32-byte message
 pub fn dleq_verify_proof(
     secp: &Secp256k1<secp256k1::All>,
-    a: &PublicKey,
-    b: &PublicKey,
-    c: &PublicKey,
+    input_public: &PublicKey,
+    scan_key: &PublicKey,
+    ecdh_share: &PublicKey,
     proof: &PsbtV2DleqProof,
     m: Option<&[u8; 32]>,
 ) -> Result<bool> {
     let rust_dleq_proof = from_psbt_v2_proof(proof);
 
-    rust_dleq::verify_dleq_proof(secp, a, b, c, &rust_dleq_proof, m)
+    rust_dleq::verify_dleq_proof(secp, input_public, scan_key, ecdh_share, &rust_dleq_proof, m)
         .map_err(|_e| CryptoError::DleqVerificationFailed)
 }
 
