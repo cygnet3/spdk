@@ -18,19 +18,19 @@ fn main() {
 
     let secp = Secp256k1::new();
 
-    // Party A: Generate a keypair
-    let secret_a = SecretKey::from_slice(&[0x01; 32]).expect("valid secret key");
-    let pubkey_a = PublicKey::from_secret_key(&secp, &secret_a);
-    println!("Party A public key: {}", pubkey_a);
+    // Sender A: Generate a keypair
+    let sender_input_secret = SecretKey::from_slice(&[0x01; 32]).expect("valid secret key");
+    let sender_input_public = PublicKey::from_secret_key(&secp, &sender_input_secret);
+    println!("Sender A public key: {}", sender_input_public);
 
-    // Party B: Generate a public key (scan key in silent payments context)
-    let secret_b = SecretKey::from_slice(&[0x02; 32]).expect("valid secret key");
-    let pubkey_b = PublicKey::from_secret_key(&secp, &secret_b);
-    println!("Party B public key (scan key): {}", pubkey_b);
+    // Receiver B: Generate a public key (scan key in silent payments context)
+    let receiver_scan_secret = SecretKey::from_slice(&[0x02; 32]).expect("valid secret key");
+    let receiver_scan_public = PublicKey::from_secret_key(&secp, &receiver_scan_secret);
+    println!("Receiver B scan public key: {}", receiver_scan_public);
 
     // Compute ECDH share: C = a * B
-    let ecdh_share = pubkey_b
-        .mul_tweak(&secp, &secret_a.into())
+    let ecdh_share = receiver_scan_public
+        .mul_tweak(&secp, &sender_input_secret.into())
         .expect("valid ECDH computation");
     println!("ECDH share: {}\n", ecdh_share);
 
@@ -41,22 +41,23 @@ fn main() {
 
     let proof = dleq_generate_proof(
         &secp,
-        &secret_a,
-        &pubkey_b,
+        &sender_input_secret,
+        &receiver_scan_public,
         &aux_randomness,
         message.as_ref(),
     )
     .expect("proof generation successful");
 
     println!("✓ Proof generated successfully");
-    println!("  Proof bytes (first 16): {:02x?}...\n", &proof.0[..16]);
+    let hex_proof: String = proof.0.iter().map(|b| format!("{:02x}", b)).collect();
+    println!("  Proof bytes (hex): {}\n", hex_proof);
 
     // Verify the DLEQ proof
     println!("Verifying DLEQ proof...");
     let is_valid = dleq_verify_proof(
         &secp,
-        &pubkey_a,
-        &pubkey_b,
+        &sender_input_public,
+        &receiver_scan_public,
         &ecdh_share,
         &proof,
         message.as_ref(),
@@ -66,7 +67,7 @@ fn main() {
     if is_valid {
         println!("✓ Proof is VALID");
         println!("  The prover knows the discrete log relationship:");
-        println!("  log_G(A) = log_B(C)\n");
+        println!("  log_G(sender_input_public) = log_B(ecdh_share)\n");
     } else {
         println!("✗ Proof is INVALID");
     }
@@ -89,8 +90,8 @@ fn main() {
 
     let is_valid_corrupted = dleq_verify_proof(
         &secp,
-        &pubkey_a,
-        &pubkey_b,
+        &sender_input_public,
+        &receiver_scan_public,
         &ecdh_share,
         &corrupted_proof,
         message.as_ref(),
