@@ -23,10 +23,7 @@ use anyhow::{Error, Result};
 
 use crate::constants::{DATA_CARRIER_SIZE, NUMS};
 
-use super::{
-    OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
-    SpClient,
-};
+use super::{OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction, SpClient};
 
 impl SpClient {
     // For now it's only suitable for wallet that spends only silent payments outputs that it owns
@@ -38,10 +35,7 @@ impl SpClient {
         network: Network,
     ) -> Result<SilentPaymentUnsignedTransaction> {
         // check that all available outputs are unspent
-        if available_utxos
-            .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
-        {
+        if available_utxos.iter().any(|(_, o)| !o.is_unspent()) {
             return Err(Error::msg("All outputs must be unspent".to_string()));
         }
 
@@ -173,10 +167,7 @@ impl SpClient {
         network: Network,
     ) -> Result<SilentPaymentUnsignedTransaction> {
         // check that all available outputs are unspent
-        if available_utxos
-            .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
-        {
+        if available_utxos.iter().any(|(_, o)| !o.is_unspent()) {
             return Err(Error::msg("All outputs must be unspent".to_string()));
         }
 

@@ -18,8 +18,9 @@ use silentpayments::receiving::Label;
 
 use crate::{
     backend::{BlockData, ChainBackend, FilterData, UtxoData},
-    client::{OutputSpendStatus, OwnedOutput, SpClient},
+    client::{OwnedOutput, SpClient},
     updater::Updater,
+    SpendInfo,
 };
 
 pub struct SpScanner<'a> {
@@ -198,7 +199,7 @@ impl<'a> SpScanner<'a> {
                             amount: utxo.value,
                             script: utxo.scriptpubkey,
                             label,
-                            spend_status: OutputSpendStatus::Unspent,
+                            spend_info: SpendInfo::new_empty(),
                         };
 
                         res.insert(outpoint, out);

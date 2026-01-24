@@ -7,19 +7,36 @@ use bitcoin::{
     hex::{DisplayHex, FromHex},
     key::Secp256k1,
     secp256k1::{PublicKey, SecretKey},
-    Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
+    Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Transaction, Txid,
 };
 use serde::{Deserialize, Serialize};
 use silentpayments::{receiving::Label, SilentPaymentAddress};
 
-type SpendingTxId = [u8; 32];
-type MinedInBlock = [u8; 32];
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SpendInfo {
+    pub spending_txid: Option<Txid>,
+    pub mined_in_block: Option<BlockHash>,
+}
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum OutputSpendStatus {
-    Unspent,
-    Spent(SpendingTxId),
-    Mined(MinedInBlock),
+impl SpendInfo {
+    pub fn new_empty() -> Self {
+        Self {
+            spending_txid: None,
+            mined_in_block: None,
+        }
+    }
+
+    pub fn is_unspent(&self) -> bool {
+        self.spending_txid.is_none() && self.mined_in_block.is_none()
+    }
+
+    pub fn is_spent_unconfirmed(&self) -> bool {
+        self.spending_txid.is_some() && self.mined_in_block.is_none()
+    }
+
+    pub fn is_mined(&self) -> bool {
+        self.mined_in_block.is_some()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -29,7 +46,21 @@ pub struct OwnedOutput {
     pub amount: Amount,
     pub script: ScriptBuf,
     pub label: Option<Label>,
-    pub spend_status: OutputSpendStatus,
+    pub spend_info: SpendInfo,
+}
+
+impl OwnedOutput {
+    pub fn is_unspent(&self) -> bool {
+        self.spend_info.is_unspent()
+    }
+
+    pub fn is_mined(&self) -> bool {
+        self.spend_info.is_mined()
+    }
+
+    pub fn is_spent_unconfirmed(&self) -> bool {
+        self.spend_info.is_spent_unconfirmed()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
