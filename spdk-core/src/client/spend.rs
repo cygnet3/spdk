@@ -23,7 +23,7 @@ use anyhow::{Error, Result};
 use crate::constants::{DATA_CARRIER_SIZE, NUMS};
 
 use super::{
-    OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
+    OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
     SpClient,
 };
 
@@ -39,7 +39,7 @@ impl SpClient {
         // check that all available outputs are unspent
         if available_utxos
             .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
+            .any(|(_, o)| !o.is_unspent())
         {
             return Err(Error::msg(format!("All outputs must be unspent")));
         }
@@ -175,7 +175,7 @@ impl SpClient {
         // check that all available outputs are unspent
         if available_utxos
             .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
+            .any(|(_, o)| !o.is_unspent())
         {
             return Err(Error::msg(format!("All outputs must be unspent")));
         }
