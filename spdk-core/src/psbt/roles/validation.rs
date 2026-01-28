@@ -3,6 +3,7 @@
 //! Validates PSBTs according to BIP-375 rules.
 
 use crate::psbt::core::{Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
+use crate::psbt::crypto::bip352::is_input_eligible;
 use crate::psbt::crypto::dleq_verify_proof;
 use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 use std::collections::HashSet;
@@ -26,6 +27,7 @@ pub fn validate_psbt(
 ) -> Result<()> {
     // Basic validations
     validate_psbt_version(psbt)?;
+    validate_psbt_state(psbt)?;
     validate_input_fields(psbt)?;
     validate_output_fields(psbt)?;
 
@@ -68,6 +70,22 @@ fn validate_psbt_version(psbt: &SilentPaymentPsbt) -> Result<()> {
             actual: psbt.global.version.into(),
         });
     }
+
+    Ok(())
+}
+
+/// Verify script_pubkey presence and tx_modifiable_flags consistency
+fn validate_psbt_state(psbt: &SilentPaymentPsbt) -> Result<()> {
+
+    let output_maps = &psbt.outputs;
+    for output_map in output_maps {
+        if !output_map.script_pubkey.is_empty() && psbt.global.tx_modifiable_flags != 0 {
+            return Err(Error::InvalidPsbtState(
+                "tx_modifiable flag is modifiable with script_pubkey present".to_string(),
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -78,14 +96,6 @@ fn validate_input_fields(psbt: &SilentPaymentPsbt) -> Result<()> {
 
         if input.sequence.is_none() {
             return Err(Error::MissingField(format!("Input {} missing sequence", i)));
-        }
-
-        // SegWit inputs require WITNESS_UTXO
-        if input.witness_utxo.is_none() {
-            return Err(Error::MissingField(format!(
-                "Input {} missing witness_utxo",
-                i
-            )));
         }
     }
 
@@ -210,10 +220,14 @@ fn validate_sighash_types(psbt: &SilentPaymentPsbt) -> Result<()> {
 }
 
 /// Validate ECDH coverage for silent payment outputs
+///
+/// Per BIP-375:
+/// - Each scan key in SP outputs must have corresponding ECDH share(s)
+/// - Complete coverage (all eligible inputs) required when output scripts are computed
 fn validate_ecdh_coverage(psbt: &SilentPaymentPsbt) -> Result<()> {
     let num_inputs = psbt.num_inputs();
 
-    // Collect all scan keys from outputs
+    // Collect all unique scan keys from SP outputs
     let mut scan_keys = HashSet::new();
     for i in 0..psbt.num_outputs() {
         if let Some((scan_key, _spend_key)) = psbt.get_output_sp_info(i) {
@@ -221,34 +235,60 @@ fn validate_ecdh_coverage(psbt: &SilentPaymentPsbt) -> Result<()> {
         }
     }
 
-    // For each scan key, verify coverage
-    for scan_key in scan_keys {
-        // Check for global share first
+    // For EACH scan key, verify ECDH coverage
+    for scan_key in &scan_keys {
+        // Check global shares for this specific scan key
         let global_shares = psbt.get_global_ecdh_shares();
-        let has_global = global_shares.iter().any(|s| s.scan_key == scan_key);
+        let has_global_ecdh = global_shares.iter().any(|s| &s.scan_key == scan_key);
 
-        if has_global {
-            // Rule: If global share exists, there MUST NOT be any per-input shares for this scan key
-            for i in 0..num_inputs {
-                let shares = psbt.get_input_ecdh_shares(i);
-                if shares.iter().any(|s| s.scan_key == scan_key) {
-                    return Err(Error::InvalidFieldData(format!(
-                        "Scan key {} has both global ECDH share and per-input share at input {}",
-                        scan_key, i
-                    )));
-                }
+        // Check per-input shares for this specific scan key
+        let has_input_ecdh = (0..num_inputs).any(|i| {
+            psbt.get_input_ecdh_shares(i)
+                .iter()
+                .any(|s| &s.scan_key == scan_key)
+        });
+
+        // Check if any outputs with this scan key have PSBT_OUT_SCRIPT set
+        let has_computed_outputs = (0..psbt.num_outputs()).any(|i| {
+            let output = &psbt.outputs[i];
+            let has_script = !output.script_pubkey.is_empty();
+            if let Some((sk, _)) = psbt.get_output_sp_info(i) {
+                has_script && &sk == scan_key
+            } else {
+                false
             }
+        });
+
+        // Only require ECDH shares when output scripts have been computed
+        if !has_computed_outputs {
             continue;
         }
 
-        // If no global share, MUST have per-input shares for ALL inputs
-        for i in 0..num_inputs {
-            let shares = psbt.get_input_ecdh_shares(i);
-            if !shares.iter().any(|s| s.scan_key == scan_key) {
-                return Err(Error::Other(format!(
-                    "Scan key {} missing ECDH share for input {} (and no global share found)",
-                    scan_key, i
-                )));
+        // Must have at least one ECDH share for this scan key when scripts are computed
+        if !has_global_ecdh && !has_input_ecdh {
+            return Err(Error::Other(
+                "Silent payment output present but no ECDH share for scan key".to_string(),
+            ));
+        }
+
+        // If using per-input shares (not global), require complete ECDH coverage
+        // of all eligible inputs
+        if has_input_ecdh && !has_global_ecdh {
+            for i in 0..num_inputs {
+                if let Some(input) = psbt.inputs.get(i) {
+                    if is_input_eligible(input) {
+                        let has_share_for_key = psbt
+                            .get_input_ecdh_shares(i)
+                            .iter()
+                            .any(|s| &s.scan_key == scan_key);
+                        if !has_share_for_key {
+                            return Err(Error::Other(format!(
+                                "Output script set but eligible input {} missing ECDH share for scan key",
+                                i
+                            )));
+                        }
+                    }
+                }
             }
         }
     }
@@ -619,7 +659,7 @@ mod tests {
             assert!(validate_ecdh_coverage(&psbt_inputs).is_ok());
         }
 
-        // Case 4: Per-input shares for SOME inputs -> Invalid
+        // Case 4: Per-input shares for SOME inputs -> Valid
         {
             let mut psbt_partial = psbt.clone();
             let share_point =
@@ -629,7 +669,7 @@ mod tests {
             // Add to only first input
             psbt_partial.add_input_ecdh_share(0, &share).unwrap();
 
-            assert!(validate_ecdh_coverage(&psbt_partial).is_err());
+            assert!(validate_ecdh_coverage(&psbt_partial).is_ok());
         }
 
         // TODO: Case 5: Per-input shares for ALL inputs, but some are invalid -> Invalid

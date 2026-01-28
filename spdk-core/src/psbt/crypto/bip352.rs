@@ -6,6 +6,7 @@ use super::error::{CryptoError, Result};
 use bitcoin::hashes::{sha256, Hash, HashEngine};
 use bitcoin::key::TapTweak;
 use bitcoin::ScriptBuf;
+use psbt_v2::v2::Input;
 use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 
 /// Compute label tweak for a silent payment address
@@ -171,6 +172,55 @@ pub fn script_type_string(script: &ScriptBuf) -> &'static str {
     } else {
         "Unknown"
     }
+}
+
+/// TODO: Very basic implmentation for testing - replace with spdk solution
+/// Check if an input is eligible for silent payments (BIP-352)
+pub fn is_input_eligible(input: &Input) -> bool {
+    // Check if input has witness_utxo
+    let witness_utxo = match &input.witness_utxo {
+        Some(utxo) => utxo,
+        None => return false,
+    };
+
+    let script = &witness_utxo.script_pubkey;
+
+    // P2WPKH (SegWit v0) - eligible
+    if script.is_p2wpkh() {
+        return true;
+    }
+
+    // P2TR (Taproot, SegWit v1) - eligible unless internal key is NUMS point (BIP-352)
+    if script.is_p2tr() {
+        const NUMS_POINT: [u8; 32] = [
+            0x50, 0x92, 0x9b, 0x74, 0xc1, 0xa0, 0x49, 0x54,
+            0xb7, 0x8b, 0x4b, 0x60, 0x35, 0xe9, 0x7a, 0x5e,
+            0x07, 0x8a, 0x5a, 0x0f, 0x28, 0xec, 0x96, 0xd5,
+            0x47, 0xbf, 0xee, 0x9a, 0xce, 0x80, 0x3a, 0xc0,
+        ];
+        if let Some(internal_key) = &input.tap_internal_key {
+            if internal_key.serialize() == NUMS_POINT {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // P2PKH (legacy) - eligible
+    if script.is_p2pkh() {
+        return true;
+    }
+
+    // P2SH - only eligible if it's P2SH-P2WPKH
+    if script.is_p2sh() {
+        if let Some(redeem_script) = &input.redeem_script {
+            return redeem_script.is_p2wpkh();
+        }
+        return false;
+    }
+
+    // All other types are ineligible (multisig, etc.)
+    false
 }
 
 /// Compute ECDH shared secret
