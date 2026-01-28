@@ -86,8 +86,15 @@ pub fn dleq_verify_proof(
 ) -> Result<bool> {
     let rust_dleq_proof = from_psbt_v2_proof(proof);
 
-    rust_dleq::verify_dleq_proof(secp, input_public, scan_key, ecdh_share, &rust_dleq_proof, m)
-        .map_err(|_e| CryptoError::DleqVerificationFailed)
+    rust_dleq::verify_dleq_proof(
+        secp,
+        input_public,
+        scan_key,
+        ecdh_share,
+        &rust_dleq_proof,
+        m,
+    )
+    .map_err(|_e| CryptoError::DleqVerificationFailed)
 }
 
 #[cfg(test)]

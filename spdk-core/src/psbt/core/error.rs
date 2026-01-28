@@ -56,6 +56,9 @@ pub enum Error {
     #[error("Invalid public key (must be compressed)")]
     InvalidPublicKey,
 
+    #[error("Invalid PSBT state: {0}")]
+    InvalidPsbtState(String),
+
     #[error(
         "Cannot add standard field type {0} via generic accessor - use specific method instead"
     )]
