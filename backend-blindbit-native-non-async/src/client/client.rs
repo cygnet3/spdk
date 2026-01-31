@@ -113,5 +113,6 @@ impl<H: HttpClient> BlindbitClient<H> {
 }
 
 fn join(url: &str, route: &str) -> String {
+    let url = url.trim_end_matches('/');
     format!("{url}/{route}")
 }
