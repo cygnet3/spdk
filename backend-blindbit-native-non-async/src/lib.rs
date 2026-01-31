@@ -12,6 +12,7 @@ pub use backend::BlindbitBackend;
 pub use client::{BlindbitClient, HttpClient};
 
 pub use client::UreqClient;
+pub use client::structs::InfoResponse;
 
 // Re-export core types and traits (avoiding module name conflicts)
 pub use spdk_core::{

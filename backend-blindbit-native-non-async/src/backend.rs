@@ -129,6 +129,11 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     pub fn block_height(&self) -> crate::error::Result<Height> {
         self.client.block_height()
     }
+
+    /// Get server info (network, supported modes, etc.)
+    pub fn info(&self) -> crate::error::Result<crate::InfoResponse> {
+        Ok(self.client.info()?)
+    }
 }
 
 fn get_block_data_for_height<H>(
