@@ -50,8 +50,7 @@ impl HttpClient for UreqClient {
             .call()
             .map_err(|e| Error::HttpGet(e.to_string()))?;
 
-        let body = String::new();
-        response
+        let body = response
             .body_mut()
             .read_to_string()
             .map_err(|e| Error::ResponseBody(e.to_string()))?;
