@@ -1,6 +1,6 @@
 use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, Txid};
 
-use anyhow::Result;
+use crate::error::Result;
 
 use crate::client::structs::InfoResponse;
 

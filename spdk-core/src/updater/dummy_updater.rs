@@ -15,7 +15,7 @@ impl Updater for DummyUpdater {
         _start: bitcoin::absolute::Height,
         _current: bitcoin::absolute::Height,
         _end: bitcoin::absolute::Height,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         Ok(())
     }
 
@@ -24,7 +24,7 @@ impl Updater for DummyUpdater {
         _height: bitcoin::absolute::Height,
         _blkhash: bitcoin::BlockHash,
         _found_outputs: std::collections::HashMap<bitcoin::OutPoint, crate::OwnedOutput>,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         Ok(())
     }
 
@@ -33,11 +33,11 @@ impl Updater for DummyUpdater {
         _blkheight: bitcoin::absolute::Height,
         _blkhash: bitcoin::BlockHash,
         _found_inputs: std::collections::HashSet<bitcoin::OutPoint>,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         Ok(())
     }
 
-    fn save_to_persistent_storage(&mut self) -> anyhow::Result<()> {
+    fn save_to_persistent_storage(&mut self) -> crate::error::Result<()> {
         Ok(())
     }
 }

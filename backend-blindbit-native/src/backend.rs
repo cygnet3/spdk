@@ -3,8 +3,6 @@ use std::ops::RangeInclusive;
 use bitcoin::{absolute::Height, Amount};
 use futures::executor::block_on;
 
-use anyhow::Result;
-
 use crate::client::{BlindbitClient, HttpClient};
 use spdk_core::{BlockData, BlockDataIterator, ChainBackend, SpentIndexData, UtxoData};
 
@@ -24,7 +22,7 @@ impl<H: HttpClient> BlindbitBackend<H> {
     /// # Arguments
     /// * `blindbit_url` - Base URL of the Blindbit server
     /// * `http_client` - HTTP client implementation
-    pub fn new(blindbit_url: String, http_client: H) -> Result<Self> {
+    pub fn new(blindbit_url: String, http_client: H) -> crate::error::Result<Self> {
         Ok(Self {
             client: BlindbitClient::new(blindbit_url, http_client)?,
         })
@@ -74,18 +72,18 @@ impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
         Box::new(iter)
     }
 
-    fn spent_index(&self, block_height: Height) -> Result<SpentIndexData> {
-        block_on(self.client.spent_index(block_height)).map(Into::into)
+    fn spent_index(&self, block_height: Height) -> spdk_core::error::Result<SpentIndexData> {
+        Ok(block_on(self.client.spent_index(block_height))?.into())
     }
 
-    fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>> {
+    fn utxos(&self, block_height: Height) -> spdk_core::error::Result<Vec<UtxoData>> {
         Ok(block_on(self.client.utxos(block_height))?
             .into_iter()
             .map(Into::into)
             .collect())
     }
 
-    fn block_height(&self) -> Result<Height> {
-        block_on(self.client.block_height())
+    fn block_height(&self) -> spdk_core::error::Result<Height> {
+        Ok(block_on(self.client.block_height())?)
     }
 }

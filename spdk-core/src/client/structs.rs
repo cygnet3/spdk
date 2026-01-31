@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Error;
+use crate::error::Error;
 use bitcoin::{
     absolute::Height,
     address::NetworkUnchecked,
@@ -41,8 +41,8 @@ pub enum RecipientAddress {
 }
 
 impl TryFrom<String> for RecipientAddress {
-    type Error = anyhow::Error;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    type Error = Error;
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
         if let Ok(sp_address) = SilentPaymentAddress::try_from(value.as_str()) {
             Ok(Self::SpAddress(sp_address))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
@@ -50,7 +50,7 @@ impl TryFrom<String> for RecipientAddress {
         } else if let Ok(data) = Vec::from_hex(&value) {
             Ok(Self::Data(data))
         } else {
-            Err(anyhow::Error::msg("Unknown recipient address type"))
+            Err(Error::UnknownAddressType)
         }
     }
 }
@@ -88,11 +88,11 @@ pub enum SpendKey {
 }
 
 impl TryInto<SecretKey> for SpendKey {
-    type Error = anyhow::Error;
-    fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
+    type Error = Error;
+    fn try_into(self) -> std::result::Result<SecretKey, Error> {
         match self {
             Self::Secret(k) => Ok(k),
-            Self::Public(_) => Err(Error::msg("Can't take SecretKey from Public")),
+            Self::Public(_) => Err(Error::MissingSecretKey),
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::RangeInclusive};
 
-use anyhow::Result;
+use crate::error::Result;
 use bitcoin::{absolute::Height, Amount};
 
 use crate::{BlockData, SpentIndexData, UtxoData};

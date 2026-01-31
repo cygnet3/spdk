@@ -13,8 +13,9 @@ spdk-core = { path = "spdk-core", version = "0.1.0" , default-features = false}
 bitcoin = { path = "bitcoin" }
 
 # Core dependencies - shared across crates
-silentpayments = "0.4"
-anyhow = "1.0"
+# silentpayments = "0.4"
+silentpayments = { git = "https://github.com/pythcoiner/rust-silentpayments.git", branch = "secp_29"}
+thiserror = "2"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 rayon = "1.10.0"

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::Result;
 use async_trait::async_trait;
 
 /// Minimal async HTTP client trait that can be implemented with any HTTP library.
@@ -15,9 +15,8 @@ use async_trait::async_trait;
 /// Simply implement the two methods with your preferred HTTP library:
 ///
 /// ```ignore
-/// use anyhow::Result;
 /// use async_trait::async_trait;
-/// use backend_blindbit_native::HttpClient;
+/// use backend_blindbit_native::{HttpClient, error::Result};
 ///
 /// #[derive(Clone)]
 /// struct MyHttpClient {
@@ -31,7 +30,7 @@ use async_trait::async_trait;
 ///         // Build URL with query params and return response body
 ///         Ok("response".to_string())
 ///     }
-///     
+///
 ///     async fn post_json(&self, url: &str, json_body: &str) -> Result<String> {
 ///         // Implement POST request with your HTTP library
 ///         // Send JSON body and return response body

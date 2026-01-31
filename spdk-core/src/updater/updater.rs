@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bitcoin::{absolute::Height, BlockHash, OutPoint};
 
-use anyhow::Result;
+use crate::error::Result;
 
 use crate::OwnedOutput;
 

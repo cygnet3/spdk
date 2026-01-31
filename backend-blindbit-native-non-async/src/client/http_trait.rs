@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::Result;
 
 /// Minimal async HTTP client trait that can be implemented with any HTTP library.
 ///

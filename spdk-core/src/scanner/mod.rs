@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 #[cfg(not(all(not(target_arch = "wasm32"), feature = "parallel")))]
-use anyhow::Error;
-use anyhow::Result;
+use crate::error::Error;
+use crate::error::Result;
 use bitcoin::{
     absolute::Height, bip158::BlockFilter, Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
 };
@@ -318,7 +318,7 @@ pub trait SpScanner {
                         if x.scriptpubkey.is_p2tr() {
                             Some(
                                 XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
-                                    .map_err(Error::new),
+                                    .map_err(Error::from),
                             )
                         } else {
                             None
@@ -698,7 +698,7 @@ pub trait AsyncSpScanner: Send + Sync {
                         if x.scriptpubkey.is_p2tr() {
                             Some(
                                 XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
-                                    .map_err(anyhow::Error::new),
+                                    .map_err(crate::error::Error::from),
                             )
                         } else {
                             None

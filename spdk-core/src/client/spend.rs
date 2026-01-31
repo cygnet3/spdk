@@ -22,7 +22,7 @@ use bitcoin::{
 use silentpayments::utils as sp_utils;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
-use anyhow::{Error, Result};
+use crate::error::{Error, Result};
 
 use crate::constants::{DATA_CARRIER_SIZE, NUMS};
 
@@ -45,7 +45,7 @@ impl SpClient {
             .iter()
             .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
         {
-            return Err(Error::msg("All outputs must be unspent".to_string()));
+            return Err(Error::UnspentOutputsRequired);
         }
 
         // used to estimate the size of a taproot output
@@ -69,7 +69,8 @@ impl SpClient {
                     let value = recipient.amount;
                     let script_pubkey = unchecked_address
                         .clone()
-                        .require_network(network)?
+                        .require_network(network)
+                        .map_err(|e| Error::Address(e.to_string()))?
                         .script_pubkey();
 
                     Ok(TxOut {
@@ -79,10 +80,7 @@ impl SpClient {
                 }
                 RecipientAddress::SpAddress(sp_address) => {
                     if sp_address.get_network() != address_sp_network {
-                        return Err(Error::msg(format!(
-                            "Wrong network for address {}",
-                            sp_address
-                        )));
+                        return Err(Error::WrongNetwork(sp_address.to_string()));
                     }
 
                     Ok(TxOut {
@@ -94,12 +92,12 @@ impl SpClient {
                     let value = recipient.amount;
                     let data_len = data.len();
                     if value > Amount::from_sat(0) {
-                        Err(Error::msg("Data output must have an amount of 0!"))
+                        Err(Error::DataOutputNonZero)
                     } else if data_len > DATA_CARRIER_SIZE {
-                        Err(Error::msg(format!(
-                            "Can't embed data of length {}. Max length: {}",
-                            data_len, DATA_CARRIER_SIZE
-                        )))
+                        Err(Error::DataTooLarge {
+                            len: data_len,
+                            max: DATA_CARRIER_SIZE,
+                        })
                     } else {
                         let mut op_return = PushBytesBuf::with_capacity(data_len);
                         op_return.extend_from_slice(data)?;
@@ -180,7 +178,7 @@ impl SpClient {
             .iter()
             .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
         {
-            return Err(Error::msg("All outputs must be unspent".to_string()));
+            return Err(Error::UnspentOutputsRequired);
         }
 
         // used to estimate the size of a taproot output
@@ -200,14 +198,15 @@ impl SpClient {
         let output = match &recipient {
             RecipientAddress::LegacyAddress(address) => Ok(TxOut {
                 value: Amount::ZERO,
-                script_pubkey: address.clone().require_network(network)?.script_pubkey(),
+                script_pubkey: address
+                    .clone()
+                    .require_network(network)
+                    .map_err(|e| Error::Address(e.to_string()))?
+                    .script_pubkey(),
             }),
             RecipientAddress::SpAddress(sp_address) => {
                 if sp_address.get_network() != address_sp_network {
-                    return Err(Error::msg(format!(
-                        "Wrong network for address {}",
-                        sp_address
-                    )));
+                    return Err(Error::WrongNetwork(sp_address.to_string()));
                 }
 
                 Ok(TxOut {
@@ -215,7 +214,7 @@ impl SpClient {
                     script_pubkey: placeholder_spk.clone(),
                 })
             }
-            RecipientAddress::Data(_) => Err(Error::msg("Draining to OP_RETURN not allowed")),
+            RecipientAddress::Data(_) => Err(Error::DrainToOpReturn),
         }?;
 
         // for a drain transaction, we have no target outputs.
@@ -254,7 +253,7 @@ impl SpClient {
         let change = coin_selector.drain(target, change_policy);
 
         if change.is_none() {
-            return Err(Error::msg("No funds available"));
+            return Err(Error::NoFunds);
         }
 
         let recipients = vec![Recipient {
@@ -310,7 +309,7 @@ impl SpClient {
                     // We now need to fill the sp outputs with actual spk
                     let pubkeys = sp_address2xonlypubkeys
                         .get(s)
-                        .ok_or(Error::msg("Unknown sp address"))?;
+                        .ok_or(Error::UnknownSpAddress)?;
 
                     // we currently only allow having 1 output per silent payment address
                     // note: when changing this, it should also be accounted for in 'create_new_transaction'
@@ -322,13 +321,14 @@ impl SpClient {
                             script_pubkey: script,
                         })
                     } else {
-                        Err(Error::msg("multiple outputs not supported"))
+                        Err(Error::MultipleOutputsNotSupported)
                     }
                 }
                 RecipientAddress::LegacyAddress(unchecked_address) => {
                     let script = unchecked_address
                         .clone()
-                        .require_network(unsigned_transaction.network)?
+                        .require_network(unsigned_transaction.network)
+                        .map_err(|e| Error::Address(e.to_string()))?
                         .script_pubkey();
 
                     Ok(TxOut {
@@ -338,14 +338,14 @@ impl SpClient {
                 }
                 RecipientAddress::Data(data) => {
                     if recipient.amount > Amount::from_sat(0) {
-                        return Err(Error::msg("Data output must have an amount of 0!"));
+                        return Err(Error::DataOutputNonZero);
                     }
                     let data_len = data.len();
                     if data_len > DATA_CARRIER_SIZE {
-                        return Err(Error::msg(format!(
-                            "Can't embed data of length {}. Max length: {}",
-                            data_len, DATA_CARRIER_SIZE
-                        )));
+                        return Err(Error::DataTooLarge {
+                            len: data_len,
+                            max: DATA_CARRIER_SIZE,
+                        });
                     }
                     let mut op_return = PushBytesBuf::with_capacity(data_len);
                     op_return.extend_from_slice(data)?;
@@ -376,17 +376,16 @@ impl SpClient {
         input_index: usize,
         cache: &mut SighashCache<T>,
         tapleaf_hash: Option<TapLeafHash>,
-    ) -> Result<Message, Error> {
+    ) -> Result<Message> {
         let prevouts = Prevouts::All(prevouts);
 
         let sighash = match tapleaf_hash {
-            Some(leaf_hash) => cache.taproot_script_spend_signature_hash(
-                input_index,
-                &prevouts,
-                leaf_hash,
-                hash_ty,
-            )?,
-            None => cache.taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)?,
+            Some(leaf_hash) => cache
+                .taproot_script_spend_signature_hash(input_index, &prevouts, leaf_hash, hash_ty)
+                .map_err(|e| Error::Sighash(e.to_string()))?,
+            None => cache
+                .taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)
+                .map_err(|e| Error::Sighash(e.to_string()))?,
         };
         #[cfg(feature = "bitcoin_31")]
         let msg = Message::from_digest(sighash.into_32());
@@ -405,7 +404,7 @@ impl SpClient {
 
         let to_sign = match unsigned_tx.unsigned_tx.as_ref() {
             Some(tx) => tx,
-            None => return Err(Error::msg("Missing unsigned transaction")),
+            None => return Err(Error::MissingUnsignedTx),
         };
 
         let mut signed = to_sign.clone();
@@ -434,10 +433,7 @@ impl SpClient {
                 .selected_utxos
                 .iter()
                 .find(|(outpoint, _)| *outpoint == input.previous_output)
-                .ok_or(Error::msg(format!(
-                    "prevout for output {} not in selected utxos",
-                    i
-                )))?;
+                .ok_or(Error::MissingPrevout(i))?;
 
             let tweak = SecretKey::from_slice(owned_output.tweak.as_slice())?;
 

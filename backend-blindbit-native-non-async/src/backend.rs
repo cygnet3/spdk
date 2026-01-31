@@ -5,7 +5,6 @@ use std::{
 
 use bitcoin::{absolute::Height, Amount};
 
-use anyhow::Result;
 #[cfg(feature = "rayon")]
 use rayon::{
     iter::{IntoParallelIterator, ParallelIterator},
@@ -27,7 +26,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     /// # Arguments
     /// * `blindbit_url` - Base URL of the Blindbit server
     /// * `http_client` - HTTP client implementation
-    pub fn new(blindbit_url: String, http_client: H) -> Result<Self> {
+    pub fn new(blindbit_url: String, http_client: H) -> crate::error::Result<Self> {
         Ok(Self {
             client: BlindbitClient::new(blindbit_url, http_client)?,
         })
@@ -112,12 +111,12 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     }
 
     /// Get spent index data for a block height
-    pub fn spent_index(&self, block_height: Height) -> Result<SpentIndexData> {
-        self.client.spent_index(block_height).map(Into::into)
+    pub fn spent_index(&self, block_height: Height) -> crate::error::Result<SpentIndexData> {
+        Ok(self.client.spent_index(block_height)?.into())
     }
 
     /// Get UTXO data for a block height
-    pub fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>> {
+    pub fn utxos(&self, block_height: Height) -> crate::error::Result<Vec<UtxoData>> {
         Ok(self
             .client
             .utxos(block_height)?
@@ -127,7 +126,7 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     }
 
     /// Get the current block height from the server
-    pub fn block_height(&self) -> Result<Height> {
+    pub fn block_height(&self) -> crate::error::Result<Height> {
         self.client.block_height()
     }
 }
@@ -136,7 +135,7 @@ fn get_block_data_for_height<H>(
     height: u32,
     dust_limit: Option<Amount>,
     with_cutthrough: bool,
-    sender: mpsc::Sender<Result<BlockData, anyhow::Error>>,
+    sender: mpsc::Sender<spdk_core::error::Result<BlockData>>,
     client: Arc<BlindbitClient<H>>,
 ) where
     H: HttpClient,
@@ -144,8 +143,7 @@ fn get_block_data_for_height<H>(
     let blkheight = match Height::from_consensus(height) {
         Ok(bh) => bh,
         Err(e) => {
-            let error = anyhow::Error::from(e);
-            sender.send(Err(error)).expect("closed");
+            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
             return;
         }
     };
@@ -156,21 +154,21 @@ fn get_block_data_for_height<H>(
     let tweaks = match tweaks {
         Ok(t) => t,
         Err(e) => {
-            sender.send(Err(e)).expect("closed");
+            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
             return;
         }
     };
     let new_utxo_filter = match client.filter_new_utxos(blkheight) {
         Ok(f) => f,
         Err(e) => {
-            sender.send(Err(e)).expect("closed");
+            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
             return;
         }
     };
     let spent_filter = match client.filter_spent(blkheight) {
         Ok(f) => f,
         Err(e) => {
-            sender.send(Err(e)).expect("closed");
+            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
             return;
         }
     };
@@ -196,15 +194,15 @@ impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
         self.get_block_data_for_range(range, dust_limit, with_cutthrough)
     }
 
-    fn spent_index(&self, block_height: Height) -> Result<SpentIndexData> {
-        self.spent_index(block_height)
+    fn spent_index(&self, block_height: Height) -> spdk_core::error::Result<SpentIndexData> {
+        Ok(self.spent_index(block_height)?)
     }
 
-    fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>> {
-        self.utxos(block_height)
+    fn utxos(&self, block_height: Height) -> spdk_core::error::Result<Vec<UtxoData>> {
+        Ok(self.utxos(block_height)?)
     }
 
-    fn block_height(&self) -> Result<Height> {
-        self.block_height()
+    fn block_height(&self) -> spdk_core::error::Result<Height> {
+        Ok(self.block_height()?)
     }
 }

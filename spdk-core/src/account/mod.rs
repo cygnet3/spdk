@@ -47,7 +47,7 @@ impl<B: ChainBackend, U: Updater> SpAccount<B, U> {
         self.owned_outpoints.clone().into_iter().collect()
     }
 
-    pub fn block_height(&self) -> Result<Height, anyhow::Error> {
+    pub fn block_height(&self) -> crate::error::Result<Height> {
         self.backend.block_height()
     }
 
@@ -70,10 +70,13 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         end: bitcoin::absolute::Height,
         dust_limit: Option<bitcoin::Amount>,
         with_cutthrough: bool,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         self.stop = false;
         if start > end {
-            anyhow::bail!("bigger start than end: {} > {}", start, end);
+            return Err(crate::error::Error::InvalidRange(
+                start.to_consensus_u32(),
+                end.to_consensus_u32(),
+            ));
         }
 
         log::info!("start: {} end: {}", start, end);
@@ -100,7 +103,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
     fn process_block(
         &mut self,
         blockdata: crate::BlockData,
-    ) -> anyhow::Result<(
+    ) -> crate::error::Result<(
         std::collections::HashMap<bitcoin::OutPoint, crate::OwnedOutput>,
         std::collections::HashSet<bitcoin::OutPoint>,
     )> {
@@ -130,7 +133,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         blkheight: bitcoin::absolute::Height,
         tweaks: Vec<bitcoin::secp256k1::PublicKey>,
         new_utxo_filter: crate::FilterData,
-    ) -> anyhow::Result<std::collections::HashMap<bitcoin::OutPoint, crate::OwnedOutput>> {
+    ) -> crate::error::Result<std::collections::HashMap<bitcoin::OutPoint, crate::OwnedOutput>> {
         let mut res = HashMap::new();
 
         if !tweaks.is_empty() {
@@ -178,7 +181,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         &self,
         blkheight: bitcoin::absolute::Height,
         spent_filter: crate::FilterData,
-    ) -> anyhow::Result<std::collections::HashSet<bitcoin::OutPoint>> {
+    ) -> crate::error::Result<std::collections::HashSet<bitcoin::OutPoint>> {
         let mut res = HashSet::new();
 
         let blkhash = spent_filter.block_hash;
@@ -224,7 +227,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         self.stop
     }
 
-    fn save_state(&mut self) -> anyhow::Result<()> {
+    fn save_state(&mut self) -> crate::error::Result<()> {
         self.updater.save_to_persistent_storage()
     }
 
@@ -233,7 +236,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         height: bitcoin::absolute::Height,
         block_hash: bitcoin::BlockHash,
         outputs: std::collections::HashMap<bitcoin::OutPoint, crate::OwnedOutput>,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         self.updater
             .record_block_outputs(height, block_hash, outputs)
     }
@@ -243,7 +246,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         height: bitcoin::absolute::Height,
         block_hash: bitcoin::BlockHash,
         inputs: std::collections::HashSet<bitcoin::OutPoint>,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         self.updater.record_block_inputs(height, block_hash, inputs)
     }
 
@@ -252,7 +255,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         start: bitcoin::absolute::Height,
         current: bitcoin::absolute::Height,
         end: bitcoin::absolute::Height,
-    ) -> anyhow::Result<()> {
+    ) -> crate::error::Result<()> {
         self.updater.record_scan_progress(start, current, end)
     }
 
@@ -271,7 +274,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
     fn get_input_hashes(
         &self,
         blkhash: bitcoin::BlockHash,
-    ) -> anyhow::Result<std::collections::HashMap<[u8; 8], bitcoin::OutPoint>> {
+    ) -> crate::error::Result<std::collections::HashMap<[u8; 8], bitcoin::OutPoint>> {
         let mut map: HashMap<[u8; 8], OutPoint> = HashMap::new();
 
         for outpoint in &self.owned_outpoints {

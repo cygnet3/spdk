@@ -1,4 +1,5 @@
 #![allow(clippy::module_inception)]
+pub mod error;
 mod backend;
 
 // Async backend - available with "async" feature

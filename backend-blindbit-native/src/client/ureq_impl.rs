@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
+use crate::error::{Error, Result};
 use super::http_trait::HttpClient;
 
 /// Minimal HTTP client implementation using ureq.
@@ -69,9 +69,9 @@ impl HttpClient for UreqClient {
             .agent
             .get(&full_url)
             .call()
-            .map_err(|e| anyhow!("HTTP GET request failed: {}", e))?
+            .map_err(|e| Error::HttpGet(e.to_string()))?
             .into_string()
-            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+            .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
         Ok(response)
     }
@@ -83,9 +83,9 @@ impl HttpClient for UreqClient {
             .post(url)
             .set("Content-Type", "application/json")
             .send_string(json_body)
-            .map_err(|e| anyhow!("HTTP POST request failed: {}", e))?
+            .map_err(|e| Error::HttpPost(e.to_string()))?
             .into_string()
-            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+            .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
         Ok(response)
     }

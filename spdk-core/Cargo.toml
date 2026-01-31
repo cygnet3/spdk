@@ -31,7 +31,7 @@ bitcoin_32 = ["bitcoin/32", "silentpayments/secp_29"]
 [dependencies]
 # Core dependencies - always available
 silentpayments.workspace = true
-anyhow.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bitcoin.workspace = true

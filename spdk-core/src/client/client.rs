@@ -1,5 +1,5 @@
 use super::SpendKey;
-use anyhow::{Error, Result};
+use crate::error::{Error, Result};
 use bitcoin::{
     bip32,
     secp256k1::{All, PublicKey, Secp256k1, SecretKey},
@@ -120,7 +120,7 @@ impl SpClient {
         let secp = Secp256k1::new();
         let seed = mnemonic.to_seed(pp);
         let master_xpriv = bip32::Xpriv::new_master(network, &seed)
-            .map_err(|_| Error::msg("Fails to generate Xpriv from seed"))?;
+            .map_err(|_| Error::SeedDerivation)?;
         let network_idx = match network {
             Network::Bitcoin => 0u32,
             _ => 1,
@@ -141,12 +141,12 @@ impl SpClient {
 
         let scan = master_xpriv
             .derive_priv(&secp, &scan_deriv)
-            .map_err(|_| Error::msg("Fail to derive scan key"))?
+            .map_err(|_| Error::KeyDerivation("scan"))?
             .private_key;
 
         let spend = master_xpriv
             .derive_priv(&secp, &spend_deriv)
-            .map_err(|_| Error::msg("Fail to derive spend key"))?
+            .map_err(|_| Error::KeyDerivation("spend"))?
             .private_key;
 
         Self::new_inner(scan, spend.into(), network, secp)
@@ -170,7 +170,7 @@ impl SpClient {
 
     pub fn try_get_secret_spend_key(&self) -> Result<SecretKey> {
         match self.spend_key {
-            SpendKey::Public(_) => Err(Error::msg("Don't have secret key")),
+            SpendKey::Public(_) => Err(Error::MissingSecretKey),
             SpendKey::Secret(sk) => Ok(sk),
         }
     }

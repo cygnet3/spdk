@@ -1,7 +1,7 @@
 use std::ops::RangeInclusive;
 use std::pin::Pin;
 
-use anyhow::Result;
+use crate::error::Result;
 use bitcoin::{absolute::Height, Amount};
 use futures::Stream;
 

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use crate::error::{Error, Result};
 
 use super::http_trait::HttpClient;
 
@@ -48,13 +48,13 @@ impl HttpClient for UreqClient {
 
         let mut response = req
             .call()
-            .map_err(|e| anyhow!("HTTP GET request failed: {}", e))?;
+            .map_err(|e| Error::HttpGet(e.to_string()))?;
 
         let body = String::new();
         response
             .body_mut()
             .read_to_string()
-            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+            .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
         Ok(body)
     }
@@ -65,10 +65,10 @@ impl HttpClient for UreqClient {
             .post(url)
             .header("Content-Type", "application/json")
             .send(json_body)
-            .map_err(|e| anyhow!("HTTP POST request failed: {}", e))?
+            .map_err(|e| Error::HttpPost(e.to_string()))?
             .body_mut()
             .read_to_string()
-            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+            .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
         Ok(response)
     }
