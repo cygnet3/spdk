@@ -5,7 +5,7 @@ use std::{
 
 pub struct ThreadPool {
     workers: Vec<thread::JoinHandle<()>>,
-    sender: mpsc::Sender<Box<dyn FnOnce() + Send + 'static>>,
+    sender: Option<mpsc::Sender<Box<dyn FnOnce() + Send + 'static>>>,
 }
 
 type Task = Box<dyn FnOnce() + Send + 'static>;
@@ -21,21 +21,16 @@ impl ThreadPool {
             let rx = Arc::clone(&rx);
             #[allow(clippy::while_let_loop)]
             workers.push(thread::spawn(move || loop {
-                let _task: Task = match rx.lock().expect("poisoned").recv() {
+                let task: Task = match rx.lock().expect("poisoned").recv() {
                     Ok(task) => task,
-                    Err(_) => {
-                        // TODO: log
-                        break;
-                    }
+                    Err(_) => break,
                 };
-                // TODO:
-                // if std::panic::catch_unwind(task).is_err() {
-                // }
+                task();
             }));
         }
         ThreadPool {
             workers,
-            sender: tx,
+            sender: Some(tx),
         }
     }
 
@@ -43,15 +38,18 @@ impl ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-        let _ = self.sender.send(Box::new(f));
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(Box::new(f));
+        }
     }
 }
 
 impl Drop for ThreadPool {
     fn drop(&mut self) {
-        let _ = &self.sender;
-        for worker in &mut self.workers.drain(..) {
-            worker.join().unwrap();
+        // Drop the sender first to close the channel, so workers exit their recv() loop
+        self.sender.take();
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
         }
     }
 }
