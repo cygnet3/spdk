@@ -1,0 +1,48 @@
+[package]
+name = "backend-blindbit-native"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[dependencies]
+# Core client dependency
+spdk-core.workspace = true
+
+# URL parsing (minimal: ~20KB)
+url = "2.5"
+
+# Minimal HTTP client (optional, ~200KB + TLS adds ~600KB)
+# TLS support via rustls is required for HTTPS connections to blindbit
+ureq = { version = "2.10", default-features = false, features = ["json", "tls"], optional = true }
+
+# Logging
+log.workspace = true
+
+# Re-export some core types for convenience
+bitcoin.workspace = true
+thiserror.workspace = true
+silentpayments.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+#Async dependencies
+# block_on() needs futures and async-trait
+futures = { workspace = true}
+async-trait = { workspace = true}
+
+# Async dependencies (optional)
+futures-util = { workspace = true, optional = true }
+
+[features]
+# Default: both sync and async APIs available
+default = ["async"]
+
+# Enable async APIs
+async = ["spdk-core/async",  "dep:futures-util"]
+
+# Sync-only mode - excludes async code (backwards compatible)
+sync = ["spdk-core/sync"]
+
+# Minimal HTTP client implementation using ureq
+ureq-client = ["ureq"]

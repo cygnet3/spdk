@@ -1,25 +1,32 @@
-[package]
-name = "spdk"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "spdk-core",
+    "backend-blindbit-native",
+    "backend-blindbit-native-non-async",
+    "backend_tests/blindbit-native",
+]
+resolver = "3"
 
-[lib]
-name = "spdk"
-crate-type = ["lib", "staticlib", "cdylib"]
+[workspace.dependencies]
+# Internal workspace crates
+# NOTE: if default-features == true, it cannot be disabled by crates using spdk-core.workspace = true
+spdk-core = { path = "spdk-core", version = "0.1.0" , default-features = false}
+bitcoin = { path = "bitcoin" }
 
-[dependencies]
-silentpayments = "0.4"
-anyhow = "1.0"
+# Core dependencies - shared across crates
+# silentpayments = "0.4"
+silentpayments = { git = "https://github.com/pythcoiner/rust-silentpayments.git", branch = "secp_29"}
+thiserror = "2"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
-bitcoin = { version = "0.31.1", features = ["serde", "rand", "base64"] }
 rayon = "1.10.0"
 futures = "0.3"
-log = "0.4"
+futures-util = "0.3.31"
 async-trait = "0.1"
-reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false, optional = true }
-hex = { version = "0.4.3", features = ["serde"], optional = true }
+log = "0.4"
+hex = { version = "0.4.3", features = ["serde"] }
 bdk_coin_select = "0.4.0"
+bip39 = { version = "2.2.0" }
 
-[features]
-blindbit-backend = ["reqwest", "hex"]
+[workspace.package]
+repository = "https://github.com/cygnet3/spdk"

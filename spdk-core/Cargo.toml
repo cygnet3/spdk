@@ -1,0 +1,52 @@
+[package]
+name = "spdk-core"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Default: both sync and async APIs available, with parallelization
+default = ["parallel", "async", "mnemonic"]
+
+# Sync-only mode - excludes async code and async dependencies
+sync = []
+
+# Enable async APIs (included by default, excluded with sync)
+async = ["dep:futures", "dep:async-trait"]
+
+# Enable CPU parallelization with rayon (native only, recommended)
+parallel = ["dep:rayon"]
+
+# Enable usage of bip39 mnemonics
+mnemonic = ["dep:bip39"] # Enable using bip39 mnemonics for create SpClient
+rand = ["bip39/rand"]
+
+# rust-bitcoin versions
+bitcoin_31 = ["bitcoin/31", "silentpayments/secp_28"]
+bitcoin_32 = ["bitcoin/32", "silentpayments/secp_29"]
+
+[dependencies]
+# Core dependencies - always available
+silentpayments.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bitcoin.workspace = true
+hex.workspace = true
+bdk_coin_select.workspace = true
+log.workspace = true
+
+# Async dependencies - optional
+futures = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+
+# Parallelization (not available on WASM)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = { workspace = true, optional = true }
+
+# Bip 39 for use of mnemonics
+bip39 = { workspace = true, optional = true }
+

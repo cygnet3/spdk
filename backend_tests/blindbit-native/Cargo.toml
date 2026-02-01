@@ -1,0 +1,18 @@
+[package]
+name = "blindbit-native"
+version = "0.1.0"
+edition = "2021"
+repository.workspace = true
+
+[dependencies]
+backend-blindbit-native = {path = "../../backend-blindbit-native/", default-features = false, features =["sync", "ureq-client"]}
+blindbitd = { git = "https://github.com/pythcoiner/blindbitd.git" }
+bitcoin = { version = "0.32.0"}
+# bwk-utils = {path = "../../../bwk/utils", features = ["test"]}
+bwk-utils = { git = "https://github.com/pythcoiner/bwk.git", features = ["test"]}
+# bwk-sign = {path = "../../../bwk/sign/"}
+bwk-sign = { git = "https://github.com/pythcoiner/bwk.git"}
+spdk-core = {path = "../../spdk-core/", default-features = false, features = ["sync", "parallel", "mnemonic", "rand", "bitcoin_32"]}
+bip39 = {workspace = true}
+rand = "0.9.2"
+futures.workspace = true

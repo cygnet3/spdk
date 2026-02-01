@@ -1,0 +1,33 @@
+#![allow(clippy::module_inception)]
+
+pub mod account;
+pub mod backend;
+pub mod client;
+pub mod constants;
+pub mod error;
+pub mod scanner;
+pub mod types;
+pub mod updater;
+
+// Re-export core functionality
+pub use backend::{BlockDataIterator, ChainBackend};
+pub use client::*;
+pub use constants::*;
+pub use error::Error;
+pub use scanner::SpScanner;
+pub use types::*;
+pub use updater::Updater;
+// Re-export commonly used external types
+pub use bdk_coin_select::FeeRate;
+#[cfg(feature = "mnemonic")]
+pub use bip39;
+pub use bitcoin;
+pub use silentpayments;
+
+// Async types available by default, excluded when "sync" feature is enabled
+#[cfg(feature = "async")]
+pub use backend::{AsyncChainBackend, BlockDataStream};
+#[cfg(feature = "async")]
+pub use scanner::AsyncSpScanner;
+#[cfg(feature = "async")]
+pub use updater::AsyncUpdater;
