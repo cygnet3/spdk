@@ -1,4 +1,5 @@
 mod client;
+mod signing;
 mod spend;
 mod structs;
 

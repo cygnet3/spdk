@@ -17,9 +17,17 @@ rayon = "1.10.0"
 futures = "0.3"
 log = "0.4"
 async-trait = "0.1"
-reqwest = { version = "0.12.4", features = ["rustls-tls", "gzip", "json"], default-features = false, optional = true }
+reqwest = { version = "0.12.4", features = [
+  "rustls-tls",
+  "gzip",
+  "json",
+], default-features = false, optional = true }
 hex = { version = "0.4.3", features = ["serde"], optional = true }
 bdk_coin_select = "0.4.0"
+bip322 = "0.0.7"
+
+[dev-dependencies]
+rand = "0.9.0"
 
 [features]
 blindbit-backend = ["reqwest", "hex"]
