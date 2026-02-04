@@ -1,14 +1,13 @@
 use std::time::Duration;
 
-use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, Txid};
+use bitcoin::{Amount, Txid, absolute::Height, secp256k1::PublicKey};
 use reqwest::{Client, Url};
 
 use anyhow::Result;
 
-use crate::backend::blindbit::client::structs::InfoResponse;
-
 use super::structs::{
-    BlockHeightResponse, FilterResponse, ForwardTxRequest, SpentIndexResponse, UtxoResponse,
+    BlockHeightResponse, FilterResponse, ForwardTxRequest, InfoResponse, SpentIndexResponse,
+    UtxoResponse,
 };
 
 #[derive(Clone, Debug)]
