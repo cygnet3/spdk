@@ -1,12 +1,13 @@
 use std::{ops::RangeInclusive, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use bitcoin::{absolute::Height, Amount};
-use futures::{stream, Stream, StreamExt};
+use bitcoin::{Amount, absolute::Height};
+use futures::{Stream, StreamExt, stream};
 
 use anyhow::Result;
+use spdk_core::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
-use crate::{backend::blindbit::BlindbitClient, BlockData, ChainBackend, SpentIndexData, UtxoData};
+use crate::client::BlindbitClient;
 
 const CONCURRENT_FILTER_REQUESTS: usize = 200;
 
