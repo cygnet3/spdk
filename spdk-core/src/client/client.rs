@@ -108,17 +108,23 @@ impl SpClient {
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], PublicKey>> {
+        // if using rayon feature, import the preludes
+        #[cfg(feature = "rayon")]
         use rayon::prelude::*;
+
         let b_scan = &self.get_scan_key();
 
-        let shared_secrets: Vec<PublicKey> = tweak_data_vec
-            .into_par_iter()
-            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
-            .collect();
+        // parallel iterator using rayon
+        #[cfg(feature = "rayon")]
+        let tweak_data_iterator = tweak_data_vec.into_par_iter();
 
-        let items: Result<Vec<_>> = shared_secrets
-            .into_par_iter()
-            .map(|secret| {
+        // regular iterator
+        #[cfg(not(feature = "rayon"))]
+        let tweak_data_iterator = tweak_data_vec.into_iter();
+
+        let items: Result<Vec<_>> = tweak_data_iterator
+            .map(|tweak| {
+                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
                 Ok((secret, spks.into_values()))
