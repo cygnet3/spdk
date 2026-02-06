@@ -2,35 +2,15 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use bitcoin::{
-    absolute::Height,
+    Address, Amount, Network, OutPoint, Transaction,
     address::NetworkUnchecked,
     hex::{DisplayHex, FromHex},
     key::Secp256k1,
     secp256k1::{PublicKey, SecretKey},
-    Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{receiving::Label, SilentPaymentAddress};
-
-type SpendingTxId = [u8; 32];
-type MinedInBlock = [u8; 32];
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum OutputSpendStatus {
-    Unspent,
-    Spent(SpendingTxId),
-    Mined(MinedInBlock),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct OwnedOutput {
-    pub blockheight: Height,
-    pub tweak: [u8; 32], // scalar in big endian format
-    pub amount: Amount,
-    pub script: ScriptBuf,
-    pub label: Option<Label>,
-    pub spend_status: OutputSpendStatus,
-}
+use silentpayments::SilentPaymentAddress;
+use spdk_core::updater::OwnedOutput;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(untagged)]
@@ -44,7 +24,7 @@ impl TryFrom<String> for RecipientAddress {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if let Ok(sp_address) = SilentPaymentAddress::try_from(value.as_str()) {
-            Ok(Self::SpAddress(sp_address.into()))
+            Ok(Self::SpAddress(sp_address))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))
         } else if let Ok(data) = Vec::from_hex(&value) {

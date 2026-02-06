@@ -1,5 +1,5 @@
-mod backend;
 mod structs;
+mod r#trait;
 
-pub use backend::ChainBackend;
+pub use r#trait::ChainBackend;
 pub use structs::*;

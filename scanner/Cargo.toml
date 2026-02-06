@@ -1,0 +1,26 @@
+[package]
+name = "spdk-scanner"
+version = "0.1.0"
+edition = "2024"
+repository.workspace = true
+
+[dependencies]
+spdk-core = { path = "../spdk-core" }
+spdk-client = { path = "../client" }
+
+anyhow = "1.0"
+async-trait = "0.1"
+bitcoin = { version = "0.31.1", features = ["serde", "rand", "base64"] }
+futures = "0.3"
+serde = { version = "1.0.188", features = ["derive"] }
+silentpayments = "0.4"
+serde_json = "1.0.107"
+rayon = "1.10.0"
+log = "0.4"
+reqwest = { version = "0.12.4", features = [
+  "rustls-tls",
+  "gzip",
+  "json",
+], default-features = false, optional = true }
+hex = { version = "0.4.3", features = ["serde"], optional = true }
+bdk_coin_select = "0.4.0"
