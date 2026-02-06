@@ -145,8 +145,7 @@ impl SpClient {
         let change = coin_selector.drain(target, change_policy);
         let change_value = if change.is_some() { change.value } else { 0 };
         if change_value > 0 {
-            let change_address =
-                SilentPaymentAddress::try_from(self.sp_receiver.get_change_address())?;
+            let change_address = self.sp_receiver.get_change_address();
             recipients.push(Recipient {
                 address: RecipientAddress::SpAddress(change_address),
                 amount: Amount::from_sat(change_value),
