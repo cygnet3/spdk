@@ -7,7 +7,7 @@ use futures::{Stream, StreamExt, stream};
 use anyhow::Result;
 use spdk_core::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
-use crate::client::BlindbitClient;
+use crate::BlindbitClient;
 
 const CONCURRENT_FILTER_REQUESTS: usize = 200;
 
