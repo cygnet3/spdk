@@ -5,7 +5,7 @@ use bitcoin::{Amount, absolute::Height};
 use futures::{Stream, StreamExt, stream};
 
 use anyhow::Result;
-use spdk_core::{BlockData, ChainBackend, SpentIndexData, UtxoData};
+use spdk_core::backend::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
 use crate::client::BlindbitClient;
 

@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
 use bdk_coin_select::{
-    Candidate, ChangePolicy, CoinSelector, DrainWeights, FeeRate, Target, TargetFee, TargetOutputs,
-    TR_DUST_RELAY_MIN_VALUE,
+    Candidate, ChangePolicy, CoinSelector, DrainWeights, FeeRate, TR_DUST_RELAY_MIN_VALUE, Target,
+    TargetFee, TargetOutputs,
 };
 use bitcoin::{
+    Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
     absolute::LockTime,
     key::TapTweak,
     script::PushBytesBuf,
@@ -12,20 +13,16 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::Signature,
     transaction::Version,
-    Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
 
 use silentpayments::utils as sp_utils;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
 use anyhow::{Error, Result};
+use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
+use spdk_core::updater::{OutputSpendStatus, OwnedOutput};
 
-use crate::constants::{DATA_CARRIER_SIZE, NUMS};
-
-use super::{
-    OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
-    SpClient,
-};
+use super::{Recipient, RecipientAddress, SilentPaymentUnsignedTransaction, SpClient};
 
 impl SpClient {
     // For now it's only suitable for wallet that spends only silent payments outputs that it owns
@@ -41,7 +38,7 @@ impl SpClient {
             .iter()
             .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
         {
-            return Err(Error::msg(format!("All outputs must be unspent")));
+            return Err(Error::msg("All outputs must be unspent".to_string()));
         }
 
         // used to estimate the size of a taproot output
