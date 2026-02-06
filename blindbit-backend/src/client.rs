@@ -5,7 +5,7 @@ use reqwest::{Client, Url};
 
 use anyhow::Result;
 
-use super::structs::{
+use super::api_structs::{
     BlockHeightResponse, FilterResponse, ForwardTxRequest, InfoResponse, SpentIndexResponse,
     UtxoResponse,
 };

@@ -1,3 +1,4 @@
+pub mod api_structs;
 mod backend;
 mod client;
 
