@@ -1,3 +1,3 @@
-mod updater;
+mod r#trait;
 
-pub use updater::Updater;
+pub use r#trait::Updater;
