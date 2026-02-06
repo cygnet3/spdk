@@ -111,6 +111,6 @@ impl From<&SpendKey> for PublicKey {
 
 impl From<SpendKey> for PublicKey {
     fn from(value: SpendKey) -> Self {
-        value.into()
+        (&value).into()
     }
 }
