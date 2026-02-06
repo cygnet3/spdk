@@ -351,7 +351,7 @@ impl<'a> SpScanner<'a> {
             let mut res = [0u8; 8];
             res.copy_from_slice(&hash[..8]);
 
-            map.insert(res, outpoint.clone());
+            map.insert(res, *outpoint);
         }
 
         Ok(map)
