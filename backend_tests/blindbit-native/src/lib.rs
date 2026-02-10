@@ -182,6 +182,92 @@ pub fn swap_to_sp(
     Some(tx)
 }
 
+/// Generate recipient pubkey for a segwit (P2WPKH) input spending to a silent payment address.
+/// Unlike taproot, no key tweaking is needed.
+#[allow(non_snake_case)]
+pub fn generate_recipient_pubkey_segwit(
+    sk: SecretKey,
+    outpoint: OutPoint,
+    sp_addr: SilentPaymentAddress,
+) -> Option<XOnlyPublicKey> {
+    // No tap tweaking - use raw key directly
+    let input_keys = vec![(sk, false /* NOT taproot */)];
+    let outpoints = vec![(outpoint.txid.to_string(), outpoint.vout)];
+    let partial_secret = spdk_core::silentpayments::utils::sending::calculate_partial_secret(
+        &input_keys,
+        &outpoints,
+    )
+    .ok()?;
+
+    // generate recipient pubkey
+    spdk_core::silentpayments::sending::generate_recipient_pubkeys(vec![sp_addr], partial_secret)
+        .ok()?
+        .into_iter()
+        .next()
+        .and_then(|(_addr, k)| k.into_iter().next())
+}
+
+/// Create and sign a transaction spending a P2WPKH input to a silent payment address.
+/// Uses ECDSA signing instead of Schnorr.
+pub fn swap_to_sp_segwit(
+    sk: SecretKey,
+    outpoint: OutPoint,
+    txout: TxOut,
+    recipient_pubkey: XOnlyPublicKey,
+    fees: bitcoin::Amount,
+    secp: &secp256k1::Secp256k1<All>,
+) -> Option<bitcoin::Transaction> {
+    const DUST: u64 = 330;
+
+    // craft tx - output is P2TR (same as taproot version)
+    let script = ScriptBuf::new_p2tr_tweaked(recipient_pubkey.dangerous_assume_tweaked());
+    if txout.value < (fees + Amount::from_sat(DUST)) {
+        return None;
+    }
+    let value = txout.value - fees;
+    let output = vec![TxOut {
+        value,
+        script_pubkey: script,
+    }];
+    let input = vec![TxIn {
+        previous_output: outpoint,
+        script_sig: Default::default(),
+        sequence: Sequence::ZERO,
+        witness: Default::default(),
+    }];
+    let mut tx = bitcoin::Transaction {
+        version: Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input,
+        output,
+    };
+
+    // ECDSA signing for P2WPKH
+    let pk = PublicKey::from_secret_key(secp, &sk);
+    let mut cache = sighash::SighashCache::new(tx.clone());
+    let sighash_type = bitcoin::sighash::EcdsaSighashType::All;
+    let sighash = cache
+        .p2wpkh_signature_hash(0, &txout.script_pubkey, txout.value, sighash_type)
+        .ok()?;
+    let msg = secp256k1::Message::from_digest_slice(&sighash.as_raw_hash().to_byte_array())
+        .expect("Sighash is always 32 bytes.");
+
+    // ECDSA signature
+    let signature = secp.sign_ecdsa(&msg, &sk);
+    let sig = bitcoin::ecdsa::Signature {
+        signature,
+        sighash_type,
+    };
+
+    // P2WPKH witness: [signature, pubkey]
+    let mut witness = Witness::new();
+    witness.push(sig.serialize());
+    witness.push(pk.serialize());
+    tx.input[0].witness = witness;
+
+    Some(tx)
+}
+
 pub fn clear_logs(bbd: &mut BlindbitD) {
     while let Ok(_log) = bbd.logs.try_recv() {
         //
