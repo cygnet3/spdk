@@ -45,10 +45,15 @@ impl<H: HttpClient + Clone + 'static> BlindbitBackend<H> {
     /// A Iterator of BlockData results
     pub fn get_block_data_for_range(
         &self,
-        range: RangeInclusive<u32>,
+        mut range: RangeInclusive<u32>,
         dust_limit: Option<Amount>,
         with_cutthrough: bool,
     ) -> spdk_core::BlockDataIterator {
+        // blindbit will return an error 500 for genesis block
+        if *range.start() == 0 {
+            range = RangeInclusive::new(1, *range.end());
+        }
+
         #[cfg(feature = "rayon")]
         let iter = self.get_block_data_for_range_rayon(range, dust_limit, with_cutthrough);
 
