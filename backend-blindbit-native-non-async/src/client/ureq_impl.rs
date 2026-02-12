@@ -16,6 +16,16 @@ impl UreqClient {
         Self {
             agent: ureq::Agent::config_builder()
                 .timeout_global(Some(Duration::from_secs(30)))
+                // ureq defaults to max 10 idle connections (3 per host), but the
+                // scanner runs up to 200 concurrent threads (CONCURRENT_FILTER_REQUESTS).
+                // With the default pool size, ~197 threads open fresh TCP sockets on
+                // every request; those sockets enter TIME_WAIT for ~60s after use,
+                // eventually exhausting the OS ephemeral port range (~28k ports) and
+                // causing EADDRNOTAVAIL (os error 99).
+                // Setting the pool size to match concurrency lets all threads reuse
+                // persistent HTTP keep-alive connections instead of opening new ones.
+                .max_idle_connections(200)
+                .max_idle_connections_per_host(200)
                 .build()
                 .into(),
         }
@@ -26,6 +36,9 @@ impl UreqClient {
         Self {
             agent: ureq::Agent::config_builder()
                 .timeout_global(Some(Duration::from_secs(timeout_secs)))
+                // See new() for rationale on pool size.
+                .max_idle_connections(200)
+                .max_idle_connections_per_host(200)
                 .build()
                 .into(),
         }
