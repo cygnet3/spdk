@@ -111,14 +111,12 @@ impl SpClient {
         use rayon::prelude::*;
         let b_scan = &self.get_scan_key();
 
-        let shared_secrets: Vec<PublicKey> = tweak_data_vec
-            .into_par_iter()
-            .map(|tweak| sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan))
-            .collect();
+        // parallel iterator using rayon
+        let tweak_data_iterator = tweak_data_vec.into_par_iter();
 
-        let items: Result<Vec<_>> = shared_secrets
-            .into_par_iter()
-            .map(|secret| {
+        let items: Result<Vec<_>> = tweak_data_iterator
+            .map(|tweak| {
+                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
                 Ok((secret, spks.into_values()))
