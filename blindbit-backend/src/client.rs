@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use bitcoin::{Amount, Txid, absolute::Height, secp256k1::PublicKey};
 use reqwest::{Client, Url};
+use spdk_core::bitcoin::{Amount, Txid, absolute::Height, secp256k1::PublicKey};
 
 use anyhow::Result;
 
