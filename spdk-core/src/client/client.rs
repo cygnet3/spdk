@@ -1,6 +1,5 @@
 use std::{collections::HashMap, io::Write, str::FromStr};
 
-use bitcoin::hashes::Hash;
 use bitcoin::{
     key::constants::ONE,
     secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
@@ -8,13 +7,13 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use silentpayments::utils as sp_utils;
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
     SilentPaymentAddress,
 };
+use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 

@@ -6,9 +6,10 @@ use bdk_coin_select::{
 };
 use bitcoin::{
     absolute::LockTime,
+    hashes::Hash,
     key::TapTweak,
     script::PushBytesBuf,
-    secp256k1::{Keypair, Message, Secp256k1, SecretKey, ThirtyTwoByteHash},
+    secp256k1::{Keypair, Message, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache},
     taproot::Signature,
     transaction::Version,
@@ -384,7 +385,7 @@ impl SpClient {
             )?,
             None => cache.taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)?,
         };
-        let msg = Message::from_digest(sighash.into_32());
+        let msg = Message::from_digest(sighash.to_byte_array());
         Ok(msg)
     }
 
@@ -415,12 +416,12 @@ impl SpClient {
             .collect();
 
         let secp = Secp256k1::signing_only();
-        let hash_ty = bitcoin::TapSighashType::Default; // We impose Default for now
+        let sighash_type = bitcoin::TapSighashType::Default; // We impose Default for now
 
         for (i, input) in to_sign.input.iter().enumerate() {
             let tap_leaf_hash: Option<TapLeafHash> = None;
 
-            let msg = Self::taproot_sighash(hash_ty, &prevouts, i, &mut cache, tap_leaf_hash)?;
+            let msg = Self::taproot_sighash(sighash_type, &prevouts, i, &mut cache, tap_leaf_hash)?;
 
             // Construct the signing key
             let (_, owned_output) = unsigned_tx
@@ -438,10 +439,16 @@ impl SpClient {
 
             let keypair = Keypair::from_secret_key(&secp, &sk);
 
-            let sig = secp.sign_schnorr_with_aux_rand(&msg, &keypair, aux_rand);
+            let signature = secp.sign_schnorr_with_aux_rand(&msg, &keypair, aux_rand);
 
             let mut witness = Witness::new();
-            witness.push(Signature { sig, hash_ty }.to_vec());
+            witness.push(
+                Signature {
+                    signature,
+                    sighash_type,
+                }
+                .to_vec(),
+            );
 
             signed.input[i].witness = witness;
         }
