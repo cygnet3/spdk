@@ -39,7 +39,8 @@ use silentpayments::secp256k1::PublicKey;
 use silentpayments::SilentPaymentAddress;
 
 pub const PSBT_OUT_DNSSEC_PROOF: u8 = 0x35;
-pub const PSBT_IN_SP_TWEAK: u8 = 0x1f;
+pub const PSBT_IN_SP_SPEND_BIP32_DERIVATION: u8 = 0x1f;
+pub const PSBT_IN_SP_TWEAK: u8 = 0x20;
 /// Extension trait for BIP-375 silent payment fields on PSBT v2
 ///
 /// This trait adds methods to access and modify BIP-375 specific fields:
@@ -123,7 +124,7 @@ pub trait Bip375PsbtExt {
     /// * `label` - The label value (0 = change, 1+ = labeled receiving addresses)
     fn set_output_sp_label(&mut self, output_index: usize, label: u32) -> Result<()>;
 
-    // ===== Silent Payment Spending =====
+    // ===== Silent Payment Spend Key Derivation (BIP-376) =====
 
     /// Get silent payment tweak for an input
     ///
@@ -158,6 +159,57 @@ pub trait Bip375PsbtExt {
     /// # Arguments
     /// * `input_index` - Index of the input
     fn remove_input_sp_tweak(&mut self, input_index: usize) -> Result<()>;
+
+    /// Get silent payment spend key BIP32 derivation for an input
+    ///
+    /// Returns the 33-byte spend public key and its BIP32 derivation path.
+    /// This is used by hardware wallets to identify inputs they control when
+    /// spending Silent Payment outputs.
+    ///
+    /// Field type: PSBT_IN_SP_SPEND_BIP32_DERIVATION
+    ///
+    /// # Arguments
+    /// * `input_index` - Index of the input
+    ///
+    /// # Returns
+    /// * `Some((spend_pubkey, fingerprint, path))` - The spend key and derivation info
+    /// * `None` - If the field is not present
+    fn get_input_sp_spend_bip32_derivation(
+        &self,
+        input_index: usize,
+    ) -> Option<(PublicKey, [u8; 4], Vec<u32>)>;
+
+    /// Set silent payment spend key BIP32 derivation for an input
+    ///
+    /// Used by the UPDATER role when spending Silent Payment outputs.
+    /// The spend key is the 33-byte compressed public key that, when tweaked
+    /// with PSBT_IN_SP_TWEAK, produces the key locking the output.
+    ///
+    /// Field type: PSBT_IN_SP_SPEND_BIP32_DERIVATION
+    ///
+    /// # Arguments
+    /// * `input_index` - Index of the input
+    /// * `spend_pubkey` - The 33-byte spend public key
+    /// * `fingerprint` - Master key fingerprint (4 bytes)
+    /// * `path` - BIP32 derivation path (e.g., [352', 0', 0', 1, index])
+    fn set_input_sp_spend_bip32_derivation(
+        &mut self,
+        input_index: usize,
+        spend_pubkey: &PublicKey,
+        fingerprint: [u8; 4],
+        path: Vec<u32>,
+    ) -> Result<()>;
+
+    /// Remove silent payment spend key BIP32 derivation from an input
+    ///
+    /// This is typically called after transaction extraction to clean up the PSBT.
+    /// Prevents accidental re-use of tweaks and keeps PSBTs cleaner.
+    ///
+    /// Field type: PSBT_IN_SP_SPEND_BIP32_DERIVATION
+    ///
+    /// # Arguments
+    /// * `input_index` - Index of the input
+    fn remove_input_sp_spend_bip32_derivation(&mut self, input_index: usize) -> Result<()>;
 
     // ===== Convenience Methods =====
 
@@ -339,6 +391,7 @@ impl Bip375PsbtExt for Psbt {
             key: vec![],
         };
 
+        //FIXME: migrate to dedicated field in psbt_v2 once available instead of using unknowns
         input.unknowns.insert(key, tweak.to_vec());
         Ok(())
     }
@@ -355,6 +408,87 @@ impl Bip375PsbtExt for Psbt {
         };
 
         input.unknowns.remove(&key);
+        Ok(())
+    }
+
+    fn get_input_sp_spend_bip32_derivation(
+        &self,
+        input_index: usize,
+    ) -> Option<(PublicKey, [u8; 4], Vec<u32>)> {
+        let input = self.inputs.get(input_index)?;
+
+        for (key, value) in &input.unknowns {
+            if key.type_value == PSBT_IN_SP_SPEND_BIP32_DERIVATION && key.key.len() == 33 {
+                // Key data is 33-byte spend public key
+                let spend_pubkey = PublicKey::from_slice(&key.key).ok()?;
+
+                // Value is fingerprint (4 bytes) + path (4 bytes per element)
+                if value.len() < 4 || (value.len() - 4) % 4 != 0 {
+                    return None;
+                }
+
+                let mut fingerprint = [0u8; 4];
+                fingerprint.copy_from_slice(&value[0..4]);
+
+                let path: Vec<u32> = value[4..]
+                    .chunks(4)
+                    .map(|chunk| u32::from_le_bytes(chunk.try_into().expect("chunk is 4 bytes")))
+                    .collect();
+
+                return Some((spend_pubkey, fingerprint, path));
+            }
+        }
+        None
+    }
+
+    fn set_input_sp_spend_bip32_derivation(
+        &mut self,
+        input_index: usize,
+        spend_pubkey: &PublicKey,
+        fingerprint: [u8; 4],
+        path: Vec<u32>,
+    ) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        // Key: type 0x1f with 33-byte spend pubkey as key data
+        let key = Key {
+            type_value: PSBT_IN_SP_SPEND_BIP32_DERIVATION,
+            key: spend_pubkey.serialize().to_vec(),
+        };
+
+        // Value: fingerprint (4 bytes) + path (4 bytes per element, little-endian)
+        let mut value = Vec::with_capacity(4 + path.len() * 4);
+        value.extend_from_slice(&fingerprint);
+        for child in &path {
+            value.extend_from_slice(&child.to_le_bytes());
+        }
+
+        //FIXME: migrate to dedicated field in psbt_v2 once available instead of using unknowns
+        input.unknowns.insert(key, value);
+        Ok(())
+    }
+
+    fn remove_input_sp_spend_bip32_derivation(&mut self, input_index: usize) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        // Find and remove the key with type 0x1f (any key data)
+        let keys_to_remove: Vec<Key> = input
+            .unknowns
+            .keys()
+            .filter(|k| k.type_value == PSBT_IN_SP_SPEND_BIP32_DERIVATION)
+            .cloned()
+            .collect();
+
+        for key in keys_to_remove {
+            input.unknowns.remove(&key);
+        }
+
         Ok(())
     }
 
@@ -503,19 +637,25 @@ pub fn get_input_bip32_pubkeys(psbt: &SilentPaymentPsbt, input_idx: usize) -> Ve
 /// Get input public key from PSBT fields with fallback priority
 ///
 /// Tries multiple sources in this order:
-/// 1. BIP32 derivation field (highest priority)
-/// 2. Taproot internal key (for Taproot inputs)
-/// 3. Partial signature field
+/// 1. SP spend BIP32 derivation (for Silent Payment inputs, highest priority)
+/// 2. Taproot BIP32 derivation (tap_internal_key for P2TR)
+/// 3. Standard BIP32 derivation field (for non-Taproot)
+/// 4. Partial signature field
 pub fn get_input_pubkey(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<PublicKey> {
     let input = psbt
         .inputs
         .get(input_idx)
         .ok_or_else(|| Error::InvalidInputIndex(input_idx))?;
 
-    // Method 1: Extract from Taproot BIP32 derivation (tap_key_origins for P2TR)
-    if !input.tap_key_origins.is_empty() {
+    // Method 1: Extract from SP spend BIP32 derivation (for Silent Payment inputs)
+    if let Some((spend_pubkey, _, _)) = psbt.get_input_sp_spend_bip32_derivation(input_idx) {
+        return Ok(spend_pubkey);
+    }
+
+    // Method 2: Extract from Taproot BIP32 derivation (tap_internal_key for P2TR)
+    if !input.tap_internal_key.is_none() {
         // Return the first key, converting x-only to full pubkey (even Y)
-        if let Some(xonly_key) = input.tap_key_origins.keys().next() {
+        if let Some(xonly_key) = input.tap_internal_key {
             let mut pubkey_bytes = vec![0x02];
             pubkey_bytes.extend_from_slice(&xonly_key.serialize());
             if let Ok(pubkey) = PublicKey::from_slice(&pubkey_bytes) {
@@ -524,7 +664,7 @@ pub fn get_input_pubkey(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<Pu
         }
     }
 
-    // Method 2: Extract from BIP32 derivation field (for non-Taproot)
+    // Method 3: Extract from BIP32 derivation field (for non-Taproot)
     if !input.bip32_derivations.is_empty() {
         // Return the first key
         if let Some(key) = input.bip32_derivations.keys().next() {
@@ -532,30 +672,8 @@ pub fn get_input_pubkey(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<Pu
         }
     }
 
-    // Method 3: Extract from Taproot internal key (for Taproot inputs)
-    if let Some(tap_key) = input.tap_internal_key {
-        // tap_key is bitcoin::XOnlyPublicKey
-        // We need to convert to secp256k1::PublicKey (even y)
-        // bitcoin::XOnlyPublicKey has into_inner() -> secp256k1::XOnlyPublicKey
-        let x_only = tap_key;
-
-        // Convert x-only to full pubkey (assumes even y - prefix 0x02)
-        let mut pubkey_bytes = vec![0x02];
-        pubkey_bytes.extend_from_slice(&x_only.serialize());
-        if let Ok(pubkey) = PublicKey::from_slice(&pubkey_bytes) {
-            return Ok(pubkey);
-        }
-    }
-
-    // Method 4: Extract from partial signature field
-    if !input.partial_sigs.is_empty() {
-        if let Some(key) = input.partial_sigs.keys().next() {
-            return Ok(key.inner);
-        }
-    }
-
     Err(Error::Other(format!(
-        "Input {} missing public key (no BIP32 derivation, Taproot key, or partial signature found)",
+        "Input {} missing public key (no SP spend, BIP32 derivation, or tap key origin found)",
         input_idx
     )))
 }

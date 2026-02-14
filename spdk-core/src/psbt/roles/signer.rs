@@ -3,9 +3,9 @@
 //! Adds ECDH shares and signatures to the PSBT.
 //!
 //! This module handles both regular P2WPKH signing and Silent Payment P2TR signing:
-//! - **P2WPKH inputs**: Use [`sign_inputs()`] with ECDSA signatures → `partial_sigs`
-//! - **P2TR SP inputs**: Use [`sign_sp_inputs()`] with tweaked key + Schnorr → `tap_key_sig`
-//! - **Mixed transactions**: Call both functions as needed for different input types
+//! - **P2PKH inputs**: Signs with ECDSA (legacy) → `partial_sigs`
+//! - **P2WPKH inputs**: Signs with ECDSA (SegWit v0) → `partial_sigs`
+//! - **P2TR inputs**: Signs with Schnorr (Taproot v1) → `tap_key_sig`, with optional SP tweak
 
 use crate::psbt::core::{
     Bip375PsbtExt, EcdhShareData, Error, PsbtInput, Result, SilentPaymentPsbt,
@@ -78,34 +78,14 @@ pub fn add_ecdh_shares_partial(
             )));
         };
 
-        // Check for Silent Payment tweak in PSBT and apply if present
-        // This ensures DLEQ proofs match the on-chain tweaked public key
-        let mut privkey = if let Some(tweak) = psbt.get_input_sp_tweak(input_idx) {
-            apply_tweak_to_privkey(base_privkey, &tweak)
-                .map_err(|e| Error::Other(format!("Tweak application failed: {}", e)))?
-        } else {
-            *base_privkey
-        };
-
-        // For P2TR Silent Payment inputs ONLY, check parity and negate if needed.
-        // Regular P2TR inputs (BIP-86) use the internal key for ECDH, not the tweaked key.
-        // The BIP-341 tweak is only for scriptPubKey generation, not for ECDH computation.
-        if psbt.get_input_sp_tweak(input_idx).is_some() {
-            let keypair = secp256k1::Keypair::from_secret_key(secp, &privkey);
-            let (_, parity) = keypair.x_only_public_key();
-            if parity == secp256k1::Parity::Odd {
-                privkey = privkey.negate();
-            }
-        }
-
         for scan_key in scan_keys {
-            let share_point = compute_ecdh_share(secp, &privkey, scan_key)
+            let share_point = compute_ecdh_share(secp, base_privkey, scan_key)
                 .map_err(|e| Error::Other(format!("ECDH computation failed: {}", e)))?;
 
             let dleq_proof = if include_dleq {
                 let rand_aux = [input_idx as u8; 32];
                 Some(
-                    dleq_generate_proof(secp, &privkey, scan_key, &rand_aux, None)
+                    dleq_generate_proof(secp, &base_privkey, scan_key, &rand_aux, None)
                         .map_err(|e| Error::Other(format!("DLEQ generation failed: {}", e)))?,
                 )
             } else {
@@ -132,7 +112,6 @@ pub fn sign_inputs(
     inputs: &[PsbtInput],
 ) -> Result<()> {
     let tx = extract_tx_for_signing(psbt)?;
-    let mut prevouts: Option<Vec<bitcoin::TxOut>> = None; // Lazy loaded for P2TR
 
     for (input_idx, input) in inputs.iter().enumerate() {
         let Some(ref privkey) = input.private_key else {
@@ -180,76 +159,23 @@ pub fn sign_inputs(
                 .partial_sigs
                 .insert(bitcoin_pubkey, sig);
         } else if input.witness_utxo.script_pubkey.is_p2tr() {
-            // Load prevouts if not already loaded (needed for Taproot sighash)
-            if prevouts.is_none() {
-                prevouts = Some(
-                    psbt.inputs
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, input)| {
-                            input.witness_utxo.clone().ok_or(Error::Other(format!(
-                                "Input {} missing witness_utxo (required for P2TR)",
-                                idx
-                            )))
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                );
-            }
-
-            // Check for SP tweak
-            let tweak = psbt.get_input_sp_tweak(input_idx);
-            let signing_key = if let Some(tweak) = tweak {
-                apply_tweak_to_privkey(privkey, &tweak)
-                    .map_err(|e| Error::Other(format!("Tweak application failed: {}", e)))?
-            } else {
-                *privkey
-            };
-
-            // Sign with BIP-340 Schnorr
-            let signature = sign_p2tr_input(
-                secp,
-                &tx,
-                input_idx,
-                prevouts.as_ref().unwrap(),
-                &signing_key,
-            )
-            .map_err(|e| Error::Other(format!("Schnorr signing failed: {}", e)))?;
-
-            // Add tap_key_sig to PSBT
-            psbt.inputs[input_idx].tap_key_sig = Some(signature);
+            sign_p2tr_with_optional_tweak(secp, psbt, &tx, input_idx, privkey)?;
         }
     }
     Ok(())
 }
 
-/// Sign Silent Payment P2TR inputs using tweaked private keys
+/// Sign a P2TR input, applying SP tweak if present.
 ///
-/// For each input with `PSBT_IN_SP_TWEAK` (0x1f):
-/// 1. Apply tweak: `tweaked_privkey = spend_privkey + tweak`
-/// 2. Sign with BIP-340 Schnorr signature
-/// 3. Add `tap_key_sig` to PSBT input
-///
-/// The tweak is derived from BIP-352 output derivation during wallet scanning.
-/// This allows spending silent payment outputs without revealing the connection
-/// between the scan key and spend key.
-///
-/// # Arguments
-/// * `secp` - Secp256k1 context
-/// * `psbt` - PSBT to sign
-/// * `spend_privkey` - The spend private key (before tweaking)
-/// * `input_indices` - Indices of inputs to sign
-///
-/// # Witness Format
-/// Creates P2TR key-path witness: `[<bip340_signature>]` (65 bytes: 64-byte sig + sighash byte)
-///
-/// See also: [`sign_inputs()`] for P2WPKH signing
-pub fn sign_sp_inputs(
+/// Builds prevouts from the PSBT, checks for `PSBT_IN_SP_TWEAK`, and signs with
+/// BIP-340 Schnorr. If a tweak is present, it is applied to the private key before signing.
+fn sign_p2tr_with_optional_tweak(
     secp: &Secp256k1<secp256k1::All>,
     psbt: &mut SilentPaymentPsbt,
-    spend_privkey: &SecretKey,
-    input_indices: &[usize],
+    tx: &bitcoin::Transaction,
+    input_idx: usize,
+    privkey: &SecretKey,
 ) -> Result<()> {
-    // Build prevouts array for Taproot sighash
     let prevouts: Vec<bitcoin::TxOut> = psbt
         .inputs
         .iter()
@@ -258,31 +184,25 @@ pub fn sign_sp_inputs(
             input
                 .witness_utxo
                 .clone()
-                .ok_or(Error::Other(format!("Input {} missing witness_utxo", idx)))
+                .ok_or(Error::Other(format!(
+                    "Input {} missing witness_utxo (required for P2TR)",
+                    idx
+                )))
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Build unsigned transaction for signing
-    let tx = extract_tx_for_signing(psbt)?;
+    let tweak = psbt.get_input_sp_tweak(input_idx);
+    let signing_key = if let Some(tweak) = tweak {
+        apply_tweak_to_privkey(privkey, &tweak)
+            .map_err(|e| Error::Other(format!("Tweak application failed: {}", e)))?
+    } else {
+        *privkey
+    };
 
-    // Sign each input with tweak
-    for &input_idx in input_indices {
-        let Some(tweak) = psbt.get_input_sp_tweak(input_idx) else {
-            continue; // Not a silent payment input, skip
-        };
+    let signature = sign_p2tr_input(secp, tx, input_idx, &prevouts, &signing_key)
+        .map_err(|e| Error::Other(format!("Schnorr signing failed: {}", e)))?;
 
-        // Apply tweak to spend key: tweaked_privkey = spend_privkey + tweak
-        let tweaked_privkey = apply_tweak_to_privkey(spend_privkey, &tweak)
-            .map_err(|e| Error::Other(format!("Tweak application failed: {}", e)))?;
-
-        // Sign with BIP-340 Schnorr
-        let signature = sign_p2tr_input(secp, &tx, input_idx, &prevouts, &tweaked_privkey)
-            .map_err(|e| Error::Other(format!("Schnorr signing failed: {}", e)))?;
-
-        // Add tap_key_sig to PSBT
-        psbt.inputs[input_idx].tap_key_sig = Some(signature);
-    }
-
+    psbt.inputs[input_idx].tap_key_sig = Some(signature);
     Ok(())
 }
 

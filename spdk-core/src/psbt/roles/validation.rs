@@ -5,7 +5,7 @@
 use crate::psbt::core::{Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
 use crate::psbt::crypto::bip352::is_input_eligible;
 use crate::psbt::crypto::dleq_verify_proof;
-use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, Secp256k1};
 use std::collections::HashSet;
 
 /// Validation level for PSBT checks
@@ -31,17 +31,16 @@ pub fn validate_psbt(
     validate_input_fields(psbt)?;
     validate_output_fields(psbt)?;
 
-    // TODO: is this correct?
-    // Validate SP tweak fields (if any inputs have them)
-    validate_sp_tweak_fields(psbt, false)?;
+    // Validate SP spend fields BIP-376 (if any inputs have them)
+    validate_sp_spend_fields(psbt)?;
 
     // Check if this PSBT has silent payment outputs
     let has_sp_outputs = (0..psbt.num_outputs()).any(|i| psbt.get_output_sp_info(i).is_some());
 
     if has_sp_outputs {
-        // Rule 6: Segwit version restrictions (must be v0 or v1 for silent payments)
+        // Segwit version restrictions (must be v0 or v1 for silent payments)
         validate_segwit_versions(psbt)?;
-        // Rule 7: SIGHASH_ALL requirement (only SIGHASH_ALL allowed with silent payments)
+        // SIGHASH_ALL requirement (only SIGHASH_ALL allowed with silent payments)
         validate_sighash_types(psbt)?;
     }
 
@@ -76,7 +75,6 @@ fn validate_psbt_version(psbt: &SilentPaymentPsbt) -> Result<()> {
 
 /// Verify script_pubkey presence and tx_modifiable_flags consistency
 fn validate_psbt_state(psbt: &SilentPaymentPsbt) -> Result<()> {
-
     let output_maps = &psbt.outputs;
     for output_map in output_maps {
         if !output_map.script_pubkey.is_empty() && psbt.global.tx_modifiable_flags != 0 {
@@ -119,7 +117,7 @@ fn validate_output_fields(psbt: &SilentPaymentPsbt) -> Result<()> {
             )));
         }
 
-        // Rule 3: PSBT_OUT_SP_V0_LABEL requires SP address
+        // PSBT_OUT_SP_V0_LABEL requires SP address
         let has_sp_label = psbt.get_output_sp_label(i).is_some();
 
         if has_sp_label && !has_sp_address {
@@ -133,40 +131,17 @@ fn validate_output_fields(psbt: &SilentPaymentPsbt) -> Result<()> {
     Ok(())
 }
 
-/// Validate SP tweak fields on inputs
+/// Validate SP spend fields on inputs (BIP-376)
 ///
-/// Checks that inputs with `PSBT_IN_SP_TWEAK` (0x1f) are properly configured:
-/// - Tweak must be exactly 32 bytes
-/// - Input must have `witness_utxo` that is P2TR (SegWit v1)
-/// - For pre-extraction validation: Input must have `tap_key_sig`
-fn validate_sp_tweak_fields(psbt: &SilentPaymentPsbt, require_signatures: bool) -> Result<()> {
-    for (input_idx, input) in psbt.inputs.iter().enumerate() {
+/// Checks that inputs with `PSBT_IN_SP_TWEAK` are properly configured:
+/// - PSBT_IN_SP_SPEND_BIP32_DERIVATION must be present
+fn validate_sp_spend_fields(psbt: &SilentPaymentPsbt) -> Result<()> {
+    for input_idx in 0..psbt.num_inputs() {
         // Check if this input has an SP tweak
-        if let Some(tweak) = psbt.get_input_sp_tweak(input_idx) {
-            // Tweak must be 32 bytes (already enforced by return type, but document it)
-            assert_eq!(tweak.len(), 32, "SP tweak must be 32 bytes");
-
-            // Input must have witness_utxo
-            let witness_utxo = input.witness_utxo.as_ref().ok_or_else(|| {
-                Error::Other(format!(
-                    "Input {} has PSBT_IN_SP_TWEAK but missing witness_utxo",
-                    input_idx
-                ))
-            })?;
-
-            // witness_utxo must be P2TR (SegWit v1)
-            let script = &witness_utxo.script_pubkey;
-            if !script.is_p2tr() {
-                return Err(Error::InvalidFieldData(format!(
-                    "Input {} has PSBT_IN_SP_TWEAK but witness_utxo is not P2TR (SegWit v1)",
-                    input_idx
-                )));
-            }
-
-            // If requiring signatures (pre-extraction), verify tap_key_sig exists
-            if require_signatures && input.tap_key_sig.is_none() {
-                return Err(Error::Other(format!(
-                    "Input {} has PSBT_IN_SP_TWEAK but missing tap_key_sig (not yet signed)",
+        if psbt.get_input_sp_tweak(input_idx).is_some() {
+            if psbt.get_input_sp_spend_bip32_derivation(input_idx).is_none() {
+                return Err(Error::MissingField(format!(
+                    "Input {} has SP tweak but missing SP spend BIP32 derivation",
                     input_idx
                 )));
             }
@@ -176,7 +151,7 @@ fn validate_sp_tweak_fields(psbt: &SilentPaymentPsbt, require_signatures: bool) 
     Ok(())
 }
 
-/// Validate segwit version restrictions (Rule 6)
+/// Validate segwit version restrictions
 fn validate_segwit_versions(psbt: &SilentPaymentPsbt) -> Result<()> {
     for (i, input) in psbt.inputs.iter().enumerate() {
         if let Some(witness_utxo) = &input.witness_utxo {
@@ -200,7 +175,7 @@ fn validate_segwit_versions(psbt: &SilentPaymentPsbt) -> Result<()> {
     Ok(())
 }
 
-/// Validate SIGHASH_ALL requirement (Rule 7)
+/// Validate SIGHASH_ALL requirement
 fn validate_sighash_types(psbt: &SilentPaymentPsbt) -> Result<()> {
     for (i, input) in psbt.inputs.iter().enumerate() {
         if let Some(sighash_type) = input.sighash_type {
@@ -413,10 +388,6 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
     let global_shares = psbt.get_global_ecdh_shares();
     for share in global_shares {
         if share.dleq_proof.is_none() {
-            // Global shares MUST have DLEQ proofs?
-            // BIP-375 says DLEQ proof is required.
-            // But my EcdhShare struct has Option<proof>.
-            // If it's missing, it's invalid.
             return Err(Error::Other(
                 "Global ECDH share missing DLEQ proof".to_string(),
             ));
@@ -436,32 +407,7 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
             }
 
             if let Some(proof) = share.dleq_proof {
-                let mut input_pubkey = get_input_pubkey(psbt, input_idx)?;
-
-                // If this is a Silent Payment input, derive the tweaked public key
-                if let Some(tweak) = psbt.get_input_sp_tweak(input_idx) {
-                    let tweak_scalar = Scalar::from_be_bytes(tweak)
-                        .map_err(|_| Error::Other("Invalid SP tweak scalar".to_string()))?;
-                    let tweak_key = SecretKey::from_slice(&tweak_scalar.to_be_bytes())?;
-                    let tweak_point = PublicKey::from_secret_key(secp, &tweak_key);
-
-                    input_pubkey = input_pubkey.combine(&tweak_point)?; // A' = A + tweak*G
-
-                    // Handle parity for P2TR Silent Payment inputs ONLY
-                    // Regular P2TR inputs use the internal key for ECDH, not the tweaked key
-                    let input = psbt
-                        .inputs
-                        .get(input_idx)
-                        .ok_or(Error::InvalidInputIndex(input_idx))?;
-                    if let Some(ref witness_utxo) = input.witness_utxo {
-                        if witness_utxo.script_pubkey.is_p2tr() {
-                            let (_, parity) = input_pubkey.x_only_public_key();
-                            if parity == secp256k1::Parity::Odd {
-                                input_pubkey = input_pubkey.negate(secp);
-                            }
-                        }
-                    }
-                }
+                let input_pubkey = get_input_pubkey(psbt, input_idx)?;
 
                 let is_valid = dleq_verify_proof(
                     secp,
@@ -487,12 +433,7 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
 ///
 /// Checks that all inputs are signed (either P2WPKH with `partial_sigs` or P2TR with `tap_key_sig`)
 /// and all outputs have scripts.
-///
-/// For SP tweak inputs, validates that they have required signatures.
 pub fn validate_ready_for_extraction(psbt: &SilentPaymentPsbt) -> Result<()> {
-    // Validate SP tweak fields with signature requirement
-    validate_sp_tweak_fields(psbt, true)?;
-
     for input_idx in 0..psbt.num_inputs() {
         let input = &psbt.inputs[input_idx];
 

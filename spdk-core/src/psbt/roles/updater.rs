@@ -4,6 +4,8 @@
 
 use crate::psbt::core::{Error, Result, SilentPaymentPsbt};
 use bitcoin::bip32::{ChildNumber, DerivationPath, Fingerprint};
+use bitcoin::key::XOnlyPublicKey;
+use bitcoin::taproot::TapLeafHash;
 use bitcoin::EcdsaSighashType;
 use psbt_v2::PsbtSighashType;
 
@@ -75,6 +77,87 @@ pub fn add_output_bip32_derivation(
     Ok(())
 }
 
+/// Add Taproot BIP32 derivation information for an input (PSBT_IN_TAP_BIP32_DERIVATION)
+///
+/// Use this for P2TR inputs
+/// The leaf_hashes parameter specifies which tap leaves this key is used in;
+/// pass an empty vec for key-path spending.
+pub fn add_input_tap_bip32_derivation(
+    psbt: &mut SilentPaymentPsbt,
+    input_index: usize,
+    xonly_pubkey: &XOnlyPublicKey,
+    leaf_hashes: Vec<TapLeafHash>,
+    derivation: &Bip32Derivation,
+) -> Result<()> {
+    let input = psbt
+        .inputs
+        .get_mut(input_index)
+        .ok_or(Error::InvalidInputIndex(input_index))?;
+
+    let fingerprint = Fingerprint::from(derivation.master_fingerprint);
+    let path: DerivationPath = derivation
+        .path
+        .iter()
+        .map(|&i| ChildNumber::from(i))
+        .collect();
+
+    input
+        .tap_key_origins
+        .insert(*xonly_pubkey, (leaf_hashes, (fingerprint, path)));
+
+    Ok(())
+}
+
+/// Add Taproot BIP32 derivation information for an output (PSBT_OUT_TAP_BIP32_DERIVATION)
+///
+/// Use this for P2TR outputs.
+pub fn add_output_tap_bip32_derivation(
+    psbt: &mut SilentPaymentPsbt,
+    output_index: usize,
+    xonly_pubkey: &XOnlyPublicKey,
+    leaf_hashes: Vec<TapLeafHash>,
+    derivation: &Bip32Derivation,
+) -> Result<()> {
+    let output = psbt
+        .outputs
+        .get_mut(output_index)
+        .ok_or(Error::InvalidOutputIndex(output_index))?;
+
+    let fingerprint = Fingerprint::from(derivation.master_fingerprint);
+    let path: DerivationPath = derivation
+        .path
+        .iter()
+        .map(|&i| ChildNumber::from(i))
+        .collect();
+
+    output
+        .tap_key_origins
+        .insert(*xonly_pubkey, (leaf_hashes, (fingerprint, path)));
+
+    Ok(())
+}
+
+/// Add Silent Payment spend BIP32 derivation for an input (PSBT_IN_SP_SPEND_BIP32_DERIVATION)
+///
+/// Use this for Silent Payment inputs (those with PSBT_IN_SP_TWEAK).
+/// The spend key is the untweaked key that, when combined with the SP tweak,
+/// produces the key locking the output.
+pub fn add_input_sp_spend_bip32_derivation(
+    psbt: &mut SilentPaymentPsbt,
+    input_index: usize,
+    spend_pubkey: &secp256k1::PublicKey,
+    derivation: &Bip32Derivation,
+) -> Result<()> {
+    use crate::psbt::Bip375PsbtExt;
+
+    psbt.set_input_sp_spend_bip32_derivation(
+        input_index,
+        spend_pubkey,
+        derivation.master_fingerprint,
+        derivation.path.clone(),
+    )
+}
+
 /// Add sighash type for an input
 pub fn add_input_sighash_type(
     psbt: &mut SilentPaymentPsbt,
@@ -114,6 +197,27 @@ mod tests {
         assert!(input.bip32_derivations.contains_key(&pubkey));
 
         let (fp, path) = input.bip32_derivations.get(&pubkey).unwrap();
+        assert_eq!(fp.as_bytes(), &[0xAA, 0xBB, 0xCC, 0xDD]);
+        assert_eq!(path.len(), 1);
+    }
+
+    #[test]
+    fn test_add_input_tap_bip32_derivation() {
+        let mut psbt = create_psbt(1, 1);
+        let secp = Secp256k1::new();
+        let privkey = SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let pubkey = secp256k1::PublicKey::from_secret_key(&secp, &privkey);
+        let (xonly, _parity) = pubkey.x_only_public_key();
+
+        let derivation = Bip32Derivation::new([0xAA, 0xBB, 0xCC, 0xDD], vec![0x80000056]); // m/86'
+
+        add_input_tap_bip32_derivation(&mut psbt, 0, &xonly, vec![], &derivation).unwrap();
+
+        let input = &psbt.inputs[0];
+        assert!(input.tap_key_origins.contains_key(&xonly));
+
+        let (leaf_hashes, (fp, path)) = input.tap_key_origins.get(&xonly).unwrap();
+        assert!(leaf_hashes.is_empty());
         assert_eq!(fp.as_bytes(), &[0xAA, 0xBB, 0xCC, 0xDD]);
         assert_eq!(path.len(), 1);
     }
