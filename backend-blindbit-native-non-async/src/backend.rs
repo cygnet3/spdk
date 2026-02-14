@@ -153,7 +153,7 @@ fn get_block_data_for_height<H>(
     let blkheight = match Height::from_consensus(height) {
         Ok(bh) => bh,
         Err(e) => {
-            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
+            let _ = sender.send(Err(spdk_core::Error::from(e)));
             return;
         }
     };
@@ -164,34 +164,32 @@ fn get_block_data_for_height<H>(
     let tweaks = match tweaks {
         Ok(t) => t,
         Err(e) => {
-            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
+            let _ = sender.send(Err(spdk_core::Error::from(e)));
             return;
         }
     };
     let new_utxo_filter = match client.filter_new_utxos(blkheight) {
         Ok(f) => f,
         Err(e) => {
-            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
+            let _ = sender.send(Err(spdk_core::Error::from(e)));
             return;
         }
     };
     let spent_filter = match client.filter_spent(blkheight) {
         Ok(f) => f,
         Err(e) => {
-            sender.send(Err(spdk_core::Error::from(e))).expect("closed");
+            let _ = sender.send(Err(spdk_core::Error::from(e)));
             return;
         }
     };
     let blkhash = new_utxo_filter.block_hash;
-    sender
-        .send(Ok(BlockData {
-            blkheight,
-            blkhash,
-            tweaks,
-            new_utxo_filter: new_utxo_filter.into(),
-            spent_filter: spent_filter.into(),
-        }))
-        .expect("closed")
+    let _ = sender.send(Ok(BlockData {
+        blkheight,
+        blkhash,
+        tweaks,
+        new_utxo_filter: new_utxo_filter.into(),
+        spent_filter: spent_filter.into(),
+    }));
 }
 
 impl<H: HttpClient + Clone + 'static> ChainBackend for BlindbitBackend<H> {
