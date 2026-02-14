@@ -9,6 +9,10 @@ use bitcoin::{
 use silentpayments::SilentPaymentAddress;
 use std::{
     collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Instant,
 };
 
@@ -20,23 +24,23 @@ where
     backend: B,
     client: SpClient,
     updater: U,
-    stop: bool,
+    stop: Arc<AtomicBool>,
     owned_outpoints: HashSet<OutPoint>,
 }
 
 impl<B: ChainBackend, U: Updater> SpAccount<B, U> {
-    pub fn new(backend: B, client: SpClient, updater: U) -> Self {
+    pub fn new(backend: B, client: SpClient, updater: U, stop: Arc<AtomicBool>) -> Self {
         Self {
             backend,
             client,
             updater,
-            stop: false,
+            stop,
             owned_outpoints: Default::default(),
         }
     }
 
-    pub fn stop(&mut self) {
-        self.stop = true;
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
     }
 
     pub fn get_sp_address(&self) -> SilentPaymentAddress {
@@ -71,7 +75,6 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         dust_limit: Option<bitcoin::Amount>,
         with_cutthrough: bool,
     ) -> crate::error::Result<()> {
-        self.stop = false;
         if start > end {
             return Err(crate::error::Error::InvalidRange(
                 start.to_consensus_u32(),
@@ -224,7 +227,7 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
     }
 
     fn should_interrupt(&self) -> bool {
-        self.stop
+        self.stop.load(Ordering::Relaxed)
     }
 
     fn save_state(&mut self) -> crate::error::Result<()> {
@@ -291,5 +294,129 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
         }
 
         Ok(map)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{updater::DummyUpdater, SpentIndexData, UtxoData};
+    use bitcoin::{absolute::Height, Amount, Network};
+    use std::ops::RangeInclusive;
+
+    /// Mock backend for testing stop flag behavior
+    struct MockBackend;
+
+    impl ChainBackend for MockBackend {
+        fn get_block_data_for_range(
+            &self,
+            _range: RangeInclusive<u32>,
+            _dust_limit: Option<Amount>,
+            _with_cutthrough: bool,
+        ) -> crate::BlockDataIterator {
+            Box::new(std::iter::empty())
+        }
+
+        fn spent_index(&self, _block_height: Height) -> crate::error::Result<SpentIndexData> {
+            Ok(SpentIndexData { data: vec![] })
+        }
+
+        fn utxos(&self, _block_height: Height) -> crate::error::Result<Vec<UtxoData>> {
+            Ok(vec![])
+        }
+
+        fn block_height(&self) -> crate::error::Result<Height> {
+            Ok(Height::from_consensus(100).expect("valid height"))
+        }
+    }
+
+    fn create_test_sp_client() -> SpClient {
+        let mnemonic = bip39::Mnemonic::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        ).unwrap();
+        SpClient::new_from_mnemonic(mnemonic, Network::Regtest).unwrap()
+    }
+
+    #[test]
+    fn test_stop_flag_initial_state() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let account = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            stop.clone(),
+        );
+
+        // Initially should not be interrupted
+        assert!(!account.should_interrupt());
+    }
+
+    #[test]
+    fn test_stop_flag_after_external_set() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let account = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            stop.clone(),
+        );
+
+        // Set stop flag externally (simulating what bwk-sp does)
+        stop.store(true, Ordering::Relaxed);
+
+        // should_interrupt() should now return true
+        assert!(account.should_interrupt());
+    }
+
+    #[test]
+    fn test_stop_method_sets_flag() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let account = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            stop.clone(),
+        );
+
+        assert!(!account.should_interrupt());
+
+        // Call the stop method
+        account.stop();
+
+        // Both the shared flag and should_interrupt should reflect the change
+        assert!(stop.load(Ordering::Relaxed));
+        assert!(account.should_interrupt());
+    }
+
+    #[test]
+    fn test_shared_stop_flag_across_accounts() {
+        // This test verifies the key use case: multiple SpAccounts sharing
+        // the same stop flag (as in bwk-sp's continuous scan loop)
+        let shared_stop = Arc::new(AtomicBool::new(false));
+
+        let account1 = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            shared_stop.clone(),
+        );
+
+        // Neither should be interrupted initially
+        assert!(!account1.should_interrupt());
+
+        // Setting the shared flag affects account1
+        shared_stop.store(true, Ordering::Relaxed);
+        assert!(account1.should_interrupt());
+
+        // Create a new account with the same flag (simulates loop iteration)
+        let account2 = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            shared_stop.clone(),
+        );
+
+        // account2 should also see the stop signal immediately
+        assert!(account2.should_interrupt());
     }
 }

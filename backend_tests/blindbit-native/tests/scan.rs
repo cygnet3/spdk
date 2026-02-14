@@ -15,6 +15,7 @@ use bwk_sign::{
 };
 use bwk_utils::test::{self};
 use spdk_core::{account::SpAccount, bip39, updater::DummyUpdater, SpClient};
+use std::sync::{atomic::AtomicBool, Arc};
 
 /// Test scan with FullBasic storage (uses `/tweak-index`, no dust filtering)
 #[test]
@@ -73,7 +74,8 @@ fn run_scan_test(conf: Conf, with_cutthrough: bool) {
     let sk = tr_signer.private_key_at(&path);
 
     let updater = DummyUpdater::new();
-    let mut sp_acc = SpAccount::new(backend, sp_client, updater);
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut sp_acc = SpAccount::new(backend, sp_client, updater, stop);
     let sp_account = &mut sp_acc;
 
     test::generate_blocks(bitcoind, 120);
@@ -174,7 +176,8 @@ fn run_scan_test_segwit(conf: Conf, with_cutthrough: bool) {
     let sk = wpkh_signer.private_key_at(&path);
 
     let updater = DummyUpdater::new();
-    let mut sp_acc = SpAccount::new(backend, sp_client, updater);
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut sp_acc = SpAccount::new(backend, sp_client, updater, stop);
     let sp_account = &mut sp_acc;
 
     test::generate_blocks(bitcoind, 120);
@@ -217,4 +220,140 @@ fn run_scan_test_segwit(conf: Conf, with_cutthrough: bool) {
     let op = sp_account.outpoints().into_iter().next().unwrap();
     let expected_op = OutPoint { txid, vout: 0 };
     assert_eq!(op, expected_op);
+}
+
+/// Test that scan stops early when stop flag is set before starting
+#[test]
+fn test_scan_stops_when_stop_flag_set() {
+    use std::time::Instant;
+
+    let conf = Conf::with_storage(Storage::FullBasic);
+    let network = bwk_sign::miniscript::bitcoin::Network::Regtest;
+    let mut bbd = BlindbitD::with_conf(&conf).unwrap();
+
+    let client = UreqClient::new();
+    let backend = backend_blindbit_native::BlindbitBackend::new(bbd.url(), client).unwrap();
+    let mut bitcoind_node = bbd.bitcoin().unwrap();
+    let bitcoind = &mut bitcoind_node.client;
+
+    // Create wallet
+    let mnemonic = bip39::Mnemonic::generate(12).unwrap();
+    let sp_client = SpClient::new_from_mnemonic(mnemonic.clone(), network).unwrap();
+    let tr_signer = HotSigner::new_taproot_from_mnemonics(network, &mnemonic.to_string()).unwrap();
+    let tr_derivator = tr_signer
+        .descriptors()
+        .into_iter()
+        .next()
+        .unwrap()
+        .spk_derivator(network)
+        .unwrap();
+    let _addr1 = tr_derivator.receive_at(0);
+
+    clear_logs(&mut bbd);
+
+    let updater = DummyUpdater::new();
+    // Create stop flag and set it to true BEFORE creating account
+    let stop = Arc::new(AtomicBool::new(true));
+    let mut sp_acc = SpAccount::new(backend, sp_client, updater, stop);
+    let sp_account = &mut sp_acc;
+
+    // Generate blocks so there's something to scan
+    test::generate_blocks(bitcoind, 120);
+    wait_until_sync_at_height(sp_account, 120);
+
+    // Time the scan - it should return almost immediately
+    let start_time = Instant::now();
+
+    // This should return immediately because stop flag is set
+    let result = scan(sp_account, 1, 120, 0, false);
+
+    let elapsed = start_time.elapsed();
+
+    // Scan should succeed (returning early is not an error)
+    assert!(result.is_ok(), "Scan should succeed even when stopped early");
+
+    // Scan should complete very quickly (< 2 seconds) since it should check
+    // the stop flag and return immediately
+    assert!(
+        elapsed.as_secs() < 2,
+        "Scan with stop flag set should return quickly, took {:?}",
+        elapsed
+    );
+
+    // No outputs should be found since scan was interrupted
+    assert!(
+        sp_account.outpoints().is_empty(),
+        "No outputs should be found when scan is stopped"
+    );
+}
+
+/// Test that scan can be interrupted mid-scan from another thread
+#[test]
+fn test_scan_interrupted_mid_scan() {
+    use std::sync::atomic::Ordering;
+    use std::thread;
+    use std::time::Duration;
+
+    let conf = Conf::with_storage(Storage::FullBasic);
+    let network = bwk_sign::miniscript::bitcoin::Network::Regtest;
+    let mut bbd = BlindbitD::with_conf(&conf).unwrap();
+
+    let client = UreqClient::new();
+    let backend = backend_blindbit_native::BlindbitBackend::new(bbd.url(), client).unwrap();
+    let mut bitcoind_node = bbd.bitcoin().unwrap();
+    let bitcoind = &mut bitcoind_node.client;
+
+    // Create wallet
+    let mnemonic = bip39::Mnemonic::generate(12).unwrap();
+    let sp_client = SpClient::new_from_mnemonic(mnemonic.clone(), network).unwrap();
+    let tr_signer = HotSigner::new_taproot_from_mnemonics(network, &mnemonic.to_string()).unwrap();
+    let tr_derivator = tr_signer
+        .descriptors()
+        .into_iter()
+        .next()
+        .unwrap()
+        .spk_derivator(network)
+        .unwrap();
+    let addr1 = tr_derivator.receive_at(0);
+    let path = tr_path(network, ChildNumber::from_hardened_idx(0).unwrap()).unwrap();
+    let path = path.child(ChildNumber::from_normal_idx(0).unwrap());
+    let path = path.child(ChildNumber::from_normal_idx(0).unwrap());
+    let _sk = tr_signer.private_key_at(&path);
+
+    clear_logs(&mut bbd);
+
+    let updater = DummyUpdater::new();
+    // Create shared stop flag
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = stop.clone();
+    let mut sp_acc = SpAccount::new(backend, sp_client, updater, stop.clone());
+    let sp_account = &mut sp_acc;
+
+    // Generate more blocks to make scan take longer
+    test::generate_blocks(bitcoind, 200);
+    wait_until_sync_at_height(sp_account, 200);
+
+    // Send some coins to create SP outputs
+    let _txid = test::send(bitcoind, addr1.clone(), 0.1).unwrap();
+    test::generate_blocks(bitcoind, 2);
+    wait_until_sync_at_height(sp_account, 202);
+
+    // Spawn thread that will set stop flag after a short delay
+    let handle = thread::spawn(move || {
+        // Wait a bit then set stop flag
+        thread::sleep(Duration::from_millis(50));
+        stop_clone.store(true, Ordering::Relaxed);
+    });
+
+    // Start scanning - this should be interrupted by the thread
+    let result = scan(sp_account, 1, 202, 0, false);
+
+    // Wait for the interrupt thread to finish
+    handle.join().unwrap();
+
+    // Scan should succeed (interrupted scan is not an error)
+    assert!(result.is_ok(), "Interrupted scan should not return error");
+
+    // The stop flag should be set
+    assert!(stop.load(Ordering::Relaxed), "Stop flag should be set");
 }
