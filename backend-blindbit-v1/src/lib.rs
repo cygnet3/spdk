@@ -15,6 +15,9 @@ mod client;
 
 #[cfg(feature = "sync")]
 mod sync_backend;
+#[cfg(feature = "sync")]
+mod sync_client;
+
 #[cfg(feature = "async")]
 pub use backend::BlindbitBackend;
 #[cfg(feature = "async")]
