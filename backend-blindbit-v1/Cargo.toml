@@ -7,14 +7,19 @@ repository.workspace = true
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
 
+[features]
+default = ["async"]
+async = ["spdk-core/async", "dep:async-trait", "dep:futures", "dep:reqwest"]
+sync = ["spdk-core/sync", "dep:ureq"]
+
 [dependencies]
-spdk-core.workspace = true
+spdk-core = { workspace = true, default-features = false }
 
 anyhow.workspace = true
-async-trait.workspace = true
-bitcoin.workspace = true
-futures.workspace = true
+async-trait = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, optional = true }
+ureq = { version = "2", features = ["json", "gzip", "tls"], optional = true }
 hex.workspace = true
