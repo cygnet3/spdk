@@ -74,12 +74,19 @@ fn validate_psbt_version(psbt: &SilentPaymentPsbt) -> Result<()> {
 }
 
 /// Verify script_pubkey presence and tx_modifiable_flags consistency
+///
+/// Per BIP 375, the Signer clears tx_modifiable_flags when it computes
+/// PSBT_OUT_SCRIPT for SP outputs. Regular (non-SP) outputs may have
+/// script_pubkey set at construction time while flags are still modifiable.
 fn validate_psbt_state(psbt: &SilentPaymentPsbt) -> Result<()> {
-    let output_maps = &psbt.outputs;
-    for output_map in output_maps {
-        if !output_map.script_pubkey.is_empty() && psbt.global.tx_modifiable_flags != 0 {
+    for (i, output) in psbt.outputs.iter().enumerate() {
+        let is_sp_output = psbt.get_output_sp_info(i).is_some();
+        if is_sp_output
+            && !output.script_pubkey.is_empty()
+            && psbt.global.tx_modifiable_flags != 0
+        {
             return Err(Error::InvalidPsbtState(
-                "tx_modifiable flag is modifiable with script_pubkey present".to_string(),
+                "SP output has script_pubkey set while tx_modifiable_flags is non-zero".to_string(),
             ));
         }
     }
