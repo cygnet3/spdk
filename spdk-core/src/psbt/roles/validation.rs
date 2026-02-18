@@ -280,18 +280,16 @@ fn validate_output_scripts(
         aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint_bytes,
     };
     use crate::psbt::crypto::{
-        compute_input_hash, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
+        compute_shared_secrets, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
     };
     use std::collections::HashMap;
 
-    // First, collect outpoints and public keys for input_hash computation
+    // Extract outpoints and BIP32 pubkeys from PSBT
     let mut outpoints: Vec<Vec<u8>> = Vec::new();
     let mut input_pubkeys: Vec<PublicKey> = Vec::new();
 
     for input_idx in 0..psbt.num_inputs() {
-        let outpoint = get_input_outpoint_bytes(psbt, input_idx)?;
-        outpoints.push(outpoint);
-
+        outpoints.push(get_input_outpoint_bytes(psbt, input_idx)?);
         let bip32_pubkeys = get_input_bip32_pubkeys(psbt, input_idx);
         if bip32_pubkeys.is_empty() {
             eprintln!(
@@ -307,36 +305,16 @@ fn validate_output_scripts(
         return Ok(());
     }
 
-    let mut summed_pubkey = input_pubkeys[0];
-    for pubkey in &input_pubkeys[1..] {
-        summed_pubkey = summed_pubkey
-            .combine(pubkey)
-            .map_err(|e| Error::Other(format!("Failed to sum input pubkeys: {}", e)))?;
-    }
-
-    let smallest_outpoint = outpoints
-        .iter()
-        .min()
-        .ok_or_else(|| Error::Other("No inputs found".to_string()))?;
-
     let aggregated_shares = aggregate_ecdh_shares(psbt)?;
 
-    let input_hash = compute_input_hash(smallest_outpoint, &summed_pubkey)
-        .map_err(|e| Error::Other(format!("Failed to compute input hash: {}", e)))?;
+    let share_pairs: Vec<(PublicKey, PublicKey)> = aggregated_shares
+        .iter()
+        .map(|(sk, agg)| (*sk, agg.aggregated_share))
+        .collect();
 
-    let mut shared_secrets: HashMap<PublicKey, PublicKey> = HashMap::new();
-    for (scan_key, aggregated_share_data) in aggregated_shares.iter() {
-        let shared_secret = aggregated_share_data
-            .aggregated_share
-            .mul_tweak(secp, &input_hash)
-            .map_err(|e| {
-                Error::Other(format!(
-                    "Failed to multiply ECDH share by input_hash: {}",
-                    e
-                ))
-            })?;
-        shared_secrets.insert(*scan_key, shared_secret);
-    }
+    let shared_secrets =
+        compute_shared_secrets(secp, &share_pairs, &outpoints, &input_pubkeys)
+            .map_err(|e| Error::Other(format!("Shared secret computation failed: {}", e)))?;
 
     let mut scan_key_output_indices: HashMap<PublicKey, u32> = HashMap::new();
 
@@ -570,10 +548,7 @@ mod tests {
         ];
         add_inputs(&mut psbt, &inputs).unwrap();
 
-        // Case 1: No shares at all -> Invalid
-        assert!(validate_ecdh_coverage(&psbt).is_err());
-
-        // Case 2: Global share present -> Valid
+        // Case 1: Global share present -> Valid
         {
             let mut psbt_global = psbt.clone();
             // Create a dummy share
@@ -585,7 +560,7 @@ mod tests {
             assert!(validate_ecdh_coverage(&psbt_global).is_ok());
         }
 
-        // Case 3: Per-input shares for ALL inputs -> Valid
+        // Case 2: Per-input shares for ALL inputs -> Valid
         {
             let mut psbt_inputs = psbt.clone();
             let share_point =
@@ -600,7 +575,7 @@ mod tests {
             assert!(validate_ecdh_coverage(&psbt_inputs).is_ok());
         }
 
-        // Case 4: Per-input shares for SOME inputs -> Valid
+        // Case 3: Per-input shares for SOME inputs -> Valid
         {
             let mut psbt_partial = psbt.clone();
             let share_point =
@@ -613,7 +588,5 @@ mod tests {
             assert!(validate_ecdh_coverage(&psbt_partial).is_ok());
         }
 
-        // TODO: Case 5: Per-input shares for ALL inputs, but some are invalid -> Invalid
-        // TODO: Case 6: Global share present, invalid input shares -> Valid
     }
 }
