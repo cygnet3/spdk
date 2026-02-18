@@ -8,6 +8,7 @@ use bitcoin::key::TapTweak;
 use bitcoin::ScriptBuf;
 use psbt_v2::v2::Input;
 use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
+use std::collections::HashMap;
 
 /// Compute label tweak for a silent payment address
 ///
@@ -48,6 +49,57 @@ pub fn compute_input_hash(smallest_outpoint: &[u8], summed_pubkey: &PublicKey) -
 
     Scalar::from_be_bytes(hash.to_byte_array())
         .map_err(|_| CryptoError::Other("Failed to create scalar from input hash".to_string()))
+}
+
+/// Compute BIP-352 shared secrets from aggregated ECDH shares.
+///
+/// For each scan key, computes: shared_secret = input_hash * aggregated_share
+/// where input_hash = hash_BIP0352/Inputs(smallest_outpoint || sum_of_pubkeys)
+///
+/// If `input_pubkeys` is empty or doesn't cover all outpoints, falls back to
+/// returning raw aggregated shares (for backwards compatibility with tests
+/// that don't set BIP32 derivations).
+pub fn compute_shared_secrets(
+    secp: &Secp256k1<secp256k1::All>,
+    aggregated_shares: &[(PublicKey, PublicKey)], // (scan_key, aggregated_share)
+    outpoints: &[Vec<u8>],
+    input_pubkeys: &[PublicKey],
+) -> Result<HashMap<PublicKey, PublicKey>> {
+    let input_hash =
+        if !input_pubkeys.is_empty() && input_pubkeys.len() == outpoints.len() {
+            let mut summed_pubkey = input_pubkeys[0];
+            for pubkey in &input_pubkeys[1..] {
+                summed_pubkey = summed_pubkey.combine(pubkey).map_err(|e| {
+                    CryptoError::Other(format!("Failed to sum input pubkeys: {}", e))
+                })?;
+            }
+
+            let smallest_outpoint = outpoints
+                .iter()
+                .min()
+                .ok_or_else(|| CryptoError::Other("No outpoints provided".to_string()))?;
+
+            Some(compute_input_hash(smallest_outpoint, &summed_pubkey)?)
+        } else {
+            None
+        };
+
+    let mut shared_secrets = HashMap::new();
+    for (scan_key, aggregated_share) in aggregated_shares {
+        let shared_secret = if let Some(ref ih) = input_hash {
+            aggregated_share.mul_tweak(secp, ih).map_err(|e| {
+                CryptoError::Other(format!(
+                    "Failed to multiply ECDH share by input_hash: {}",
+                    e
+                ))
+            })?
+        } else {
+            *aggregated_share
+        };
+        shared_secrets.insert(*scan_key, shared_secret);
+    }
+
+    Ok(shared_secrets)
 }
 
 /// Compute shared secret tweak for output derivation

@@ -2,18 +2,61 @@
 //!
 //! Aggregates ECDH shares and computes final output scripts for silent payments.
 
-use crate::psbt::core::{aggregate_ecdh_shares, Bip375PsbtExt, Error, Result, SilentPaymentPsbt};
-use crate::psbt::crypto::{derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script};
+use crate::psbt::core::{
+    aggregate_ecdh_shares, get_input_bip32_pubkeys, get_input_outpoint_bytes, Bip375PsbtExt,
+    Error, Result, SilentPaymentPsbt,
+};
+use crate::psbt::crypto::{
+    compute_shared_secrets, derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script,
+};
 use secp256k1::{PublicKey, Secp256k1};
 use std::collections::HashMap;
 
-/// Finalize inputs by computing output scripts from ECDH shares
+/// Finalize inputs by computing output scripts from ECDH shares.
+///
+/// Per BIP 352, the shared secret for output derivation is:
+///   shared_secret = input_hash * aggregated_ecdh_share
+/// where input_hash = hash_BIP0352/Inputs(smallest_outpoint || sum_of_pubkeys)
 pub fn finalize_inputs(
     secp: &Secp256k1<secp256k1::All>,
     psbt: &mut SilentPaymentPsbt,
 ) -> Result<()> {
     // Aggregate ECDH shares by scan key (detects global vs per-input automatically)
     let aggregated_shares = aggregate_ecdh_shares(psbt)?;
+
+    // Verify all inputs contributed shares (unless global)
+    for (scan_key, aggregated) in aggregated_shares.iter() {
+        if !aggregated.is_global && aggregated.num_inputs != psbt.num_inputs() {
+            let output_idx = (0..psbt.num_outputs())
+                .find(|&i| {
+                    psbt.get_output_sp_info(i)
+                        .map(|(sk, _)| sk == *scan_key)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(0);
+            return Err(Error::IncompleteEcdhCoverage(output_idx));
+        }
+    }
+
+    // Extract outpoints and BIP32 pubkeys from PSBT
+    let mut outpoints: Vec<Vec<u8>> = Vec::new();
+    let mut input_pubkeys: Vec<PublicKey> = Vec::new();
+    for input_idx in 0..psbt.num_inputs() {
+        outpoints.push(get_input_outpoint_bytes(psbt, input_idx)?);
+        let bip32_pubkeys = get_input_bip32_pubkeys(psbt, input_idx);
+        if !bip32_pubkeys.is_empty() {
+            input_pubkeys.push(bip32_pubkeys[0]);
+        }
+    }
+
+    // Build (scan_key, aggregated_share) pairs for BIP-352 computation
+    let share_pairs: Vec<(PublicKey, PublicKey)> = aggregated_shares
+        .iter()
+        .map(|(sk, agg)| (*sk, agg.aggregated_share))
+        .collect();
+
+    let shared_secrets = compute_shared_secrets(secp, &share_pairs, &outpoints, &input_pubkeys)
+        .map_err(|e| Error::Other(format!("Shared secret computation failed: {}", e)))?;
 
     // Track output index per scan key (for BIP 352 k parameter)
     let mut scan_key_output_indices: HashMap<PublicKey, u32> = HashMap::new();
@@ -23,49 +66,34 @@ pub fn finalize_inputs(
         // Check if this is a silent payment output
         let (scan_key, spend_key) = match psbt.get_output_sp_info(output_idx) {
             Some(keys) => keys,
-            None => continue, // Not a silent payment output, skip
+            None => continue,
         };
 
-        // Get the aggregated share for this scan key
-        let aggregated = aggregated_shares
+        let shared_secret = shared_secrets
             .get(&scan_key)
             .ok_or(Error::IncompleteEcdhCoverage(output_idx))?;
-
-        // Verify all inputs contributed shares (unless it's a global share)
-        if !aggregated.is_global && aggregated.num_inputs != psbt.num_inputs() {
-            return Err(Error::IncompleteEcdhCoverage(output_idx));
-        }
-
-        let aggregated_share = aggregated.aggregated_share;
 
         // Get or initialize the output index for this scan key
         let k = *scan_key_output_indices.get(&scan_key).unwrap_or(&0);
 
         // Derive the output public key using BIP-352
-        let ecdh_secret = aggregated_share.serialize();
+        let shared_secret_bytes = shared_secret.serialize();
         let output_pubkey = derive_silent_payment_output_pubkey(
             secp,
             &spend_key,
-            &ecdh_secret,
-            k, // Use per-scan-key index
+            &shared_secret_bytes,
+            k,
         )
         .map_err(|e| Error::Other(format!("Output derivation failed: {}", e)))?;
 
-        // Create P2TR output script from already-tweaked Silent Payment output key
-        // The output_pubkey is already tweaked via BIP-352 derivation, so we use
-        // tweaked_key_to_p2tr_script (no additional BIP-341 tweak needed)
-
         let output_script = tweaked_key_to_p2tr_script(&output_pubkey);
 
-        // Add output script to PSBT
         psbt.outputs[output_idx].script_pubkey = output_script;
 
-        // Increment the output index for this scan key
         scan_key_output_indices.insert(scan_key, k + 1);
     }
 
-    // BIP-370: Clear tx_modifiable_flags after finalizing outputs
-    // Once output scripts are computed, the transaction structure is locked
+    // Clear tx_modifiable_flags after finalizing outputs
     psbt.global.tx_modifiable_flags = 0x00;
 
     Ok(())

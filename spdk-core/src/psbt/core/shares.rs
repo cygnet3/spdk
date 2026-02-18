@@ -94,13 +94,6 @@ impl AggregatedShares {
 /// # Errors
 /// * If no inputs exist in the PSBT
 /// * If elliptic curve operations fail during aggregation
-///
-/// # Example
-/// ```rust,ignore
-/// let aggregated = aggregate_ecdh_shares(&psbt)?;
-/// let share = aggregated.get_share_point(&scan_key)
-///     .ok_or_else(|| Error::Other("Missing share".to_string()))?;
-/// ```
 pub fn aggregate_ecdh_shares(psbt: &SilentPaymentPsbt) -> Result<AggregatedShares> {
     let num_inputs = psbt.num_inputs();
     if num_inputs == 0 {
