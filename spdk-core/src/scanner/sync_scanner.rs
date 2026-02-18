@@ -6,11 +6,10 @@ use std::{
 
 use anyhow::{bail, Result};
 use bitcoin::{absolute::Height, bip158::BlockFilter, secp256k1::PublicKey, Amount, OutPoint};
-use futures::{pin_mut, Stream, StreamExt};
 use log::info;
 
 use crate::{
-    backend::{BlockData, ChainBackend, FilterData},
+    backend::{BlockData, FilterData, SyncChainBackend},
     client::{OwnedOutput, SpClient},
     updater::Updater,
 };
@@ -19,17 +18,17 @@ use super::logic;
 
 pub struct SpScanner<'a> {
     updater: Box<dyn Updater + Sync + Send>,
-    backend: Box<dyn ChainBackend + Sync + Send>,
+    backend: Box<dyn SyncChainBackend + Sync + Send>,
     client: SpClient,
-    keep_scanning: &'a AtomicBool,      // used to interrupt scanning
-    owned_outpoints: HashSet<OutPoint>, // used to scan block inputs
+    keep_scanning: &'a AtomicBool,
+    owned_outpoints: HashSet<OutPoint>,
 }
 
 impl<'a> SpScanner<'a> {
     pub fn new(
         client: SpClient,
         updater: Box<dyn Updater + Sync + Send>,
-        backend: Box<dyn ChainBackend + Sync + Send>,
+        backend: Box<dyn SyncChainBackend + Sync + Send>,
         owned_outpoints: HashSet<OutPoint>,
         keep_scanning: &'a AtomicBool,
     ) -> Self {
@@ -42,7 +41,7 @@ impl<'a> SpScanner<'a> {
         }
     }
 
-    pub async fn scan_blocks(
+    pub fn scan_blocks(
         &mut self,
         start: Height,
         end: Height,
@@ -56,14 +55,14 @@ impl<'a> SpScanner<'a> {
         info!("start: {} end: {}", start, end);
         let start_time: Instant = Instant::now();
 
-        // get block data stream
+        // get block data iterator
         let range = start.to_consensus_u32()..=end.to_consensus_u32();
-        let block_data_stream =
+        let block_data_iter =
             self.backend
                 .get_block_data_for_range(range, dust_limit, with_cutthrough);
 
-        // process blocks using block data stream
-        self.process_blocks(start, end, block_data_stream).await?;
+        // process blocks using block data iterator
+        self.process_blocks(start, end, block_data_iter)?;
 
         // time elapsed for the scan
         info!(
@@ -74,17 +73,15 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_blocks(
+    fn process_blocks(
         &mut self,
         start: Height,
         end: Height,
-        block_data_stream: impl Stream<Item = Result<BlockData>>,
+        block_data_iter: impl Iterator<Item = Result<BlockData>>,
     ) -> Result<()> {
-        pin_mut!(block_data_stream);
-
         let mut update_time: Instant = Instant::now();
 
-        while let Some(blockdata) = block_data_stream.next().await {
+        for blockdata in block_data_iter {
             let blockdata = blockdata?;
             let blkheight = blockdata.blkheight;
             let blkhash = blockdata.blkhash;
@@ -102,7 +99,7 @@ impl<'a> SpScanner<'a> {
                 save_to_storage = true;
             }
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+            let (found_outputs, found_inputs) = self.process_block(blockdata)?;
 
             if !found_outputs.is_empty() {
                 save_to_storage = true;
@@ -128,7 +125,7 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_block(
+    fn process_block(
         &mut self,
         blockdata: BlockData,
     ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
@@ -140,14 +137,12 @@ impl<'a> SpScanner<'a> {
             ..
         } = blockdata;
 
-        let outs = self
-            .process_block_outputs(blkheight, tweaks, new_utxo_filter)
-            .await?;
+        let outs = self.process_block_outputs(blkheight, tweaks, new_utxo_filter)?;
 
         // after processing outputs, we add the found outputs to our list
         self.owned_outpoints.extend(outs.keys());
 
-        let ins = self.process_block_inputs(blkheight, spent_filter).await?;
+        let ins = self.process_block_inputs(blkheight, spent_filter)?;
 
         // after processing inputs, we remove the found inputs
         self.owned_outpoints.retain(|item| !ins.contains(item));
@@ -155,7 +150,7 @@ impl<'a> SpScanner<'a> {
         Ok((outs, ins))
     }
 
-    async fn process_block_outputs(
+    fn process_block_outputs(
         &self,
         blkheight: Height,
         tweaks: Vec<PublicKey>,
@@ -176,13 +171,13 @@ impl<'a> SpScanner<'a> {
         }
 
         info!("matched outputs on: {}", blkheight);
-        let utxos = self.backend.utxos(blkheight).await?;
+        let utxos = self.backend.utxos(blkheight)?;
         let found = logic::find_owned_in_utxos(&self.client.sp_receiver, utxos, &secrets_map)?;
 
         Ok(logic::collect_found_outputs(blkheight, found))
     }
 
-    async fn process_block_inputs(
+    fn process_block_inputs(
         &self,
         blkheight: Height,
         spent_filter: FilterData,
@@ -203,7 +198,7 @@ impl<'a> SpScanner<'a> {
         }
 
         info!("matched inputs on: {}", blkheight);
-        let spent = self.backend.spent_index(blkheight).await?.data;
+        let spent = self.backend.spent_index(blkheight)?.data;
 
         Ok(logic::collect_spent_outpoints(spent, &input_hashes_map))
     }
