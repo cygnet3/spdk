@@ -6,6 +6,7 @@ resolver = "3"
 # Internal workspace crates
 spdk-core = { path = "spdk-core" }
 silentpayments = { path = "silentpayments" }
+backend-blindbit-v1 = { path = "backend-blindbit-v1"}
 
 # Core dependencies - shared across crates
 anyhow = "1.0"
