@@ -17,7 +17,7 @@ use log::info;
 use silentpayments::receiving::Label;
 
 use spdk_core::chain::{BlockData, ChainBackend, FilterData, UtxoData};
-use spdk_core::updater::{OutputSpendStatus, OwnedOutput, Updater};
+use spdk_core::updater::{SimplifiedOutput, Updater};
 
 use crate::client::SpClient;
 
@@ -135,7 +135,7 @@ impl<'a> SpScanner<'a> {
     async fn process_block(
         &mut self,
         blockdata: BlockData,
-    ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
+    ) -> Result<(HashMap<OutPoint, SimplifiedOutput>, HashSet<OutPoint>)> {
         let BlockData {
             blkheight,
             tweaks,
@@ -164,7 +164,7 @@ impl<'a> SpScanner<'a> {
         blkheight: Height,
         tweaks: Vec<PublicKey>,
         new_utxo_filter: FilterData,
-    ) -> Result<HashMap<OutPoint, OwnedOutput>> {
+    ) -> Result<HashMap<OutPoint, SimplifiedOutput>> {
         let mut res = HashMap::new();
 
         if !tweaks.is_empty() {
@@ -191,13 +191,11 @@ impl<'a> SpScanner<'a> {
                             vout: utxo.vout,
                         };
 
-                        let out = OwnedOutput {
-                            blockheight: blkheight,
-                            tweak: tweak.to_be_bytes(),
-                            amount: utxo.value,
-                            script: utxo.scriptpubkey,
+                        let out = SimplifiedOutput {
+                            tweak,
+                            value: utxo.value,
+                            script_pubkey: utxo.scriptpubkey,
                             label,
-                            spend_status: OutputSpendStatus::Unspent,
                         };
 
                         res.insert(outpoint, out);

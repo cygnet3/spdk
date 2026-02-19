@@ -21,10 +21,9 @@ use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 
-use super::{
-    FeeRate, OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress,
-    SilentPaymentUnsignedTransaction, SpClient,
-};
+use crate::client::{OutputSpendStatus, OwnedOutput};
+
+use super::{FeeRate, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction, SpClient};
 
 impl SpClient {
     // For now it's only suitable for wallet that spends only silent payments outputs that it owns
