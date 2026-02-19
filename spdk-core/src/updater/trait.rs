@@ -4,7 +4,7 @@ use bitcoin::{absolute::Height, BlockHash, OutPoint};
 
 use anyhow::Result;
 
-use super::structs::OwnedOutput;
+use super::SimplifiedOutput;
 
 pub trait Updater {
     /// Ask the updater to record the scanning progress.
@@ -15,7 +15,7 @@ pub trait Updater {
         &mut self,
         height: Height,
         blkhash: BlockHash,
-        found_outputs: HashMap<OutPoint, OwnedOutput>,
+        found_outputs: HashMap<OutPoint, SimplifiedOutput>,
     ) -> Result<()>;
 
     /// Ask the updater to record the inputs found in a block.
