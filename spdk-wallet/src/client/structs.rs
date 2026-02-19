@@ -9,9 +9,7 @@ use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddress;
 
-// re-export these structs, todo: move them out of updater and define them here instead
-pub use spdk_core::updater::OutputSpendStatus;
-pub use spdk_core::updater::OwnedOutput;
+use spdk_core::updater::SimplifiedOutput;
 
 // re-export from bdk_coin_select, as we use this in the api
 pub use bdk_coin_select::FeeRate;
@@ -55,10 +53,10 @@ pub struct Recipient {
     pub amount: Amount,            // must be 0 if address is Data.
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone)]
 // this will be replaced by a proper psbt as soon as sp support is standardised
 pub struct SilentPaymentUnsignedTransaction {
-    pub selected_utxos: Vec<(OutPoint, OwnedOutput)>,
+    pub selected_utxos: Vec<(OutPoint, SimplifiedOutput)>,
     pub recipients: Vec<Recipient>,
     pub partial_secret: SecretKey,
     pub unsigned_tx: Option<Transaction>,

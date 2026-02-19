@@ -20,29 +20,19 @@ use silentpayments::utils as sp_utils;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
+use spdk_core::updater::SimplifiedOutput;
 
-use super::{
-    FeeRate, OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress,
-    SilentPaymentUnsignedTransaction, SpClient,
-};
+use super::{FeeRate, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction, SpClient};
 
 impl SpClient {
     // For now it's only suitable for wallet that spends only silent payments outputs that it owns
     pub fn create_new_transaction(
         &self,
-        available_utxos: Vec<(OutPoint, OwnedOutput)>,
+        available_utxos: Vec<(OutPoint, SimplifiedOutput)>,
         mut recipients: Vec<Recipient>,
         fee_rate: FeeRate,
         network: Network,
     ) -> Result<SilentPaymentUnsignedTransaction> {
-        // check that all available outputs are unspent
-        if available_utxos
-            .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
-        {
-            return Err(Error::msg("All outputs must be unspent".to_string()));
-        }
-
         // used to estimate the size of a taproot output
         let placeholder_spk = ScriptBuf::new_p2tr_tweaked(
             bitcoin::XOnlyPublicKey::from_str(NUMS)
@@ -112,7 +102,7 @@ impl SpClient {
         // as a silent payment wallet, we only spend taproot outputs
         let candidates: Vec<Candidate> = available_utxos
             .iter()
-            .map(|(_, o)| Candidate::new_tr_keyspend(o.amount.to_sat()))
+            .map(|(_, o)| Candidate::new_tr_keyspend(o.value.to_sat()))
             .collect();
 
         let mut coin_selector = CoinSelector::new(&candidates);
@@ -165,19 +155,11 @@ impl SpClient {
     /// A drain transaction spends all the available utxos to a single RecipientAddress.
     pub fn create_drain_transaction(
         &self,
-        available_utxos: Vec<(OutPoint, OwnedOutput)>,
+        available_utxos: Vec<(OutPoint, SimplifiedOutput)>,
         recipient: RecipientAddress,
         fee_rate: FeeRate,
         network: Network,
     ) -> Result<SilentPaymentUnsignedTransaction> {
-        // check that all available outputs are unspent
-        if available_utxos
-            .iter()
-            .any(|(_, o)| o.spend_status != OutputSpendStatus::Unspent)
-        {
-            return Err(Error::msg("All outputs must be unspent".to_string()));
-        }
-
         // used to estimate the size of a taproot output
         let placeholder_spk = ScriptBuf::new_p2tr_tweaked(
             bitcoin::XOnlyPublicKey::from_str(NUMS)
@@ -230,7 +212,7 @@ impl SpClient {
         // as a silent payment wallet, we only spend taproot outputs
         let candidates: Vec<Candidate> = available_utxos
             .iter()
-            .map(|(_, o)| Candidate::new_tr_keyspend(o.amount.to_sat()))
+            .map(|(_, o)| Candidate::new_tr_keyspend(o.value.to_sat()))
             .collect();
 
         let mut coin_selector = CoinSelector::new(&candidates);
@@ -408,8 +390,8 @@ impl SpClient {
             .selected_utxos
             .iter()
             .map(|(_, owned_output)| TxOut {
-                value: owned_output.amount,
-                script_pubkey: owned_output.script.clone(),
+                value: owned_output.value,
+                script_pubkey: owned_output.script_pubkey.clone(),
             })
             .collect();
 
@@ -431,9 +413,7 @@ impl SpClient {
                     i
                 )))?;
 
-            let tweak = SecretKey::from_slice(owned_output.tweak.as_slice())?;
-
-            let sk = b_spend.add_tweak(&tweak.into())?;
+            let sk = b_spend.add_tweak(&owned_output.tweak)?;
 
             let keypair = Keypair::from_secret_key(&secp, &sk);
 
@@ -456,7 +436,7 @@ impl SpClient {
 
     pub fn get_partial_secret_for_selected_utxos(
         &self,
-        selected_utxos: &[(OutPoint, OwnedOutput)],
+        selected_utxos: &[(OutPoint, SimplifiedOutput)],
     ) -> Result<SecretKey> {
         let b_spend = self.try_get_secret_spend_key()?;
 
@@ -467,8 +447,7 @@ impl SpClient {
         let input_privkeys = selected_utxos
             .iter()
             .map(|(_, output)| {
-                let sk = SecretKey::from_slice(&output.tweak)?;
-                let signing_key = b_spend.add_tweak(&sk.into())?;
+                let signing_key = b_spend.add_tweak(&output.tweak)?;
                 Ok((signing_key, true))
             })
             .collect::<Result<Vec<_>>>()?;
