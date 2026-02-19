@@ -4,23 +4,22 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{bail, Error, Result};
+use anyhow::{Error, Result, bail};
 use bitcoin::{
+    Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
     absolute::Height,
     bip158::BlockFilter,
-    hashes::{sha256, Hash},
+    hashes::{Hash, sha256},
     secp256k1::{PublicKey, Scalar},
-    Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
 };
-use futures::{pin_mut, Stream, StreamExt};
+use futures::{Stream, StreamExt, pin_mut};
 use log::info;
 use silentpayments::receiving::Label;
 
-use crate::{
-    backend::{BlockData, ChainBackend, FilterData, UtxoData},
-    client::{OutputSpendStatus, OwnedOutput, SpClient},
-    updater::Updater,
-};
+use spdk_core::backend::{BlockData, ChainBackend, FilterData, UtxoData};
+use spdk_core::updater::{OutputSpendStatus, OwnedOutput, Updater};
+
+use crate::client::SpClient;
 
 pub struct SpScanner<'a> {
     updater: Box<dyn Updater + Sync + Send>,

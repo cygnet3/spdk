@@ -1,16 +1,20 @@
 [package]
-name = "spdk-core"
+name = "spdk-wallet"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 repository.workspace = true
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+spdk-core.workspace = true
+
 anyhow.workspace = true
-async-trait.workspace = true
 bitcoin.workspace = true
 futures.workspace = true
 serde.workspace = true
 silentpayments.workspace = true
+rayon.workspace = true
+log.workspace = true
+bdk_coin_select.workspace = true
