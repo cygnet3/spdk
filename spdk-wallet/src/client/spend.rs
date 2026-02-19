@@ -1,31 +1,29 @@
 use std::str::FromStr;
 
+use anyhow::{Error, Result};
 use bdk_coin_select::{
-    Candidate, ChangePolicy, CoinSelector, DrainWeights, FeeRate, Target, TargetFee, TargetOutputs,
-    TR_DUST_RELAY_MIN_VALUE,
+    Candidate, ChangePolicy, CoinSelector, DrainWeights, TR_DUST_RELAY_MIN_VALUE, Target,
+    TargetFee, TargetOutputs,
 };
+use bitcoin::absolute::LockTime;
+use bitcoin::hashes::Hash;
+use bitcoin::key::TapTweak;
+use bitcoin::script::PushBytesBuf;
+use bitcoin::secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+use bitcoin::sighash::{Prevouts, SighashCache};
+use bitcoin::taproot::Signature;
+use bitcoin::transaction::Version;
 use bitcoin::{
-    absolute::LockTime,
-    hashes::Hash,
-    key::TapTweak,
-    script::PushBytesBuf,
-    secp256k1::{Keypair, Message, Secp256k1, SecretKey},
-    sighash::{Prevouts, SighashCache},
-    taproot::Signature,
-    transaction::Version,
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
-
 use silentpayments::utils as sp_utils;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
-use anyhow::{Error, Result};
-
-use crate::constants::{DATA_CARRIER_SIZE, NUMS};
+use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 
 use super::{
-    OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
-    SpClient,
+    FeeRate, OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress,
+    SilentPaymentUnsignedTransaction, SpClient,
 };
 
 impl SpClient {

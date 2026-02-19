@@ -1,11 +1,11 @@
 use std::{ops::RangeInclusive, pin::Pin, sync::Arc};
 
-use async_trait::async_trait;
-use futures::{Stream, StreamExt, stream};
-use spdk_core::bitcoin::{Amount, absolute::Height};
-
 use anyhow::Result;
-use spdk_core::{BlockData, ChainBackend, SpentIndexData, UtxoData};
+use async_trait::async_trait;
+use bitcoin::{Amount, absolute::Height};
+use futures::{Stream, StreamExt, stream};
+
+use spdk_core::backend::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
 use crate::BlindbitClient;
 

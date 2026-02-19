@@ -1,9 +1,10 @@
 use std::time::Duration;
 
-use reqwest::{Client, Url};
-use spdk_core::bitcoin::{Amount, Txid, absolute::Height, secp256k1::PublicKey};
-
 use anyhow::Result;
+use bitcoin::absolute::Height;
+use bitcoin::secp256k1::PublicKey;
+use bitcoin::{Amount, Txid};
+use reqwest::{Client, Url};
 
 use super::api_structs::{
     BlockHeightResponse, FilterResponse, ForwardTxRequest, InfoResponse, SpentIndexResponse,

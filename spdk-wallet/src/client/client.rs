@@ -1,23 +1,23 @@
 use std::{collections::HashMap, io::Write, str::FromStr};
 
 use bitcoin::{
+    Network, XOnlyPublicKey,
     key::constants::ONE,
     secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
-    Network, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
+    SilentPaymentAddress,
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
-    SilentPaymentAddress,
 };
 use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 
-use crate::constants::NUMS;
+use spdk_core::constants::NUMS;
 
 use super::SpendKey;
 

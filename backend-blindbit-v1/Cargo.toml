@@ -12,6 +12,7 @@ spdk-core.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
+bitcoin.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

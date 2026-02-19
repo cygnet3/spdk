@@ -1,36 +1,20 @@
 use std::str::FromStr;
 
 use anyhow::Error;
-use bitcoin::{
-    absolute::Height,
-    address::NetworkUnchecked,
-    hex::{DisplayHex, FromHex},
-    key::Secp256k1,
-    secp256k1::{PublicKey, SecretKey},
-    Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
-};
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::hex::{DisplayHex, FromHex};
+use bitcoin::key::Secp256k1;
+use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
-use silentpayments::{receiving::Label, SilentPaymentAddress};
+use silentpayments::SilentPaymentAddress;
 
-type SpendingTxId = [u8; 32];
-type MinedInBlock = [u8; 32];
+// re-export these structs, todo: move them out of updater and define them here instead
+pub use spdk_core::updater::OutputSpendStatus;
+pub use spdk_core::updater::OwnedOutput;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum OutputSpendStatus {
-    Unspent,
-    Spent(SpendingTxId),
-    Mined(MinedInBlock),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct OwnedOutput {
-    pub blockheight: Height,
-    pub tweak: [u8; 32], // scalar in big endian format
-    pub amount: Amount,
-    pub script: ScriptBuf,
-    pub label: Option<Label>,
-    pub spend_status: OutputSpendStatus,
-}
+// re-export from bdk_coin_select, as we use this in the api
+pub use bdk_coin_select::FeeRate;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(untagged)]
