@@ -25,6 +25,8 @@ pub enum Error {
     MissingUnsignedTx,
     #[error("prevout for input {0} not in selected utxos")]
     MissingPrevout(usize),
+    #[error("input {0} missing witness_utxo in PSBT")]
+    MissingWitnessUtxo(usize),
     #[error("unknown silent payment address")]
     UnknownSpAddress,
     #[error("multiple outputs per SP address not supported")]

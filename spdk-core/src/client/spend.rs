@@ -11,6 +11,7 @@ use bitcoin::secp256k1::ThirtyTwoByteHash;
 use bitcoin::{
     absolute::LockTime,
     key::TapTweak,
+    psbt::Psbt,
     script::PushBytesBuf,
     secp256k1::{Keypair, Message, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache},
@@ -367,33 +368,6 @@ impl SpClient {
         unsigned_transaction.unsigned_tx = Some(tx);
         Ok(unsigned_transaction)
     }
-
-    fn taproot_sighash<
-        T: std::ops::Deref<Target = Transaction> + std::borrow::Borrow<Transaction>,
-    >(
-        hash_ty: bitcoin::TapSighashType,
-        prevouts: &[TxOut],
-        input_index: usize,
-        cache: &mut SighashCache<T>,
-        tapleaf_hash: Option<TapLeafHash>,
-    ) -> Result<Message> {
-        let prevouts = Prevouts::All(prevouts);
-
-        let sighash = match tapleaf_hash {
-            Some(leaf_hash) => cache
-                .taproot_script_spend_signature_hash(input_index, &prevouts, leaf_hash, hash_ty)
-                .map_err(|e| Error::Sighash(e.to_string()))?,
-            None => cache
-                .taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)
-                .map_err(|e| Error::Sighash(e.to_string()))?,
-        };
-        #[cfg(feature = "bitcoin_31")]
-        let msg = Message::from_digest(sighash.into_32());
-        #[cfg(feature = "bitcoin_32")]
-        let msg = Message::from_digest(*sighash.as_raw_hash().as_byte_array());
-        Ok(msg)
-    }
-
     pub fn sign_transaction(
         &self,
         unsigned_tx: SilentPaymentUnsignedTransaction,
@@ -426,7 +400,7 @@ impl SpClient {
         for (i, input) in to_sign.input.iter().enumerate() {
             let tap_leaf_hash: Option<TapLeafHash> = None;
 
-            let msg = Self::taproot_sighash(hash_ty, &prevouts, i, &mut cache, tap_leaf_hash)?;
+            let msg = taproot_sighash(hash_ty, &prevouts, i, &mut cache, tap_leaf_hash)?;
 
             // Construct the signing key
             let (_, owned_output) = unsigned_tx
@@ -484,4 +458,81 @@ impl SpClient {
 
         Ok(partial_secret)
     }
+}
+
+/// Compute taproot sighash for key-spend or script-spend.
+pub(crate) fn taproot_sighash<
+    T: std::ops::Deref<Target = Transaction> + std::borrow::Borrow<Transaction>,
+>(
+    hash_ty: bitcoin::TapSighashType,
+    prevouts: &[TxOut],
+    input_index: usize,
+    cache: &mut SighashCache<T>,
+    tapleaf_hash: Option<TapLeafHash>,
+) -> Result<Message> {
+    let prevouts = Prevouts::All(prevouts);
+
+    let sighash = match tapleaf_hash {
+        Some(leaf_hash) => cache
+            .taproot_script_spend_signature_hash(input_index, &prevouts, leaf_hash, hash_ty)
+            .map_err(|e| Error::Sighash(e.to_string()))?,
+        None => cache
+            .taproot_key_spend_signature_hash(input_index, &prevouts, hash_ty)
+            .map_err(|e| Error::Sighash(e.to_string()))?,
+    };
+    #[cfg(feature = "bitcoin_31")]
+    let msg = Message::from_digest(sighash.into_32());
+    #[cfg(feature = "bitcoin_32")]
+    let msg = Message::from_digest(*sighash.as_raw_hash().as_byte_array());
+    Ok(msg)
+}
+
+/// Sign a single taproot input using SP tweak-based key derivation.
+/// signing_key = b_spend + tweak
+pub fn sign_sp_input(
+    b_spend: &SecretKey,
+    tweak: &[u8; 32],
+    psbt: &mut Psbt,
+    input_index: usize,
+    aux_rand: &[u8; 32],
+) -> Result<()> {
+    let unsigned_tx = &psbt.unsigned_tx;
+
+    // Collect all prevouts from PSBT inputs
+    let prevouts: Vec<TxOut> = psbt
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(i, input)| {
+            input
+                .witness_utxo
+                .clone()
+                .ok_or(Error::MissingWitnessUtxo(i))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let secp = Secp256k1::signing_only();
+    let hash_ty = bitcoin::TapSighashType::Default;
+
+    let mut cache = SighashCache::new(unsigned_tx);
+    let msg = taproot_sighash(hash_ty, &prevouts, input_index, &mut cache, None)?;
+
+    // Derive signing key: b_spend + tweak
+    let tweak_sk = SecretKey::from_slice(tweak)?;
+    let sk = b_spend.add_tweak(&tweak_sk.into())?;
+    let keypair = Keypair::from_secret_key(&secp, &sk);
+
+    let sig = secp.sign_schnorr_with_aux_rand(&msg, &keypair, aux_rand);
+
+    #[cfg(feature = "bitcoin_31")]
+    let signature = Signature { sig, hash_ty };
+    #[cfg(feature = "bitcoin_32")]
+    let signature = Signature {
+        signature: sig,
+        sighash_type: hash_ty,
+    };
+
+    psbt.inputs[input_index].tap_key_sig = Some(signature);
+
+    Ok(())
 }
