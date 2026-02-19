@@ -377,6 +377,40 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
                 "Global ECDH share missing DLEQ proof".to_string(),
             ));
         }
+
+        if let Some(proof) = share.dleq_proof {
+            // Aggregate all input public keys for global proof verification
+            let mut input_pubkeys = Vec::new();
+            for input_idx in 0..psbt.num_inputs() {
+                let pubkey = get_input_pubkey(psbt, input_idx)?;
+                input_pubkeys.push(pubkey);
+            }
+            if input_pubkeys.is_empty() {
+                return Err(Error::Other(
+                    "No input public keys for global DLEQ verification".to_string(),
+                ));
+            }
+            let mut aggregate_key = input_pubkeys[0];
+            for pubkey in &input_pubkeys[1..] {
+                aggregate_key = aggregate_key.combine(pubkey).map_err(|e| {
+                    Error::Other(format!("Failed to aggregate input pubkeys: {}", e))
+                })?;
+            }
+            let is_valid = dleq_verify_proof(
+                secp,
+                &aggregate_key,
+                &share.scan_key,
+                &share.share,
+                &proof,
+                None,
+            )
+            .map_err(|e| Error::Other(format!("Global DLEQ verification error: {}", e)))?;
+            if !is_valid {
+                return Err(Error::Other(
+                    "Global DLEQ proof verification failed".to_string(),
+                ));
+            }
+        }
     }
 
     // Validate per-input ECDH shares
