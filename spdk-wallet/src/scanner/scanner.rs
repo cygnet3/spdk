@@ -16,7 +16,7 @@ use futures::{Stream, StreamExt, pin_mut};
 use log::info;
 use silentpayments::receiving::Label;
 
-use spdk_core::backend::{BlockData, ChainBackend, FilterData, UtxoData};
+use spdk_core::chain::{BlockData, ChainBackend, FilterData, UtxoData};
 use spdk_core::updater::{OutputSpendStatus, OwnedOutput, Updater};
 
 use crate::client::SpClient;
