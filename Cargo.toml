@@ -1,5 +1,5 @@
 [workspace]
-members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet"]
+members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet", "silentpayments"]
 resolver = "3"
 
 [workspace.dependencies]
