@@ -1,12 +1,12 @@
 [package]
 name = "silentpayments"
 version = "0.5.0"
-authors = ["cygnet <cygnet3@proton.me>"]
-license = "MIT"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/cygnet3/spdk/tree/master/silentpayments"
 edition = "2021"
 description = "A library for adding BIP352: Silent Payments support to wallets."
-homepage = "https://github.com/cygnet3/rust-silentpayments"
-repository = "https://github.com/cygnet3/rust-silentpayments"
 keywords = ["bitcoin", "secp256k1"]
 readme = "README.md"
 exclude = ["tests/resources"]
