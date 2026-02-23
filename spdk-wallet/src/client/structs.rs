@@ -6,7 +6,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex, FromHex};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Network, OutPoint, ScriptBuf, Transaction};
+use bitcoin::{Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddress;
 use silentpayments::receiving::Label;
@@ -97,6 +97,33 @@ impl From<SpendKey> for PublicKey {
     }
 }
 
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct SpendInfo {
+    pub spending_txid: Option<Txid>,
+    pub mined_in_block: Option<BlockHash>,
+}
+
+impl SpendInfo {
+    pub fn new_empty() -> Self {
+        Self {
+            spending_txid: None,
+            mined_in_block: None,
+        }
+    }
+
+    pub fn is_unspent(&self) -> bool {
+        self.spending_txid.is_none() && self.mined_in_block.is_none()
+    }
+
+    pub fn is_spent_unconfirmed(&self) -> bool {
+        self.spending_txid.is_some() && self.mined_in_block.is_none()
+    }
+
+    pub fn is_mined(&self) -> bool {
+        self.mined_in_block.is_some()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct OwnedOutput {
     pub blockheight: Height,
@@ -104,15 +131,19 @@ pub struct OwnedOutput {
     pub amount: Amount,
     pub script: ScriptBuf,
     pub label: Option<Label>,
-    pub spend_status: OutputSpendStatus,
+    pub spend_info: SpendInfo,
 }
 
-type SpendingTxId = [u8; 32];
-type MinedInBlock = [u8; 32];
+impl OwnedOutput {
+    pub fn is_unspent(&self) -> bool {
+        self.spend_info.is_unspent()
+    }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum OutputSpendStatus {
-    Unspent,
-    Spent(SpendingTxId),
-    Mined(MinedInBlock),
+    pub fn is_mined(&self) -> bool {
+        self.spend_info.is_mined()
+    }
+
+    pub fn is_spent_unconfirmed(&self) -> bool {
+        self.spend_info.is_spent_unconfirmed()
+    }
 }
