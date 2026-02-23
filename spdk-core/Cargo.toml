@@ -7,10 +7,15 @@ repository.workspace = true
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
 
+[features]
+default = ["async"]
+async = ["dep:async-trait", "dep:futures"]
+sync = []
+
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
+async-trait = { workspace = true, optional = true }
 bitcoin.workspace = true
-futures.workspace = true
+futures = { workspace = true, optional = true }
 serde.workspace = true
 silentpayments.workspace = true

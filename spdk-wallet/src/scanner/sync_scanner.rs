@@ -4,34 +4,30 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
-use bitcoin::{
-    Amount, OutPoint,
-    absolute::Height,
-    bip158::BlockFilter,
-    secp256k1::PublicKey,
-};
-use futures::{Stream, StreamExt, pin_mut};
+use anyhow::{bail, Result};
+use bitcoin::{absolute::Height, bip158::BlockFilter, secp256k1::PublicKey, Amount, OutPoint};
 use log::info;
 
-use spdk_core::chain::{BlockData, ChainBackend, FilterData};
-use spdk_core::updater::{SimplifiedOutput, Updater};
+use spdk_core::chain::{BlockData, FilterData, SyncChainBackend};
+use spdk_core::updater::Updater;
 
-use crate::{client::SpClient, scanner::logic::{check_block_inputs, check_block_outputs, find_owned_in_utxos, get_input_hashes}};
+use crate::client::{OwnedOutput, SpClient};
+
+use super::logic;
 
 pub struct SpScanner<'a> {
     updater: Box<dyn Updater + Sync + Send>,
-    backend: Box<dyn ChainBackend + Sync + Send>,
+    backend: Box<dyn SyncChainBackend + Sync + Send>,
     client: SpClient,
-    keep_scanning: &'a AtomicBool,      // used to interrupt scanning
-    owned_outpoints: HashSet<OutPoint>, // used to scan block inputs
+    keep_scanning: &'a AtomicBool,
+    owned_outpoints: HashSet<OutPoint>,
 }
 
 impl<'a> SpScanner<'a> {
     pub fn new(
         client: SpClient,
         updater: Box<dyn Updater + Sync + Send>,
-        backend: Box<dyn ChainBackend + Sync + Send>,
+        backend: Box<dyn SyncChainBackend + Sync + Send>,
         owned_outpoints: HashSet<OutPoint>,
         keep_scanning: &'a AtomicBool,
     ) -> Self {
@@ -44,7 +40,7 @@ impl<'a> SpScanner<'a> {
         }
     }
 
-    pub async fn scan_blocks(
+    pub fn scan_blocks(
         &mut self,
         start: Height,
         end: Height,
@@ -58,14 +54,14 @@ impl<'a> SpScanner<'a> {
         info!("start: {} end: {}", start, end);
         let start_time: Instant = Instant::now();
 
-        // get block data stream
+        // get block data iterator
         let range = start.to_consensus_u32()..=end.to_consensus_u32();
-        let block_data_stream =
+        let block_data_iter =
             self.backend
                 .get_block_data_for_range(range, dust_limit, with_cutthrough);
 
-        // process blocks using block data stream
-        self.process_blocks(start, end, block_data_stream).await?;
+        // process blocks using block data iterator
+        self.process_blocks(start, end, block_data_iter)?;
 
         // time elapsed for the scan
         info!(
@@ -76,17 +72,15 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_blocks(
+    fn process_blocks(
         &mut self,
         start: Height,
         end: Height,
-        block_data_stream: impl Stream<Item = Result<BlockData>>,
+        block_data_iter: impl Iterator<Item = Result<BlockData>>,
     ) -> Result<()> {
-        pin_mut!(block_data_stream);
-
         let mut update_time: Instant = Instant::now();
 
-        while let Some(blockdata) = block_data_stream.next().await {
+        for blockdata in block_data_iter {
             let blockdata = blockdata?;
             let blkheight = blockdata.blkheight;
             let blkhash = blockdata.blkhash;
@@ -104,7 +98,7 @@ impl<'a> SpScanner<'a> {
                 save_to_storage = true;
             }
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
+            let (found_outputs, found_inputs) = self.process_block(blockdata)?;
 
             if !found_outputs.is_empty() {
                 save_to_storage = true;
@@ -130,10 +124,10 @@ impl<'a> SpScanner<'a> {
         Ok(())
     }
 
-    async fn process_block(
+    fn process_block(
         &mut self,
         blockdata: BlockData,
-    ) -> Result<(HashMap<OutPoint, SimplifiedOutput>, HashSet<OutPoint>)> {
+    ) -> Result<(HashMap<OutPoint, OwnedOutput>, HashSet<OutPoint>)> {
         let BlockData {
             blkheight,
             tweaks,
@@ -142,14 +136,12 @@ impl<'a> SpScanner<'a> {
             ..
         } = blockdata;
 
-        let outs = self
-            .process_block_outputs(blkheight, tweaks, new_utxo_filter)
-            .await?;
+        let outs = self.process_block_outputs(blkheight, tweaks, new_utxo_filter)?;
 
         // after processing outputs, we add the found outputs to our list
         self.owned_outpoints.extend(outs.keys());
 
-        let ins = self.process_block_inputs(blkheight, spent_filter).await?;
+        let ins = self.process_block_inputs(blkheight, spent_filter)?;
 
         // after processing inputs, we remove the found inputs
         self.owned_outpoints.retain(|item| !ins.contains(item));
@@ -157,88 +149,57 @@ impl<'a> SpScanner<'a> {
         Ok((outs, ins))
     }
 
-    async fn process_block_outputs(
+    fn process_block_outputs(
         &self,
         blkheight: Height,
         tweaks: Vec<PublicKey>,
         new_utxo_filter: FilterData,
-    ) -> Result<HashMap<OutPoint, SimplifiedOutput>> {
-        let mut res = HashMap::new();
-
-        if !tweaks.is_empty() {
-            let secrets_map = self.client.get_script_to_secret_map(tweaks)?;
-
-            //last_scan = last_scan.max(n as u32);
-            let candidate_spks: Vec<&[u8; 34]> = secrets_map.keys().collect();
-
-            //get block gcs & check match
-            let blkfilter = BlockFilter::new(&new_utxo_filter.data);
-            let blkhash = new_utxo_filter.block_hash;
-
-            let matched_outputs = check_block_outputs(blkfilter, blkhash, candidate_spks)?;
-
-            //if match: fetch and scan utxos
-            if matched_outputs {
-                info!("matched outputs on: {}", blkheight);
-                let utxos = self.backend.utxos(blkheight).await?;
-                let found = find_owned_in_utxos(&self.client.sp_receiver, utxos, &secrets_map)?;
-
-                if !found.is_empty() {
-                    for (label, utxo, tweak) in found {
-                        let outpoint = OutPoint {
-                            txid: utxo.txid,
-                            vout: utxo.vout,
-                        };
-
-                        let out = SimplifiedOutput {
-                            tweak,
-                            value: utxo.value,
-                            script_pubkey: utxo.scriptpubkey,
-                            label,
-                        };
-
-                        res.insert(outpoint, out);
-                    }
-                }
-            }
+    ) -> Result<HashMap<OutPoint, OwnedOutput>> {
+        if tweaks.is_empty() {
+            return Ok(HashMap::new());
         }
-        Ok(res)
+
+        let secrets_map = self.client.get_script_to_secret_map(tweaks)?;
+        let candidate_spks: Vec<&[u8; 34]> = secrets_map.keys().collect();
+
+        let blkfilter = BlockFilter::new(&new_utxo_filter.data);
+        let blkhash = new_utxo_filter.block_hash;
+
+        if !logic::check_block_outputs(blkfilter, blkhash, candidate_spks)? {
+            return Ok(HashMap::new());
+        }
+
+        info!("matched outputs on: {}", blkheight);
+        let utxos = self.backend.utxos(blkheight)?;
+        let found = logic::find_owned_in_utxos(&self.client.sp_receiver, utxos, &secrets_map)?;
+
+        Ok(logic::collect_found_outputs(blkheight, found))
     }
 
-    async fn process_block_inputs(
+    fn process_block_inputs(
         &self,
         blkheight: Height,
         spent_filter: FilterData,
     ) -> Result<HashSet<OutPoint>> {
-        let mut res = HashSet::new();
-
         let blkhash = spent_filter.block_hash;
 
-        // first get the 8-byte hashes used to construct the input filter
-        let input_hashes_map = get_input_hashes(&self.owned_outpoints, blkhash)?;
+        let input_hashes_map = logic::get_input_hashes(&self.owned_outpoints, blkhash)?;
 
-        // check against filter
         let blkfilter = BlockFilter::new(&spent_filter.data);
-        let matched_inputs = check_block_inputs(
+        let matched_inputs = logic::check_block_inputs(
             blkfilter,
             blkhash,
             input_hashes_map.keys().cloned().collect(),
         )?;
 
-        // if match: download spent data, collect the outpoints that are spent
-        if matched_inputs {
-            info!("matched inputs on: {}", blkheight);
-            let spent = self.backend.spent_index(blkheight).await?.data;
-
-            for spent in spent {
-                let hex: &[u8] = spent.as_ref();
-
-                if let Some(outpoint) = input_hashes_map.get(hex) {
-                    res.insert(*outpoint);
-                }
-            }
+        if !matched_inputs {
+            return Ok(HashSet::new());
         }
-        Ok(res)
+
+        info!("matched inputs on: {}", blkheight);
+        let spent = self.backend.spent_index(blkheight)?.data;
+
+        Ok(logic::collect_spent_outpoints(spent, &input_hashes_map))
     }
 
     fn interrupt_requested(&self) -> bool {
