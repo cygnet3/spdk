@@ -1,15 +1,15 @@
 use std::str::FromStr;
 
 use anyhow::Error;
-use bitcoin::absolute::Height;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex, FromHex};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Network, OutPoint, ScriptBuf, Transaction};
+use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddress;
-use silentpayments::receiving::Label;
+
+use spdk_core::updater::DiscoveredOutput;
 
 // re-export from bdk_coin_select, as we use this in the api
 pub use bdk_coin_select::FeeRate;
@@ -53,10 +53,10 @@ pub struct Recipient {
     pub amount: Amount,            // must be 0 if address is Data.
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone)]
 // this will be replaced by a proper psbt as soon as sp support is standardised
 pub struct SilentPaymentUnsignedTransaction {
-    pub selected_utxos: Vec<(OutPoint, OwnedOutput)>,
+    pub selected_utxos: Vec<(OutPoint, DiscoveredOutput)>,
     pub recipients: Vec<Recipient>,
     pub partial_secret: SecretKey,
     pub unsigned_tx: Option<Transaction>,
@@ -95,24 +95,4 @@ impl From<SpendKey> for PublicKey {
     fn from(value: SpendKey) -> Self {
         (&value).into()
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct OwnedOutput {
-    pub blockheight: Height,
-    pub tweak: [u8; 32], // scalar in big endian format
-    pub amount: Amount,
-    pub script: ScriptBuf,
-    pub label: Option<Label>,
-    pub spend_status: OutputSpendStatus,
-}
-
-type SpendingTxId = [u8; 32];
-type MinedInBlock = [u8; 32];
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum OutputSpendStatus {
-    Unspent,
-    Spent(SpendingTxId),
-    Mined(MinedInBlock),
 }
