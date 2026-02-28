@@ -5,7 +5,7 @@ members = [
     "backend-blindbit-native-non-async",
     "backend_tests/blindbit-native",
 ]
-resolver = "3"
+resolver = "2"
 
 [workspace.dependencies]
 # Internal workspace crates
@@ -19,7 +19,7 @@ silentpayments = { git = "https://github.com/pythcoiner/rust-silentpayments.git"
 thiserror = "2"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
-rayon = "1.10.0"
+rayon = "1.9.0"
 futures = "0.3"
 futures-util = "0.3.31"
 async-trait = "0.1"
@@ -29,4 +29,5 @@ bdk_coin_select = "0.4.0"
 bip39 = { version = "2.2.0" }
 
 [workspace.package]
+rust-version = "1.78"  # See MSRV.md for downstream pinning requirements
 repository = "https://github.com/cygnet3/spdk"

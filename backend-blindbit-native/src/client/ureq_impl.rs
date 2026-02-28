@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use crate::error::{Error, Result};
@@ -25,18 +27,20 @@ impl UreqClient {
     /// Create a new ureq HTTP client with default settings.
     pub fn new() -> Self {
         Self {
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(30))
-                .build(),
+            agent: ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(30)))
+                .build()
+                .into(),
         }
     }
 
     /// Create a new ureq HTTP client with a custom timeout.
     pub fn with_timeout(timeout_secs: u64) -> Self {
         Self {
-            agent: ureq::AgentBuilder::new()
-                .timeout(std::time::Duration::from_secs(timeout_secs))
-                .build(),
+            agent: ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(timeout_secs)))
+                .build()
+                .into(),
         }
     }
 }
@@ -50,30 +54,23 @@ impl Default for UreqClient {
 #[async_trait]
 impl HttpClient for UreqClient {
     async fn get(&self, url: &str, query_params: &[(&str, String)]) -> Result<String> {
-        // Build URL with query parameters
-        let mut full_url = url.to_string();
-        if !query_params.is_empty() {
-            full_url.push('?');
-            for (i, (key, value)) in query_params.iter().enumerate() {
-                if i > 0 {
-                    full_url.push('&');
-                }
-                full_url.push_str(key);
-                full_url.push('=');
-                full_url.push_str(value);
-            }
+        let mut req = self.agent.get(url);
+
+        for (key, value) in query_params {
+            req = req.query(key, value);
         }
 
         // Perform blocking request (wrapped in async for trait compatibility)
-        let response = self
-            .agent
-            .get(&full_url)
+        let mut response = req
             .call()
-            .map_err(|e| Error::HttpGet(e.to_string()))?
-            .into_string()
+            .map_err(|e| Error::HttpGet(e.to_string()))?;
+
+        let body = response
+            .body_mut()
+            .read_to_string()
             .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
-        Ok(response)
+        Ok(body)
     }
 
     async fn post_json(&self, url: &str, json_body: &str) -> Result<String> {
@@ -81,10 +78,11 @@ impl HttpClient for UreqClient {
         let response = self
             .agent
             .post(url)
-            .set("Content-Type", "application/json")
-            .send_string(json_body)
+            .header("Content-Type", "application/json")
+            .send(json_body)
             .map_err(|e| Error::HttpPost(e.to_string()))?
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .map_err(|e| Error::ResponseBody(e.to_string()))?;
 
         Ok(response)

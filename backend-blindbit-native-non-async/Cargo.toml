@@ -31,7 +31,6 @@ rayon.optional = true
 [dev-dependencies]
 blindbitd = { git = "https://github.com/pythcoiner/blindbitd.git" }
 reqwest = { version = "0.12", features = ["blocking", "gzip"] }
-ureq2 = { package = "ureq", version = "2.12", features = ["gzip"] }
 flate2 = "1"
 corepc-node = { version = "0.10.0", features = ["download", "29_0"] }
 rand = "0.8"
