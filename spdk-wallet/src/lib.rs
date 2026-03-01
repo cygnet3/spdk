@@ -12,3 +12,4 @@ pub use backend_blindbit_v1;
 // re-export libraries for consumers
 pub use bitcoin;
 pub use silentpayments;
+pub use sp_descriptor;

@@ -9,7 +9,8 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 spdk-core.workspace = true
-backend-blindbit-v1 = { workspace = true, optional = true }
+backend-blindbit-v1 = { workspace = true, optional = true}
+sp-descriptor.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true

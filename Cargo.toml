@@ -1,5 +1,5 @@
 [workspace]
-members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet", "silentpayments"]
+members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet", "silentpayments", "sp-descriptor"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -7,6 +7,7 @@ resolver = "3"
 spdk-core = { path = "spdk-core" }
 silentpayments = { path = "silentpayments" }
 backend-blindbit-v1 = { path = "backend-blindbit-v1"}
+sp-descriptor = { path = "sp-descriptor" }
 
 # Core dependencies - shared across crates
 anyhow = "1.0"
