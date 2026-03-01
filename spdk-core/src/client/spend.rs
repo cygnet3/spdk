@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use bdk_coin_select::{
@@ -302,27 +303,26 @@ impl SpClient {
             unsigned_transaction.partial_secret,
         )?;
 
-        let tx_outs = unsigned_transaction
-            .recipients
-            .iter()
-            .map(|recipient| match &recipient.address {
+        // Per-address counter for BIP352 k value
+        let mut sp_output_counters: HashMap<&SilentPaymentAddress, usize> = HashMap::new();
+        let mut tx_outs = Vec::with_capacity(unsigned_transaction.recipients.len());
+
+        for recipient in &unsigned_transaction.recipients {
+            let tx_out = match &recipient.address {
                 RecipientAddress::SpAddress(s) => {
-                    // We now need to fill the sp outputs with actual spk
                     let pubkeys = sp_address2xonlypubkeys
                         .get(s)
                         .ok_or(Error::UnknownSpAddress)?;
+                    let k = sp_output_counters.entry(s).or_insert(0);
+                    let pubkey = *pubkeys
+                        .get(*k)
+                        .expect("pubkey count matches recipient count");
+                    *k += 1;
 
-                    // we currently only allow having 1 output per silent payment address
-                    // note: when changing this, it should also be accounted for in 'create_new_transaction'
-                    if pubkeys.len() == 1 {
-                        let pubkey = pubkeys[0];
-                        let script = ScriptBuf::new_p2tr_tweaked(pubkey.dangerous_assume_tweaked());
-                        Ok(TxOut {
-                            value: recipient.amount,
-                            script_pubkey: script,
-                        })
-                    } else {
-                        Err(Error::MultipleOutputsNotSupported)
+                    let script = ScriptBuf::new_p2tr_tweaked(pubkey.dangerous_assume_tweaked());
+                    TxOut {
+                        value: recipient.amount,
+                        script_pubkey: script,
                     }
                 }
                 RecipientAddress::LegacyAddress(unchecked_address) => {
@@ -332,10 +332,10 @@ impl SpClient {
                         .map_err(|e| Error::Address(e.to_string()))?
                         .script_pubkey();
 
-                    Ok(TxOut {
+                    TxOut {
                         value: recipient.amount,
                         script_pubkey: script,
-                    })
+                    }
                 }
                 RecipientAddress::Data(data) => {
                     if recipient.amount > Amount::from_sat(0) {
@@ -351,13 +351,14 @@ impl SpClient {
                     let mut op_return = PushBytesBuf::with_capacity(data_len);
                     op_return.extend_from_slice(data)?;
                     let script = ScriptBuf::new_op_return(op_return);
-                    Ok(TxOut {
+                    TxOut {
                         value: recipient.amount,
                         script_pubkey: script,
-                    })
+                    }
                 }
-            })
-            .collect::<Result<Vec<TxOut>>>()?;
+            };
+            tx_outs.push(tx_out);
+        }
 
         let tx = Transaction {
             version: Version::TWO,
@@ -535,4 +536,104 @@ pub fn sign_sp_input(
     psbt.inputs[input_index].tap_key_sig = Some(signature);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::{OutputSpendStatus, OwnedOutput, Recipient, RecipientAddress};
+    #[cfg(feature = "mnemonic")]
+    use bip39::Mnemonic;
+    use bitcoin::absolute::Height;
+    #[cfg(feature = "bitcoin_32")]
+    use bitcoin::hashes::Hash;
+    use bitcoin::Txid;
+
+    #[cfg(feature = "mnemonic")]
+    fn create_test_sp_client() -> SpClient {
+        let mnemonic = Mnemonic::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        SpClient::new_from_mnemonic(mnemonic, Network::Regtest).unwrap()
+    }
+
+    fn create_mock_utxo(amount_sats: u64, tweak: [u8; 32]) -> (OutPoint, OwnedOutput) {
+        #[cfg(feature = "bitcoin_32")]
+        let txid = Txid::from_slice(&tweak).unwrap();
+        #[cfg(feature = "bitcoin_31")]
+        let txid = Txid::from_slice(&tweak).unwrap();
+
+        let outpoint = OutPoint { txid, vout: 0 };
+        let output = OwnedOutput {
+            blockheight: Height::from_consensus(100).unwrap(),
+            tweak,
+            amount: Amount::from_sat(amount_sats),
+            script: ScriptBuf::new_p2tr_tweaked(
+                bitcoin::XOnlyPublicKey::from_str(NUMS)
+                    .unwrap()
+                    .dangerous_assume_tweaked(),
+            ),
+            label: None,
+            spend_status: OutputSpendStatus::Unspent,
+        };
+        (outpoint, output)
+    }
+
+    #[test]
+    #[cfg(feature = "mnemonic")]
+    fn test_multiple_outputs_same_sp_address() {
+        let client = create_test_sp_client();
+        let sp_address = client.get_receiving_address();
+
+        // Create mock UTXO with enough funds
+        let utxo = create_mock_utxo(100_000, [1u8; 32]);
+
+        let recipients = vec![
+            Recipient {
+                address: RecipientAddress::SpAddress(sp_address.clone()),
+                amount: Amount::from_sat(10_000),
+            },
+            Recipient {
+                address: RecipientAddress::SpAddress(sp_address),
+                amount: Amount::from_sat(20_000),
+            },
+        ];
+
+        let unsigned_tx = client
+            .create_new_transaction(
+                vec![utxo],
+                recipients,
+                FeeRate::from_sat_per_vb(1.0),
+                Network::Regtest,
+            )
+            .unwrap();
+
+        let finalized = SpClient::finalize_transaction(unsigned_tx).unwrap();
+        let tx = finalized.unsigned_tx.unwrap();
+
+        let out_10k = tx
+            .output
+            .iter()
+            .find(|o| o.value == Amount::from_sat(10_000))
+            .unwrap();
+        let out_20k = tx
+            .output
+            .iter()
+            .find(|o| o.value == Amount::from_sat(20_000))
+            .unwrap();
+
+        // Expected scriptpubkeys for k=0 and k=1
+        let expected_spk_k0 = ScriptBuf::from_hex(
+            "51204b8420258e7eabcdf1b0847962796c2376428e2c7f0226bc0f78307ca3e3d7e4",
+        )
+        .unwrap();
+        let expected_spk_k1 = ScriptBuf::from_hex(
+            "51206007d5b346a334ef9de0c21e2e15c1a46b4e0f727d5e3ab4ab826f6b6509abfc",
+        )
+        .unwrap();
+
+        assert_eq!(out_10k.script_pubkey, expected_spk_k0);
+        assert_eq!(out_20k.script_pubkey, expected_spk_k1);
+    }
 }

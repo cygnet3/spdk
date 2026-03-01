@@ -29,8 +29,6 @@ pub enum Error {
     MissingWitnessUtxo(usize),
     #[error("unknown silent payment address")]
     UnknownSpAddress,
-    #[error("multiple outputs per SP address not supported")]
-    MultipleOutputsNotSupported,
     #[error("data output must have an amount of 0")]
     DataOutputNonZero,
     #[error("cannot embed data of length {len}, max is {max}")]
