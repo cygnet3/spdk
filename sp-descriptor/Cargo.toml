@@ -1,0 +1,14 @@
+[package]
+name = "sp-descriptor"
+version = "0.1.0"
+edition = "2024"
+repository.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+secp256k1.workspace = true
+silentpayments.workspace = true
+
+miniscript = "13.0.0"
