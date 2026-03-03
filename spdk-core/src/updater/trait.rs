@@ -7,25 +7,11 @@ use anyhow::Result;
 use super::DiscoveredOutput;
 
 pub trait Updater {
-    /// Ask the updater to record the scanning progress.
-    fn record_scan_progress(&mut self, start: Height, current: Height, end: Height) -> Result<()>;
-
-    /// Ask the updater to record the outputs found in a block.
-    fn record_block_outputs(
-        &mut self,
-        height: Height,
-        blkhash: BlockHash,
-        found_outputs: HashMap<OutPoint, DiscoveredOutput>,
-    ) -> Result<()>;
-
-    /// Ask the updater to record the inputs found in a block.
-    fn record_block_inputs(
+    fn record_block_scan_result(
         &mut self,
         blkheight: Height,
         blkhash: BlockHash,
-        found_inputs: HashSet<OutPoint>,
+        discovered_inputs: HashSet<OutPoint>,
+        discovered_outputs: HashMap<OutPoint, DiscoveredOutput>,
     ) -> Result<()>;
-
-    /// Ask the updater to save all recorded changes to persistent storage.
-    fn save_to_persistent_storage(&mut self) -> Result<()>;
 }
