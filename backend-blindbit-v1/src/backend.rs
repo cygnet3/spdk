@@ -78,8 +78,4 @@ impl ChainBackend for BlindbitBackend {
             .map(Into::into)
             .collect())
     }
-
-    async fn block_height(&self) -> Result<Height> {
-        self.client.block_height().await
-    }
 }
