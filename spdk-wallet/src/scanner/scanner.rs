@@ -67,7 +67,7 @@ impl<'a> SpScanner<'a> {
                 .get_block_data_for_range(range, dust_limit, with_cutthrough);
 
         // process blocks using block data stream
-        self.process_blocks(start, end, block_data_stream).await?;
+        self.process_blocks(block_data_stream).await?;
 
         // time elapsed for the scan
         info!(
@@ -80,53 +80,28 @@ impl<'a> SpScanner<'a> {
 
     async fn process_blocks(
         &mut self,
-        start: Height,
-        end: Height,
         block_data_stream: impl Stream<Item = Result<BlockData>>,
     ) -> Result<()> {
         pin_mut!(block_data_stream);
 
-        let mut update_time: Instant = Instant::now();
-
         while let Some(blockdata) = block_data_stream.next().await {
-            let blockdata = blockdata?;
-            let blkheight = blockdata.blkheight;
-            let blkhash = blockdata.blkhash;
-
             // stop scanning and return if interrupted
             if self.interrupt_requested() {
-                self.updater.save_to_persistent_storage()?;
                 return Ok(());
             }
 
-            let mut save_to_storage = false;
+            let blockdata = blockdata?;
+            let blkhash = blockdata.blkhash;
+            let blkheight = blockdata.blkheight;
 
-            // always save on last block or after 30 seconds since last save
-            if blkheight == end || update_time.elapsed() > Duration::from_secs(30) {
-                save_to_storage = true;
-            }
+            let (discovered_outputs, discovered_inputs) = self.process_block(blockdata).await?;
 
-            let (found_outputs, found_inputs) = self.process_block(blockdata).await?;
-
-            if !found_outputs.is_empty() {
-                save_to_storage = true;
-                self.updater
-                    .record_block_outputs(blkheight, blkhash, found_outputs)?;
-            }
-
-            if !found_inputs.is_empty() {
-                save_to_storage = true;
-                self.updater
-                    .record_block_inputs(blkheight, blkhash, found_inputs)?;
-            }
-
-            // tell the updater we scanned this block
-            self.updater.record_scan_progress(start, blkheight, end)?;
-
-            if save_to_storage {
-                self.updater.save_to_persistent_storage()?;
-                update_time = Instant::now();
-            }
+            self.updater.record_block_scan_result(
+                blkheight,
+                blkhash,
+                discovered_inputs,
+                discovered_outputs,
+            )?;
         }
 
         Ok(())
