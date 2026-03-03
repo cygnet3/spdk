@@ -18,8 +18,8 @@ pub struct BlindbitClient {
 }
 
 impl BlindbitClient {
-    pub fn new(host_url: String) -> Result<Self> {
-        let mut host_url = Url::parse(&host_url)?;
+    pub fn new(host_url: &str) -> Result<Self> {
+        let mut host_url = Url::parse(host_url)?;
         let client = reqwest::Client::new();
 
         // we need a trailing slash, if not present we append it
