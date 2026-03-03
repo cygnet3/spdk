@@ -19,6 +19,4 @@ pub trait ChainBackend {
     async fn spent_index(&self, block_height: Height) -> Result<SpentIndexData>;
 
     async fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>>;
-
-    async fn block_height(&self) -> Result<Height>;
 }
