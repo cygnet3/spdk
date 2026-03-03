@@ -17,10 +17,8 @@ pub struct BlindbitBackend {
 }
 
 impl BlindbitBackend {
-    pub fn new(blindbit_url: String) -> Result<Self> {
-        Ok(Self {
-            client: BlindbitClient::new(blindbit_url)?,
-        })
+    pub fn new(client: BlindbitClient) -> Self {
+        Self { client }
     }
 }
 
