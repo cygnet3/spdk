@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::AtomicBool,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use anyhow::{Error, Result, bail};
