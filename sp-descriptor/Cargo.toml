@@ -8,7 +8,8 @@ repository.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
-secp256k1.workspace = true
+bitcoin.workspace = true
+spdk-core.workspace = true
 silentpayments.workspace = true
 
 miniscript = "13.0.0"

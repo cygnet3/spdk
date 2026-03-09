@@ -1,10 +1,8 @@
 use std::str::FromStr;
 
-use anyhow::Error;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex, FromHex};
-use bitcoin::key::Secp256k1;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddress;
@@ -63,36 +61,4 @@ pub struct SilentPaymentUnsignedTransaction {
     pub network: Network,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub enum SpendKey {
-    Secret(SecretKey),
-    Public(PublicKey),
-}
-
-impl TryInto<SecretKey> for SpendKey {
-    type Error = anyhow::Error;
-    fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
-        match self {
-            Self::Secret(k) => Ok(k),
-            Self::Public(_) => Err(Error::msg("Can't take SecretKey from Public")),
-        }
-    }
-}
-
-impl From<&SpendKey> for PublicKey {
-    fn from(value: &SpendKey) -> Self {
-        match value {
-            SpendKey::Secret(k) => {
-                let secp = Secp256k1::signing_only();
-                k.public_key(&secp)
-            }
-            SpendKey::Public(p) => *p,
-        }
-    }
-}
-
-impl From<SpendKey> for PublicKey {
-    fn from(value: SpendKey) -> Self {
-        (&value).into()
-    }
-}
+pub use spdk_core::keys::SpendKey;
