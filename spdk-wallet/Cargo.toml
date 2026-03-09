@@ -9,16 +9,22 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 spdk-core.workspace = true
-backend-blindbit-v1 = { workspace = true, optional = true}
+backend-blindbit-v1 = { workspace = true, optional = true }
 
 anyhow.workspace = true
 bitcoin.workspace = true
 futures.workspace = true
 serde.workspace = true
 silentpayments.workspace = true
-rayon = {workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
 log.workspace = true
 bdk_coin_select.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+async-trait.workspace = true
+serde_json.workspace = true
+
 
 [features]
 default = ["backend-blindbit-v1", "rayon"]
