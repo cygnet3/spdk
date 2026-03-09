@@ -29,6 +29,8 @@ use core::str::FromStr;
 pub use miniscript::descriptor::{checksum, DescriptorPublicKey, DescriptorSecretKey, SinglePubKey};
 pub use miniscript::expression::{self, FromTree};
 pub use miniscript::Error;
+use bitcoin::secp256k1::{PublicKey, SecretKey};
+use spdk_core::keys::SpendKey;
 
 mod keys;
 
@@ -136,10 +138,48 @@ impl Sp {
     ///
     /// For the encoded form, this extracts from the spscan/spspend payload.
     /// For the two-key form, this extracts from the secret key.
-    pub fn scan_key(&self) -> Option<&[u8]> {
+    pub fn scan_key(&self) -> SecretKey {
         match &self.inner {
-            SpInner::Encoded(key) => Some(key.scan_privkey_bytes()),
-            SpInner::TwoKey { .. } => None, // Would need secp context to extract
+            SpInner::Encoded(key) => SecretKey::from_slice(key.scan_privkey_bytes()).unwrap(),
+            SpInner::TwoKey {scan, ..} => {
+                let scan_key = match scan {
+                    DescriptorSecretKey::Single(sk) => sk.key,
+                    _ => unreachable!()
+                };
+                SecretKey::from_slice(&scan_key.to_bytes()).unwrap()
+            }
+        }
+    }
+
+    pub fn spend_key(&self) -> SpendKey {
+        match &self.inner {
+            SpInner::Encoded(key) => match key {
+                SpKey::Scan(scan_key) => {
+                    SpendKey::Public(PublicKey::from_slice(&scan_key.spend_key).unwrap())
+                }
+                SpKey::Spend(spend_key) => {
+                    SpendKey::Secret(SecretKey::from_slice(&spend_key.spend_key).unwrap())
+                }
+            },
+            SpInner::TwoKey { spend, .. } => match spend {
+                DescriptorSpendKey::Public(pk) => {
+                    match pk {
+                        DescriptorPublicKey::Single(s) => match s.key {
+                            SinglePubKey::FullKey(full) => SpendKey::Public(full.inner),
+                            SinglePubKey::XOnly(_) => unreachable!("sp() keys are always compressed"),
+                        },
+                        _ => unreachable!("sp() two-key form only supports single keys"),
+                    }
+                }
+                DescriptorSpendKey::Private(sk) => {
+                    match sk {
+                        DescriptorSecretKey::Single(s) => {
+                            SpendKey::Secret(s.key.inner)
+                        }
+                        _ => unreachable!("sp() two-key form only supports single keys"),
+                    }
+                }
+            },
         }
     }
 }
