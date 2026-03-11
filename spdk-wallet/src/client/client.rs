@@ -1,12 +1,10 @@
-use std::{collections::HashMap, io::Write, str::FromStr};
+use std::{collections::HashMap, io::Write};
 
 use bitcoin::{
-    Network, XOnlyPublicKey,
-    key::constants::ONE,
-    secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey},
+    Network,
+    secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     SilentPaymentAddress,
@@ -17,8 +15,6 @@ use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 
-use spdk_core::constants::NUMS;
-
 use super::SpendKey;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -27,28 +23,6 @@ pub struct SpClient {
     spend_key: SpendKey,
     pub sp_receiver: Receiver,
     network: Network,
-}
-
-impl Default for SpClient {
-    fn default() -> Self {
-        let default_sk = SecretKey::from_slice(&[0xcd; 32]).unwrap();
-        let default_pubkey = XOnlyPublicKey::from_str(NUMS)
-            .unwrap()
-            .public_key(bitcoin::key::Parity::Even);
-        Self {
-            scan_sk: default_sk,
-            spend_key: SpendKey::Secret(default_sk),
-            sp_receiver: Receiver::new(
-                0,
-                default_pubkey,
-                default_pubkey,
-                Scalar::from_be_bytes(ONE).unwrap().into(),
-                SpNetwork::Regtest,
-            )
-            .unwrap(),
-            network: Network::Regtest,
-        }
-    }
 }
 
 impl SpClient {
