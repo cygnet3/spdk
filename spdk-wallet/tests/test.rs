@@ -191,3 +191,57 @@ async fn scan_single_block_with_output() {
     assert_eq!(discovered_output.unwrap().value, expected_value);
     assert_eq!(discovered_output.unwrap().label, expected_label);
 }
+
+#[tokio::test]
+async fn scan_single_block_with_spent_input() {
+    let owned_outpoint: OutPoint =
+        "93a9b81f81244f8e6be29d8d6b0a9dbe6d6de6d2d4b018001ebf855bc870be88:0"
+            .parse()
+            .unwrap();
+
+    let mock_backend = MockChainBackend {};
+
+    let mock_update = MockUpdater::default();
+    let updates = mock_update.updates.clone();
+
+    let scan_sk = SecretKey::from_slice(&[0x01; 32]).unwrap();
+    let spend_sk = SecretKey::from_slice(&[0x02; 32]).unwrap();
+    let spend_key = SpendKey::Secret(spend_sk);
+
+    let network = Network::Signet;
+    let keep_scanning = AtomicBool::new(true);
+    let mut owned_outpoints = HashSet::new();
+
+    owned_outpoints.insert(owned_outpoint);
+
+    let client = SpClient::new(scan_sk, spend_key, network).unwrap();
+
+    let mut scanner = SpScanner::new(
+        client,
+        Box::new(mock_update),
+        Box::new(mock_backend),
+        owned_outpoints,
+        &keep_scanning,
+    );
+
+    let block_height: Height = Height::from_consensus(295147).unwrap();
+
+    scanner
+        .scan_blocks(block_height, block_height, DUST_LIMIT, true)
+        .await
+        .unwrap();
+
+    let updates = updates.lock().unwrap();
+
+    // assert we received a single update
+    assert!(updates.len() == 1);
+
+    let discovered_inputs = &updates[0].discovered_inputs;
+
+    // we discovered that our owned outpoint has been spent
+    assert_eq!(discovered_inputs.len(), 1);
+
+    let spent_outpoint = discovered_inputs.iter().next().unwrap();
+
+    assert_eq!(*spent_outpoint, owned_outpoint);
+}
