@@ -4,7 +4,6 @@ use bitcoin::{
     Network,
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
-use serde::{Deserialize, Serialize};
 use silentpayments::Network as SpNetwork;
 use silentpayments::{
     SilentPaymentAddress,
@@ -17,7 +16,7 @@ use anyhow::{Error, Result};
 
 use super::SpendKey;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SpClient {
     scan_sk: SecretKey,
     spend_key: SpendKey,
