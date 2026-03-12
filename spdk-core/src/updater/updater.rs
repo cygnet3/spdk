@@ -35,6 +35,9 @@ pub trait Updater {
 
     /// Ask the updater to save all recorded changes to persistent storage.
     fn save_to_persistent_storage(&mut self) -> Result<()>;
+
+    /// Restore the set of owned outpoints from persistent storage.
+    fn restore_owned_outpoints(&self) -> Result<HashSet<OutPoint>>;
 }
 
 /// Async version of Updater for non-blocking I/O operations
@@ -83,4 +86,7 @@ pub trait AsyncUpdater: Send + Sync {
 
     /// Ask the updater to save all recorded changes to persistent storage.
     async fn save_to_persistent_storage(&mut self) -> Result<()>;
+
+    /// Restore the set of owned outpoints from persistent storage.
+    async fn restore_owned_outpoints(&self) -> Result<HashSet<OutPoint>>;
 }

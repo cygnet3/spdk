@@ -39,6 +39,17 @@ impl<B: ChainBackend, U: Updater> SpAccount<B, U> {
         }
     }
 
+    pub fn restore(backend: B, client: SpClient, updater: U, stop: Arc<AtomicBool>) -> crate::error::Result<Self> {
+        let owned_outpoints = updater.restore_owned_outpoints()?;
+        Ok(Self {
+            backend,
+            client,
+            updater,
+            stop,
+            owned_outpoints,
+        })
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
@@ -300,8 +311,8 @@ impl<B: ChainBackend, U: Updater> SpScanner for SpAccount<B, U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{updater::DummyUpdater, SpentIndexData, UtxoData};
-    use bitcoin::{absolute::Height, Amount, Network};
+    use crate::{updater::DummyUpdater, SpentIndexData, Updater, UtxoData};
+    use bitcoin::{absolute::Height, Amount, Network, Txid};
     use std::ops::RangeInclusive;
 
     /// Mock backend for testing stop flag behavior
@@ -418,5 +429,86 @@ mod tests {
 
         // account2 should also see the stop signal immediately
         assert!(account2.should_interrupt());
+    }
+
+    /// Mock updater that returns a predefined set of outpoints on restore
+    struct MockUpdater {
+        outpoints: HashSet<OutPoint>,
+    }
+
+    impl MockUpdater {
+        fn new(outpoints: HashSet<OutPoint>) -> Self {
+            Self { outpoints }
+        }
+    }
+
+    impl Updater for MockUpdater {
+        fn record_scan_progress(
+            &mut self,
+            _start: Height,
+            _current: Height,
+            _end: Height,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        fn record_block_outputs(
+            &mut self,
+            _height: Height,
+            _blkhash: bitcoin::BlockHash,
+            _found_outputs: HashMap<OutPoint, crate::OwnedOutput>,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        fn record_block_inputs(
+            &mut self,
+            _blkheight: Height,
+            _blkhash: bitcoin::BlockHash,
+            _found_inputs: HashSet<OutPoint>,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        fn save_to_persistent_storage(&mut self) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        fn restore_owned_outpoints(&self) -> crate::error::Result<HashSet<OutPoint>> {
+            Ok(self.outpoints.clone())
+        }
+    }
+
+    #[test]
+    fn test_restore_populates_owned_outpoints() {
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let op1 = OutPoint { txid: Txid::from_byte_array([1u8; 32]), vout: 0 };
+        let op2 = OutPoint { txid: Txid::from_byte_array([2u8; 32]), vout: 1 };
+        let expected: HashSet<OutPoint> = [op1, op2].into_iter().collect();
+
+        let updater = MockUpdater::new(expected.clone());
+        let account = SpAccount::restore(
+            MockBackend,
+            create_test_sp_client(),
+            updater,
+            stop,
+        ).unwrap();
+
+        let restored: HashSet<OutPoint> = account.outpoints().into_iter().collect();
+        assert_eq!(restored, expected);
+    }
+
+    #[test]
+    fn test_new_starts_with_empty_outpoints() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let account = SpAccount::new(
+            MockBackend,
+            create_test_sp_client(),
+            DummyUpdater::new(),
+            stop,
+        );
+
+        assert!(account.outpoints().is_empty());
     }
 }

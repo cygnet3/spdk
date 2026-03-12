@@ -40,4 +40,8 @@ impl Updater for DummyUpdater {
     fn save_to_persistent_storage(&mut self) -> crate::error::Result<()> {
         Ok(())
     }
+
+    fn restore_owned_outpoints(&self) -> crate::error::Result<std::collections::HashSet<bitcoin::OutPoint>> {
+        Ok(std::collections::HashSet::new())
+    }
 }
