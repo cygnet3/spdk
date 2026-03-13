@@ -1,4 +1,4 @@
-use std::{ops::RangeInclusive, pin::Pin, sync::Arc};
+use std::{ops::RangeInclusive, pin::Pin};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -34,7 +34,7 @@ impl ChainBackend for BlindbitBackend {
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
-        let client = Arc::new(self.client.clone());
+        let client = self.client.clone();
 
         let res = stream::iter(range)
             .map(move |n| {
