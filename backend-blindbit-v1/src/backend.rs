@@ -42,12 +42,20 @@ impl ChainBackend for BlindbitBackend {
 
                 async move {
                     let blkheight = Height::from_consensus(n)?;
-                    let tweaks = match with_cutthrough {
-                        true => client.tweaks(blkheight, dust_limit).await?,
-                        false => client.tweak_index(blkheight, dust_limit).await?,
+
+                    let (tweaks, new_utxo_filter, spent_filter) = match with_cutthrough {
+                        true => futures::try_join!(
+                            client.tweaks(blkheight, dust_limit),
+                            client.filter_new_utxos(blkheight),
+                            client.filter_spent(blkheight),
+                        )?,
+                        false => futures::try_join!(
+                            client.tweak_index(blkheight, dust_limit),
+                            client.filter_new_utxos(blkheight),
+                            client.filter_spent(blkheight),
+                        )?,
                     };
-                    let new_utxo_filter = client.filter_new_utxos(blkheight).await?;
-                    let spent_filter = client.filter_spent(blkheight).await?;
+
                     let blkhash = new_utxo_filter.block_hash;
                     Ok(BlockData {
                         blkheight,
