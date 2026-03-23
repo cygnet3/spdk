@@ -53,7 +53,6 @@ pub fn calculate_tweak_data(
 ///
 /// # Returns
 ///
-/// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See `receiving::scan_transaction`.
 /// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
 pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) -> PublicKey {
     let mut ss_bytes = [0u8; 65];
