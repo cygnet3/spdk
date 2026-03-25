@@ -17,6 +17,7 @@ impl ChainBackend for MockChainBackend {
     fn get_block_data_for_range(
         &self,
         range: RangeInclusive<u32>,
+        _reverse: bool,
         _dust_limit: Amount,
         _with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
