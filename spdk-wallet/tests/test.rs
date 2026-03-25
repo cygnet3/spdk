@@ -47,7 +47,12 @@ async fn simple_scan_single_block() {
         .unwrap();
 
     scanner
-        .scan_blocks(block_height, block_height, DUST_LIMIT, true)
+        .scan_blocks(
+            block_height.to_consensus_u32()..=block_height.to_consensus_u32(),
+            false,
+            DUST_LIMIT,
+            true,
+        )
         .await
         .unwrap();
 
@@ -102,7 +107,12 @@ async fn simple_scan_multiple_blocks() {
             .unwrap();
 
     scanner
-        .scan_blocks(first_block_height, second_block_height, DUST_LIMIT, true)
+        .scan_blocks(
+            first_block_height.to_consensus_u32()..=second_block_height.to_consensus_u32(),
+            false,
+            DUST_LIMIT,
+            true,
+        )
         .await
         .unwrap();
 
@@ -166,10 +176,10 @@ async fn scan_single_block_with_output() {
         &keep_scanning,
     );
 
-    let block_height: Height = Height::from_consensus(295125).unwrap();
+    let block_height: u32 = 295125;
 
     scanner
-        .scan_blocks(block_height, block_height, DUST_LIMIT, true)
+        .scan_blocks(block_height..=block_height, false, DUST_LIMIT, true)
         .await
         .unwrap();
 
@@ -224,10 +234,10 @@ async fn scan_single_block_with_spent_input() {
         &keep_scanning,
     );
 
-    let block_height: Height = Height::from_consensus(295147).unwrap();
+    let block_height: u32 = 295147;
 
     scanner
-        .scan_blocks(block_height, block_height, DUST_LIMIT, true)
+        .scan_blocks(block_height..=block_height, false, DUST_LIMIT, true)
         .await
         .unwrap();
 

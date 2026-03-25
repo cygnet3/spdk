@@ -12,6 +12,7 @@ pub trait ChainBackend {
     fn get_block_data_for_range(
         &self,
         range: RangeInclusive<u32>,
+        reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>>;

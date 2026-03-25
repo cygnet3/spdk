@@ -1,10 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
+    ops::RangeInclusive,
     sync::atomic::AtomicBool,
     time::Instant,
 };
 
-use anyhow::{Error, Result, bail};
+use anyhow::{Error, Result};
 use bitcoin::{
     Amount, BlockHash, OutPoint, Txid, XOnlyPublicKey,
     absolute::Height,
@@ -48,23 +49,17 @@ impl<'a> SpScanner<'a> {
 
     pub async fn scan_blocks(
         &mut self,
-        start: Height,
-        end: Height,
+        range: RangeInclusive<u32>,
+        reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Result<()> {
-        if start > end {
-            bail!("bigger start than end: {} > {}", start, end);
-        }
-
-        info!("start: {} end: {}", start, end);
         let start_time: Instant = Instant::now();
 
         // get block data stream
-        let range = start.to_consensus_u32()..=end.to_consensus_u32();
         let block_data_stream =
             self.backend
-                .get_block_data_for_range(range, dust_limit, with_cutthrough);
+                .get_block_data_for_range(range, reverse, dust_limit, with_cutthrough);
 
         // process blocks using block data stream
         self.process_blocks(block_data_stream).await?;
