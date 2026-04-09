@@ -49,11 +49,17 @@ impl<'a> SpScanner<'a> {
 
     pub async fn scan_blocks(
         &mut self,
-        range: RangeInclusive<u32>,
+        range: RangeInclusive<Height>,
         reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Result<()> {
+        info!(
+            "start: {} end: {}, reverse: {}",
+            range.start().to_consensus_u32(),
+            range.end().to_consensus_u32(),
+            reverse,
+        );
         let start_time: Instant = Instant::now();
 
         // get block data stream
