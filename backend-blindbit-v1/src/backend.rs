@@ -31,12 +31,15 @@ impl ChainBackend for BlindbitBackend {
     /// These need to be fetched separately afterwards, if it is determined this block is relevant.
     fn get_block_data_for_range(
         &self,
-        range: RangeInclusive<u32>,
+        range: RangeInclusive<Height>,
         reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
         let client = self.client.clone();
+
+        // convert range to u32 since Height does not implement Step
+        let range = range.start().to_consensus_u32()..=range.end().to_consensus_u32();
 
         let range = match reverse {
             false => Either::Left(range),

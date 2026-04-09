@@ -16,11 +16,13 @@ pub struct MockChainBackend {}
 impl ChainBackend for MockChainBackend {
     fn get_block_data_for_range(
         &self,
-        range: RangeInclusive<u32>,
+        range: RangeInclusive<Height>,
         _reverse: bool,
         _dust_limit: Amount,
         _with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
+        let range = range.start().to_consensus_u32()..=range.end().to_consensus_u32();
+
         let values = range.map(move |n| {
             let file = File::open(format!("{BLOCK_DATA_PATH}/{n}/tweaks.json")).unwrap();
             let tweaks: Vec<PublicKey> = serde_json::from_reader(file).unwrap();
