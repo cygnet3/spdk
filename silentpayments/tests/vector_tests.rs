@@ -164,7 +164,7 @@ mod tests {
             let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);
 
             let scanned_outputs_received = sp_receiver
-                .scan_transaction(&ecdh_shared_secret, outputs_to_check)
+                .scan_transaction(&ecdh_shared_secret, &outputs_to_check)
                 .unwrap();
 
             let key_tweaks: Vec<Scalar> = scanned_outputs_received

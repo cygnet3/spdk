@@ -388,7 +388,7 @@ impl Receiver {
     pub fn scan_transaction(
         &self,
         ecdh_shared_secret: &PublicKey,
-        pubkeys_to_check: Vec<XOnlyPublicKey>,
+        pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
         let secp = secp256k1::Secp256k1::new();
 
@@ -404,7 +404,7 @@ impl Receiver {
                 found.entry(None).or_default().insert(P_n_xonly, t_n.into());
             } else {
                 // We subtract P_n from each outputs to check and see if match a public key in our label list
-                'outer: for p in &pubkeys_to_check {
+                'outer: for p in pubkeys_to_check {
                     let even_output = p.public_key(Parity::Even);
                     let odd_output = p.public_key(Parity::Odd);
                     let even_diff = even_output.combine(&P_n.negate(&secp))?;

@@ -266,7 +266,7 @@ impl<'a> SpScanner<'a> {
             let ours = self
                 .client
                 .sp_receiver
-                .scan_transaction(secret, output_keys?)?;
+                .scan_transaction(secret, &output_keys?)?;
 
             for utxo in utxos {
                 if !utxo.scriptpubkey.is_p2tr() || utxo.spent {

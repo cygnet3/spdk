@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
 
     // Scan the transaction for eligible outputs and store them in a vector with their corresponding labels and key maps
-    let my_outputs = receiver.scan_transaction(&ecdh_shared_secret, pubkeys_to_check)?;
+    let my_outputs = receiver.scan_transaction(&ecdh_shared_secret, &pubkeys_to_check)?;
 
     println!("Found {} output(s)", my_outputs.len());
 
