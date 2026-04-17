@@ -8,6 +8,7 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex;
 
+use silentpayments::SpVersion;
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::utils::receiving::{
@@ -51,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a new Receiver object with the private and public keys, along with the change label
     let receiver = Receiver::new(
-        0,
+        SpVersion::ZERO,
         scan_privkey.public_key(&secp),
         spend_privkey.public_key(&secp),
         change_label,

@@ -130,7 +130,7 @@ impl<'de> Deserialize<'de> for Label {
 /// Labels can be added with [`add_label`](Receiver::add_label).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receiver {
-    version: u8,
+    version: SpVersion,
     scan_pubkey: PublicKey,
     spend_pubkey: PublicKey,
     change_label: Label, // To be able to tell which label is the change
@@ -225,7 +225,7 @@ impl Serialize for Receiver {
         S: serde::Serializer,
     {
         let mut state = serializer.serialize_struct("Receiver", 5)?;
-        state.serialize_field("version", &self.version)?;
+        state.serialize_field::<u8>("version", &self.version.into())?;
         state.serialize_field("network", &self.network)?;
         state.serialize_field(
             "scan_pubkey",
@@ -258,7 +258,7 @@ impl<'de> Deserialize<'de> for Receiver {
     {
         let helper = ReceiverHelper::deserialize(deserializer)?;
         Ok(Receiver {
-            version: helper.version,
+            version: helper.version.try_into().unwrap(),
             network: helper.network,
             scan_pubkey: PublicKey::from_slice(&helper.scan_pubkey.0).unwrap(),
             spend_pubkey: PublicKey::from_slice(&helper.spend_pubkey.0).unwrap(),
@@ -270,7 +270,7 @@ impl<'de> Deserialize<'de> for Receiver {
 
 impl Receiver {
     pub fn new(
-        version: u32,
+        version: SpVersion,
         scan_pubkey: PublicKey,
         spend_pubkey: PublicKey,
         change_label: Label,
@@ -278,15 +278,8 @@ impl Receiver {
     ) -> Result<Self> {
         let labels: BiMap<Label, PublicKey> = BiMap::new();
 
-        // Check version, we just refuse anything other than 0 for now
-        if version != 0 {
-            return Err(Error::GenericError(
-                "Can't have other version than 0 for now".to_owned(),
-            ));
-        }
-
         let mut receiver = Receiver {
-            version: version as u8,
+            version,
             scan_pubkey,
             spend_pubkey,
             change_label: change_label.clone(),
@@ -477,8 +470,7 @@ impl Receiver {
     }
 
     fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentAddress {
-        SilentPaymentAddress::new(self.scan_pubkey, m_pubkey, self.network, 0)
-            .expect("only fails if version != 0")
+        SilentPaymentAddress::new(self.scan_pubkey, m_pubkey, self.network, self.version)
     }
 }
 
