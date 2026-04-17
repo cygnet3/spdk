@@ -16,11 +16,10 @@ use std::{
 };
 
 use crate::{
-    utils::{
-        common::{calculate_P_n, calculate_t_n},
+    Error, Network, Result, SilentPaymentAddress, utils::{
+        common::{SpVersion, calculate_P_n, calculate_t_n},
         hash::LabelHash,
-    },
-    Error, Network, Result, SilentPaymentAddress,
+    }
 };
 use bimap::BiMap;
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
