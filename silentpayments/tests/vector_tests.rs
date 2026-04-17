@@ -4,14 +4,11 @@ mod common;
 mod tests {
     use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
     use silentpayments::{
-        receiving::Label,
-        utils::{
-            receiving::{
-                calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
-            },
-            sending::calculate_partial_secret,
-        },
-        Network, SilentPaymentAddress,
+        Network, SilentPaymentAddress, SpVersion, receiving::Label, sending::GeneratePubkeysInput, utils::{
+            is_p2tr, receiving::{
+                calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
+            }, sending::calculate_partial_secret
+        }
     };
     use std::{collections::HashSet, io::Cursor, str::FromStr};
 
@@ -28,6 +25,7 @@ mod tests {
     };
 
     const NETWORK: Network = Network::Mainnet;
+    const SPVERSION: SpVersion = SpVersion::ZERO;
 
     #[test]
     fn test_with_test_vectors() {
@@ -80,7 +78,28 @@ mod tests {
             // as an alternative, we could first multiply each input priv key with the input hash
             // that way, we never expose the sk to our library
             let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
-            let outputs = generate_recipient_pubkeys(silent_addresses, partial_secret).unwrap();
+            let mut inputs: Vec<GeneratePubkeysInput> = Vec::new();
+            for addr in silent_addresses {
+                assert!(addr.get_network() == NETWORK);
+                let scan_key = addr.get_scan_key();
+                if let Some(input) = inputs.iter_mut().find(|i| i.scan_key == scan_key) {
+                    let spend_key = addr.get_spend_key();
+                    input.spend_keys.push(spend_key);
+                } else {
+                    let ecdh_shared_secret = calculate_ecdh_shared_secret(&scan_key, &partial_secret);
+                    let spend_keys = vec![addr.get_spend_key()];
+                    let sp_version = SPVERSION;
+                    let input = GeneratePubkeysInput {
+                        scan_key: addr.get_scan_key(),
+                        ecdh_shared_secret,
+                        spend_keys,
+                        sp_version,
+                    };
+                    inputs.push(input);
+                }
+            }
+            let outputs = generate_recipient_pubkeys(&secp, inputs, NETWORK).unwrap();
+            assert_ne!(outputs.len(), 0);
 
             for output_pubkeys in &outputs {
                 for pubkey in output_pubkeys.1 {
@@ -104,7 +123,7 @@ mod tests {
             let B_scan = b_scan.public_key(&secp);
 
             let change_label = Label::new(b_scan, 0);
-            let mut sp_receiver = Receiver::new(0, B_scan, B_spend, change_label, NETWORK).unwrap();
+            let mut sp_receiver = Receiver::new(SPVERSION, B_scan, B_spend, change_label, NETWORK).unwrap();
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
