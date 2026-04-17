@@ -53,5 +53,6 @@ pub use secp256k1;
 pub use crate::error::Error;
 pub use utils::common::Network;
 pub use utils::common::SilentPaymentAddress;
+pub use utils::common::SpVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;

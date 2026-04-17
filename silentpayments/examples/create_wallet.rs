@@ -7,7 +7,7 @@ use bitcoin::secp256k1::Secp256k1;
 
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
-use silentpayments::Network;
+use silentpayments::{Network, SpVersion};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Create a new instance of Secp256k1 for cryptographic operations
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a new Receiver object with the private and public keys, along with the change label
     let receiver = Receiver::new(
-        0,
+        SpVersion::ZERO,
         scan_privkey.public_key(&secp),
         spend_privkey.public_key(&secp),
         change_label,
