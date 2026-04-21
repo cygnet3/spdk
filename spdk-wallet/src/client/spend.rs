@@ -32,6 +32,8 @@ impl SpClient {
         mut recipients: Vec<Recipient>,
         fee_rate: FeeRate,
         network: Network,
+        override_max: Amount,
+        override_change_address: Option<SilentPaymentAddress>,
     ) -> Result<SilentPaymentUnsignedTransaction> {
         // used to estimate the size of a taproot output
         let placeholder_spk = ScriptBuf::new_p2tr_tweaked(
@@ -134,7 +136,11 @@ impl SpClient {
         let change = coin_selector.drain(target, change_policy);
         let change_value = if change.is_some() { change.value } else { 0 };
         if change_value > 0 {
-            let change_address = self.sp_receiver.get_change_address();
+            let will_override = change_value < override_max.to_sat();
+            let change_address = match (will_override, override_change_address) {
+                (true, Some(address)) => address,
+                _ => self.sp_receiver.get_change_address(),
+            };
             recipients.push(Recipient {
                 address: RecipientAddress::SpAddress(change_address),
                 amount: Amount::from_sat(change_value),
