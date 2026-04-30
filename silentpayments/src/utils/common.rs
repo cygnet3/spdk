@@ -11,7 +11,7 @@ use bech32::{FromBase32, ToBase32};
 use bitcoin_hashes::Hash;
 use secp256k1::PublicKey;
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use secp256k1::{Scalar, Secp256k1, SecretKey};
+use secp256k1::{Scalar, Secp256k1, SecretKey, Verification};
 #[cfg(all(feature = "serde", feature = "encode"))]
 use serde::ser::Serializer;
 #[cfg(all(feature = "serde", feature = "encode"))]
@@ -28,10 +28,8 @@ pub(crate) fn calculate_t_n(ecdh_shared_secret: &PublicKey, k: u32) -> Result<Se
 }
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_P_n(B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKey> {
-    let secp = Secp256k1::new();
-
-    let P_n = B_spend.add_exp_tweak(&secp, &t_n)?;
+pub(crate) fn calculate_P_n<C: Verification>(secp: &Secp256k1<C>, B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKey> {
+    let P_n = B_spend.add_exp_tweak(secp, &t_n)?;
 
     Ok(P_n)
 }

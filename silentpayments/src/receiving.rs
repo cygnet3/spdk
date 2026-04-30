@@ -382,14 +382,14 @@ impl Receiver {
         ecdh_shared_secret: &PublicKey,
         pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
-        let secp = secp256k1::Secp256k1::new();
+        let secp = secp256k1::Secp256k1::verification_only();
 
         let mut found: HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>> = HashMap::new();
         let mut n_found: u32 = 0;
         let mut n: u32 = 0;
         while n_found == n {
             let t_n: SecretKey = calculate_t_n(ecdh_shared_secret, n)?;
-            let P_n: PublicKey = calculate_P_n(&self.spend_pubkey, t_n.into())?;
+            let P_n: PublicKey = calculate_P_n(&secp, &self.spend_pubkey, t_n.into())?;
             let P_n_xonly = P_n.x_only_public_key().0;
             if pubkeys_to_check.iter().any(|p| p.eq(&P_n_xonly)) {
                 n_found += 1;
@@ -441,8 +441,9 @@ impl Receiver {
         &self,
         ecdh_shared_secret: &PublicKey,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
+        let secp = Secp256k1::verification_only();
         let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
-        let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;
+        let P_0: PublicKey = calculate_P_n(&secp, &self.spend_pubkey, t_0.into())?;
         let output_key_bytes = P_0.x_only_public_key().0.serialize();
 
         let mut res = HashMap::new();
@@ -456,7 +457,7 @@ impl Receiver {
 
         for (label, mG) in &self.labels {
             let B_m = mG.combine(&self.spend_pubkey)?;
-            let P_m0 = calculate_P_n(&B_m, t_0.into())?;
+            let P_m0 = calculate_P_n(&secp, &B_m, t_0.into())?;
             let output_key_bytes = P_m0.x_only_public_key().0.serialize();
 
             let mut spk = [0u8; 34];
