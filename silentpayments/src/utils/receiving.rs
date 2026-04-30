@@ -1,11 +1,11 @@
 //! Receiving utility functions.
 use crate::{
     Error, Result, utils::{
-        is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
+        hash::OUTPOINTS_LEN, is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
     }
 };
 use bitcoin_hashes::{hash160, Hash};
-use secp256k1::{ecdh::shared_secret_point, Parity::Even, XOnlyPublicKey};
+use secp256k1::{Parity::Even, Secp256k1, Verification, XOnlyPublicKey, ecdh::shared_secret_point};
 use secp256k1::{PublicKey, SecretKey};
 
 use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
@@ -17,8 +17,10 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 ///
 /// # Arguments
 ///
+/// * `secp` - Secp256k1 context used for elliptic curve operations.
 /// * `input_pub_keys` - The list of public keys that are used as input for this transaction. Only the public keys for inputs that are silent payment eligible should be given.
-/// * `outpoints_data` - All prevout outpoints used as input for this transaction. Note that the txid is given in String format, which is displayed in reverse order from the inner byte array.
+/// * `outpoints_head` - The first prevout outpoint used as input for this transaction in serialized form.
+/// * `outpoints_tail` - The remaining prevout outpoints used as input for this transaction in serialized form.
 ///
 /// # Returns
 ///
@@ -30,12 +32,12 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 ///
 /// * The input public keys array is of length zero, or the summing results in an invalid key.
 /// * Elliptic curve computation results in an invalid public key.
-pub fn calculate_tweak_data(
+pub fn calculate_tweak_data<C: Verification>(
+    secp: &Secp256k1<C>,
     input_pub_keys: &[&PublicKey],
     outpoints_head: &[u8; OUTPOINTS_LEN],
     outpoints_tail: &[[u8; OUTPOINTS_LEN]]
 ) -> Result<PublicKey> {
-    let secp = secp256k1::Secp256k1::verification_only();
     let A_sum = PublicKey::combine_keys(input_pub_keys)?;
     let input_hash = calculate_input_hash(&outpoints_head, &outpoints_tail, A_sum);
 

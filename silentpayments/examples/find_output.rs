@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (outpoints_head, outpoints_tail) = outpoints.split_first().unwrap();
 
     // Calculate the tweak data based on the public keys and outpoints
-    let tweak_data = calculate_tweak_data(&pubkeys_ref, outpoints_head, outpoints_tail)?;
+    let tweak_data = calculate_tweak_data(&secp, &pubkeys_ref, outpoints_head, outpoints_tail)?;
 
     // Calculate the ECDH shared secret between the scan private key and the tweak data
     let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &scan_privkey);
