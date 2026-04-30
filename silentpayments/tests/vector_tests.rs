@@ -78,7 +78,7 @@ mod tests {
 
             // as an alternative, we could first multiply each input priv key with the input hash
             // that way, we never expose the sk to our library
-            let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
+            let partial_secret = calculate_partial_secret(&secp, &input_priv_keys, &outpoints).unwrap();
             let mut inputs: Vec<GeneratePubkeysInput> = Vec::new();
             for addr in silent_addresses {
                 assert!(addr.get_network() == NETWORK);
