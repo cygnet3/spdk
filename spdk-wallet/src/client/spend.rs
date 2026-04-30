@@ -6,6 +6,7 @@ use bdk_coin_select::{
     TargetFee, TargetOutputs,
 };
 use bitcoin::absolute::LockTime;
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::key::TapTweak;
 use bitcoin::script::PushBytesBuf;
@@ -16,6 +17,8 @@ use bitcoin::transaction::Version;
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
+use silentpayments::sending::GeneratePubkeysInput;
+use silentpayments::utils::sending::calculate_ecdh_shared_secret;
 use silentpayments::utils as sp_utils;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
@@ -254,6 +257,7 @@ impl SpClient {
     pub fn finalize_transaction(
         mut unsigned_transaction: SilentPaymentUnsignedTransaction,
     ) -> Result<SilentPaymentUnsignedTransaction> {
+        let secp = Secp256k1::signing_only();
         let tx_ins: Vec<TxIn> = unsigned_transaction
             .selected_utxos
             .iter()
@@ -274,9 +278,23 @@ impl SpClient {
             })
             .collect();
 
+        let generate_pubkeys_inputs: Vec<GeneratePubkeysInput> = sp_addresses
+            .into_iter()
+            .map(|sp_address| {
+                let ecdh_shared_secret = calculate_ecdh_shared_secret(&sp_address.get_scan_key(), &unsigned_transaction.partial_secret);
+                GeneratePubkeysInput {
+                    scan_key: sp_address.get_scan_key(),
+                    sp_version: sp_address.get_version().try_into().expect("SilentPaymentAddress type guarantees a valid version"),
+                    spend_keys: vec![sp_address.get_spend_key()],
+                    ecdh_shared_secret
+                }
+            })
+            .collect();
+
         let sp_address2xonlypubkeys = silentpayments::sending::generate_recipient_pubkeys(
-            sp_addresses,
-            unsigned_transaction.partial_secret,
+            &secp,
+            generate_pubkeys_inputs,
+            silentpayments::Network::try_from(unsigned_transaction.network.to_core_arg()).expect("Network type guarantees valid input"),
         )?;
 
         let tx_outs = unsigned_transaction
@@ -438,11 +456,12 @@ impl SpClient {
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
     ) -> Result<SecretKey> {
+        let secp = Secp256k1::signing_only();
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints: Vec<_> = selected_utxos
+        let outpoints: Vec<[u8; 36]> = selected_utxos
             .iter()
-            .map(|(outpoint, _)| (outpoint.txid.to_string(), outpoint.vout))
+            .map(|(outpoint, _)| serialize(&outpoint).try_into().expect("OutPoint type guarantee 36 bytes"))
             .collect();
         let input_privkeys = selected_utxos
             .iter()
@@ -450,7 +469,7 @@ impl SpClient {
             .collect::<Result<Vec<_>>>()?;
 
         let partial_secret =
-            sp_utils::sending::calculate_partial_secret(&input_privkeys, &outpoints)?;
+            sp_utils::sending::calculate_partial_secret(&secp, &input_privkeys, &outpoints)?;
 
         Ok(partial_secret)
     }
