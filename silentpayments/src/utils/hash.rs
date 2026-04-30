@@ -1,6 +1,7 @@
-use crate::Error;
 use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use secp256k1::{PublicKey, Scalar, SecretKey};
+
+pub(super) const OUTPOINTS_LEN: usize = 36;
 
 sha256t_hash_newtype! {
     pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
@@ -67,46 +68,12 @@ impl SharedSecretHash {
     }
 }
 
-pub(crate) fn calculate_input_hash(
-    outpoints_data: &[(String, u32)],
+pub fn calculate_input_hash(
+    outpoint_head: &[u8; OUTPOINTS_LEN],
+    outpoints_tail: &[[u8; OUTPOINTS_LEN]],
     A_sum: PublicKey,
-) -> Result<Scalar, Error> {
-    if outpoints_data.is_empty() {
-        return Err(Error::GenericError("No outpoints provided".to_owned()));
-    }
+) -> Scalar {
+    let smallest_outpoint = outpoints_tail.iter().chain(std::iter::once(outpoint_head)).min().expect("Already checked for empty array");
 
-    let mut outpoints: Vec<[u8; 36]> = Vec::with_capacity(outpoints_data.len());
-
-    // should probably just use an OutPoints type properly at some point
-    for (txid, vout) in outpoints_data {
-        let mut bytes: Vec<u8> = hex::decode(txid.as_str())?;
-
-        if bytes.len() != 32 {
-            return Err(Error::GenericError(format!(
-                "Invalid outpoint hex representation: {}",
-                txid
-            )));
-        }
-
-        // txid in string format is big endian and we need little endian
-        bytes.reverse();
-
-        let mut buffer = [0u8; 36];
-
-        buffer[..32].copy_from_slice(&bytes);
-        buffer[32..].copy_from_slice(&vout.to_le_bytes());
-        outpoints.push(buffer);
-    }
-
-    // sort outpoints
-    outpoints.sort_unstable();
-
-    if let Some(smallest_outpoint) = outpoints.first() {
-        Ok(InputsHash::from_outpoint_and_A_sum(smallest_outpoint, A_sum).to_scalar())
-    } else {
-        // This should never happen
-        Err(Error::GenericError(
-            "Unexpected empty outpoints vector".to_owned(),
-        ))
-    }
+    InputsHash::from_outpoint_and_A_sum(smallest_outpoint, A_sum).to_scalar()
 }

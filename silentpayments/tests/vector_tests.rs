@@ -2,6 +2,7 @@
 mod common;
 #[cfg(test)]
 mod tests {
+    use bitcoin::{OutPoint, Txid, consensus::serialize};
     use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
     use silentpayments::{
         Network, SilentPaymentAddress, SpVersion, receiving::Label, sending::GeneratePubkeysInput, utils::{
@@ -45,10 +46,10 @@ mod tests {
         for sendingtest in test_case.sending {
             let given = sendingtest.given;
             let expected = sendingtest.expected;
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<[u8; 36]> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| serialize(&OutPoint::new(Txid::from_str(&vin.txid).unwrap(), vin.vout)).try_into().unwrap())
                 .collect();
             let mut input_priv_keys = Vec::new();
             for input in given.vin {
@@ -127,10 +128,10 @@ mod tests {
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<[u8; 36]> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| serialize(&OutPoint::new(Txid::from_str(&vin.txid).unwrap(), vin.vout)).try_into().unwrap())
                 .collect();
             let mut input_pub_keys = Vec::new();
             for input in given.vin {
@@ -179,7 +180,9 @@ mod tests {
             // to the expected addresses
             assert_eq!(set1, set2);
 
-            let tweak_data = calculate_tweak_data(&input_pub_keys, &outpoints).unwrap();
+            let (outpoints_head, outpoints_tail) = outpoints.split_first().unwrap();
+
+            let tweak_data = calculate_tweak_data(&secp, &input_pub_keys, outpoints_head, outpoints_tail).unwrap();
             let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);
 
             let scanned_outputs_received = sp_receiver

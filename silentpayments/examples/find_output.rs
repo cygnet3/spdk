@@ -3,7 +3,7 @@ use std::{env, error::Error, str::FromStr};
 // Import necessary libraries and modules
 use bip39::Mnemonic;
 use bitcoin::bip32::{DerivationPath, Xpriv};
-use bitcoin::consensus::deserialize;
+use bitcoin::consensus::{deserialize, serialize};
 use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex;
@@ -60,12 +60,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     // Extract outpoints (previous transaction outputs) from the transaction inputs and store them in a vector
-    let outpoints: Vec<(String, u32)> = tx
+    let outpoints: Vec<[u8; 36]> = tx
         .input
         .iter()
         .map(|i| {
             let outpoint = i.previous_output;
-            (outpoint.txid.to_string(), outpoint.vout)
+            serialize(&outpoint).try_into().unwrap()
         })
         .collect();
 
@@ -85,8 +85,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the reference to a vector of public keys for further calculations
     let pubkeys_ref: Vec<&PublicKey> = input_pubkeys.iter().collect();
 
+    let (outpoints_head, outpoints_tail) = outpoints.split_first().unwrap();
+
     // Calculate the tweak data based on the public keys and outpoints
-    let tweak_data = calculate_tweak_data(&pubkeys_ref, &outpoints)?;
+    let tweak_data = calculate_tweak_data(&pubkeys_ref, outpoints_head, outpoints_tail)?;
 
     // Calculate the ECDH shared secret between the scan private key and the tweak data
     let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &scan_privkey);

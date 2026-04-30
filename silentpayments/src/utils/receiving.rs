@@ -29,15 +29,15 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 /// This function will error if:
 ///
 /// * The input public keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
 /// * Elliptic curve computation results in an invalid public key.
 pub fn calculate_tweak_data(
     input_pub_keys: &[&PublicKey],
-    outpoints_data: &[(String, u32)],
+    outpoints_head: &[u8; OUTPOINTS_LEN],
+    outpoints_tail: &[[u8; OUTPOINTS_LEN]]
 ) -> Result<PublicKey> {
     let secp = secp256k1::Secp256k1::verification_only();
     let A_sum = PublicKey::combine_keys(input_pub_keys)?;
-    let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
+    let input_hash = calculate_input_hash(&outpoints_head, &outpoints_tail, A_sum);
 
     Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }
