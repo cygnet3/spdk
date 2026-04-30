@@ -1,13 +1,11 @@
 //! Receiving utility functions.
 use crate::{
-    utils::{
-        OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
-        OP_PUSHBYTES_32,
-    },
-    Error, Result,
+    Error, Result, utils::{
+        hash::OUTPOINTS_LEN, is_p2pkh, is_p2sh, is_p2tr, is_p2wpkh
+    }
 };
 use bitcoin_hashes::{hash160, Hash};
-use secp256k1::{ecdh::shared_secret_point, Parity::Even, XOnlyPublicKey};
+use secp256k1::{Parity::Even, Secp256k1, Verification, XOnlyPublicKey, ecdh::shared_secret_point};
 use secp256k1::{PublicKey, SecretKey};
 
 use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
@@ -19,8 +17,10 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 ///
 /// # Arguments
 ///
+/// * `secp` - Secp256k1 context used for elliptic curve operations.
 /// * `input_pub_keys` - The list of public keys that are used as input for this transaction. Only the public keys for inputs that are silent payment eligible should be given.
-/// * `outpoints_data` - All prevout outpoints used as input for this transaction. Note that the txid is given in String format, which is displayed in reverse order from the inner byte array.
+/// * `outpoints_head` - The first prevout outpoint used as input for this transaction in serialized form.
+/// * `outpoints_tail` - The remaining prevout outpoints used as input for this transaction in serialized form.
 ///
 /// # Returns
 ///
@@ -31,15 +31,15 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 /// This function will error if:
 ///
 /// * The input public keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
 /// * Elliptic curve computation results in an invalid public key.
-pub fn calculate_tweak_data(
+pub fn calculate_tweak_data<C: Verification>(
+    secp: &Secp256k1<C>,
     input_pub_keys: &[&PublicKey],
-    outpoints_data: &[(String, u32)],
+    outpoints_head: &[u8; OUTPOINTS_LEN],
+    outpoints_tail: &[[u8; OUTPOINTS_LEN]]
 ) -> Result<PublicKey> {
-    let secp = secp256k1::Secp256k1::verification_only();
     let A_sum = PublicKey::combine_keys(input_pub_keys)?;
-    let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
+    let input_hash = calculate_input_hash(&outpoints_head, &outpoints_tail, A_sum);
 
     Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }
@@ -215,22 +215,4 @@ pub fn get_pubkey_from_input(
         }
     }
     Ok(None)
-}
-
-// script templates for inputs allowed in BIP352 shared secret derivation
-/// Check if a script_pub_key is taproot.
-pub fn is_p2tr(spk: &[u8]) -> bool {
-    matches!(spk, [OP_1, OP_PUSHBYTES_32, ..] if spk.len() == 34)
-}
-
-fn is_p2wpkh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_0, OP_PUSHBYTES_20, ..] if spk.len() == 22)
-}
-
-fn is_p2sh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUAL] if spk.len() == 23)
-}
-
-fn is_p2pkh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_DUP, OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUALVERIFY, OP_CHECKSIG] if spk.len() == 25)
 }

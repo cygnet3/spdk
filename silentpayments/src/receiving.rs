@@ -16,11 +16,10 @@ use std::{
 };
 
 use crate::{
-    utils::{
-        common::{calculate_P_n, calculate_t_n},
+    Error, Network, Result, SilentPaymentAddress, utils::{
+        common::{SpVersion, calculate_P_n, calculate_t_n},
         hash::LabelHash,
-    },
-    Error, Network, Result, SilentPaymentAddress,
+    }
 };
 use bimap::BiMap;
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
@@ -130,7 +129,7 @@ impl<'de> Deserialize<'de> for Label {
 /// Labels can be added with [`add_label`](Receiver::add_label).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receiver {
-    version: u8,
+    version: SpVersion,
     scan_pubkey: PublicKey,
     spend_pubkey: PublicKey,
     change_label: Label, // To be able to tell which label is the change
@@ -225,7 +224,7 @@ impl Serialize for Receiver {
         S: serde::Serializer,
     {
         let mut state = serializer.serialize_struct("Receiver", 5)?;
-        state.serialize_field("version", &self.version)?;
+        state.serialize_field::<u8>("version", &self.version.into())?;
         state.serialize_field("network", &self.network)?;
         state.serialize_field(
             "scan_pubkey",
@@ -258,7 +257,7 @@ impl<'de> Deserialize<'de> for Receiver {
     {
         let helper = ReceiverHelper::deserialize(deserializer)?;
         Ok(Receiver {
-            version: helper.version,
+            version: helper.version.try_into().unwrap(),
             network: helper.network,
             scan_pubkey: PublicKey::from_slice(&helper.scan_pubkey.0).unwrap(),
             spend_pubkey: PublicKey::from_slice(&helper.spend_pubkey.0).unwrap(),
@@ -270,7 +269,7 @@ impl<'de> Deserialize<'de> for Receiver {
 
 impl Receiver {
     pub fn new(
-        version: u32,
+        version: SpVersion,
         scan_pubkey: PublicKey,
         spend_pubkey: PublicKey,
         change_label: Label,
@@ -278,15 +277,8 @@ impl Receiver {
     ) -> Result<Self> {
         let labels: BiMap<Label, PublicKey> = BiMap::new();
 
-        // Check version, we just refuse anything other than 0 for now
-        if version != 0 {
-            return Err(Error::GenericError(
-                "Can't have other version than 0 for now".to_owned(),
-            ));
-        }
-
         let mut receiver = Receiver {
-            version: version as u8,
+            version,
             scan_pubkey,
             spend_pubkey,
             change_label: change_label.clone(),
@@ -390,14 +382,14 @@ impl Receiver {
         ecdh_shared_secret: &PublicKey,
         pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
-        let secp = secp256k1::Secp256k1::new();
+        let secp = secp256k1::Secp256k1::verification_only();
 
         let mut found: HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>> = HashMap::new();
         let mut n_found: u32 = 0;
         let mut n: u32 = 0;
         while n_found == n {
             let t_n: SecretKey = calculate_t_n(ecdh_shared_secret, n)?;
-            let P_n: PublicKey = calculate_P_n(&self.spend_pubkey, t_n.into())?;
+            let P_n: PublicKey = calculate_P_n(&secp, &self.spend_pubkey, t_n.into())?;
             let P_n_xonly = P_n.x_only_public_key().0;
             if pubkeys_to_check.iter().any(|p| p.eq(&P_n_xonly)) {
                 n_found += 1;
@@ -449,8 +441,9 @@ impl Receiver {
         &self,
         ecdh_shared_secret: &PublicKey,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
+        let secp = Secp256k1::verification_only();
         let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
-        let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;
+        let P_0: PublicKey = calculate_P_n(&secp, &self.spend_pubkey, t_0.into())?;
         let output_key_bytes = P_0.x_only_public_key().0.serialize();
 
         let mut res = HashMap::new();
@@ -464,7 +457,7 @@ impl Receiver {
 
         for (label, mG) in &self.labels {
             let B_m = mG.combine(&self.spend_pubkey)?;
-            let P_m0 = calculate_P_n(&B_m, t_0.into())?;
+            let P_m0 = calculate_P_n(&secp, &B_m, t_0.into())?;
             let output_key_bytes = P_m0.x_only_public_key().0.serialize();
 
             let mut spk = [0u8; 34];
@@ -477,8 +470,7 @@ impl Receiver {
     }
 
     fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentAddress {
-        SilentPaymentAddress::new(self.scan_pubkey, m_pubkey, self.network, 0)
-            .expect("only fails if version != 0")
+        SilentPaymentAddress::new(self.scan_pubkey, m_pubkey, self.network, self.version)
     }
 }
 

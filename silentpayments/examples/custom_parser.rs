@@ -34,9 +34,8 @@ fn main() {
         scan_pubkey,
         spend_pubkey,
         Network::Mainnet,
-        0, // version
-    )
-    .expect("Failed to create address");
+        silentpayments::SpVersion::ZERO, 
+    );
 
     println!("Successfully created SilentPaymentAddress without encode feature!");
     println!("Network: {:?}", address.get_network());

@@ -39,7 +39,7 @@ impl SpClient {
         };
 
         let sp_receiver = Receiver::new(
-            0,
+            silentpayments::SpVersion::ZERO,
             scan_pubkey,
             (&spend_key).into(),
             change_label,

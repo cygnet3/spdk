@@ -11,7 +11,7 @@ use bech32::{FromBase32, ToBase32};
 use bitcoin_hashes::Hash;
 use secp256k1::PublicKey;
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use secp256k1::{Scalar, Secp256k1, SecretKey};
+use secp256k1::{Scalar, Secp256k1, SecretKey, Verification};
 #[cfg(all(feature = "serde", feature = "encode"))]
 use serde::ser::Serializer;
 #[cfg(all(feature = "serde", feature = "encode"))]
@@ -28,10 +28,8 @@ pub(crate) fn calculate_t_n(ecdh_shared_secret: &PublicKey, k: u32) -> Result<Se
 }
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_P_n(B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKey> {
-    let secp = Secp256k1::new();
-
-    let P_n = B_spend.add_exp_tweak(&secp, &t_n)?;
+pub(crate) fn calculate_P_n<C: Verification>(secp: &Secp256k1<C>, B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKey> {
+    let P_n = B_spend.add_exp_tweak(secp, &t_n)?;
 
     Ok(P_n)
 }
@@ -72,10 +70,34 @@ impl TryFrom<&str> for Network {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum SpVersion {
+    ZERO,
+}
+
+impl From<SpVersion> for u8 {
+    fn from(value: SpVersion) -> Self {
+        match value {
+            SpVersion::ZERO => 0u8
+        }
+    }
+}
+
+impl TryFrom<u8> for SpVersion {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::ZERO),
+            _ => Err(Error::GenericError("Unknwon silent payment version".to_string()))
+        }
+    }
+}
+
 /// A silent payment address struct that can be used to deserialize a silent payment address string.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentAddress {
-    version: u8,
+    version: SpVersion,
     scan_pubkey: PublicKey,
     m_pubkey: PublicKey,
     network: Network,
@@ -141,20 +163,14 @@ impl SilentPaymentAddress {
         scan_pubkey: PublicKey,
         m_pubkey: PublicKey,
         network: Network,
-        version: u8,
-    ) -> Result<Self> {
-        if version != 0 {
-            return Err(Error::GenericError(
-                "Can't have other version than 0 for now".to_owned(),
-            ));
-        }
-
-        Ok(SilentPaymentAddress {
+        version: SpVersion,
+    ) -> Self {
+        SilentPaymentAddress {
             scan_pubkey,
             m_pubkey,
             network,
-            version,
-        })
+            version
+        }
     }
 
     /// Get the scan public key.
@@ -174,7 +190,7 @@ impl SilentPaymentAddress {
 
     /// Get the version byte.
     pub fn get_version(&self) -> u8 {
-        self.version
+        self.version.into()
     }
 }
 
@@ -196,7 +212,7 @@ impl TryFrom<&str> for SilentPaymentAddress {
             return Err(Error::GenericError("Address length is wrong".to_owned()));
         }
 
-        let version = data[0].to_u8();
+        let version: SpVersion = data[0].to_u8().try_into()?;
 
         let network = match hrp.as_str() {
             "sp" => Network::Mainnet,
@@ -215,7 +231,7 @@ impl TryFrom<&str> for SilentPaymentAddress {
         let scan_pubkey = PublicKey::from_slice(&data[..33])?;
         let m_pubkey = PublicKey::from_slice(&data[33..])?;
 
-        SilentPaymentAddress::new(scan_pubkey, m_pubkey, network, version)
+        Ok(SilentPaymentAddress::new(scan_pubkey, m_pubkey, network, version))
     }
 }
 
@@ -237,7 +253,7 @@ impl From<SilentPaymentAddress> for String {
             Network::Mainnet => "sp",
         };
 
-        let version = bech32::u5::try_from_u8(val.version).unwrap();
+        let version = bech32::u5::try_from_u8(val.version.into()).unwrap();
 
         let B_scan_bytes = val.scan_pubkey.serialize();
         let B_m_bytes = val.m_pubkey.serialize();

@@ -30,3 +30,31 @@ const OP_CHECKSIG: u8 = 0xAC;
 
 // Only compressed pubkeys are supported for silent payments
 const COMPRESSED_PUBKEY_SIZE: usize = 33;
+
+// Derivation paths according to BIP
+pub const MAIN_SCAN_PATH: &str = "m/352h/0h/0h/1h/0";
+pub const MAIN_SPEND_PATH: &str = "m/352h/0h/0h/0h/0";
+pub const TEST_SCAN_PATH: &str = "m/352h/1h/0h/1h/0";
+pub const TEST_SPEND_PATH: &str = "m/352h/1h/0h/0h/0";
+
+// script templates for inputs allowed in BIP352 shared secret derivation
+/// Check if a script_pub_key is taproot.
+pub fn is_p2tr(spk: &[u8]) -> bool {
+    matches!(spk, [OP_1, OP_PUSHBYTES_32, ..] if spk.len() == 34)
+}
+
+fn is_p2wpkh(spk: &[u8]) -> bool {
+    matches!(spk, [OP_0, OP_PUSHBYTES_20, ..] if spk.len() == 22)
+}
+
+fn is_p2sh(spk: &[u8]) -> bool {
+    matches!(spk, [OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUAL] if spk.len() == 23)
+}
+
+fn is_p2pkh(spk: &[u8]) -> bool {
+    matches!(spk, [OP_DUP, OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUALVERIFY, OP_CHECKSIG] if spk.len() == 25)
+}
+
+pub fn is_eligible(spk: &[u8]) -> bool {
+    is_p2tr(spk) || is_p2pkh(spk) || is_p2sh(spk) || is_p2wpkh(spk)
+}
