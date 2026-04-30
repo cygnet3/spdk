@@ -11,6 +11,7 @@ use bitcoin_hashes::hex::FromHex;
 use silentpayments::SpVersion;
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
+use silentpayments::utils::{MAIN_SCAN_PATH, MAIN_SPEND_PATH};
 use silentpayments::utils::receiving::{
     calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
 };
@@ -22,26 +23,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Parse the mnemonic phrase from the first command-line argument
     let m = Mnemonic::from_str(&args.get(1).unwrap())?;
 
-    // Get the transaction hex string from the second command-line argument
-    let tx_hex = args.get(2).unwrap();
-
-    // Parse the scriptpubkeys from the third command-line argument, split by whitespace and store them in a vector
-    let spks: Vec<&str> = args.get(3).unwrap().split_whitespace().collect();
-
-    // Deserialize the transaction hex string into a Transaction object
-    let tx: Transaction = deserialize(Vec::from_hex(&tx_hex)?.as_slice())?;
-
-    // Assert that the number of inputs in the transaction matches the number of scriptpubkeys provided
-    assert!(tx.input.len() == spks.len());
-
-    let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(""))?;
+    let master_key = Xpriv::new_master(bitcoin::Network::Bitcoin, &m.to_seed(""))?;
 
     // Define the scan and spend paths for the wallet
-    let scan_path = DerivationPath::from_str("m/352h/1h/0h/1h/0").unwrap();
-    let spend_path = DerivationPath::from_str("m/352h/1h/0h/0h/0").unwrap();
+    let scan_path = DerivationPath::from_str(MAIN_SCAN_PATH).unwrap();
+    let spend_path = DerivationPath::from_str(MAIN_SPEND_PATH).unwrap();
 
     // Create a new instance of Secp256k1 for cryptographic operations
-    let secp = Secp256k1::signing_only();
+    let secp = Secp256k1::new();
 
     // Get the private keys for both scan and spend paths
     let scan_privkey = master_key.derive_priv(&secp, &scan_path)?.private_key;
@@ -56,8 +45,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         scan_privkey.public_key(&secp),
         spend_privkey.public_key(&secp),
         change_label,
-        silentpayments::Network::Testnet,
+        silentpayments::Network::Mainnet,
     )?;
+
+    assert_eq!(receiver.get_receiving_address().to_string().as_str(), "sp1qq2h0tcwserlsk6yszaa54jtse9s9ype47r4f0y9gkp7mn7zwn4q07qslxzntmfu5euy2dwj2v4wk8dxanurpzat628rvkdns2a8f2fk9gs9wazmu");
+
+    // Get the transaction hex string from the second command-line argument
+    let tx_hex = args.get(2).unwrap();
+
+    // Parse the scriptpubkeys from the third command-line argument, split by whitespace and store them in a vector
+    let spks: Vec<&str> = args.get(3).unwrap().split_whitespace().collect();
+
+    // Deserialize the transaction hex string into a Transaction object
+    let tx: Transaction = deserialize(Vec::from_hex(&tx_hex)?.as_slice())?;
+
+    // Assert that the number of inputs in the transaction matches the number of scriptpubkeys provided
+    assert!(tx.input.len() == spks.len());
 
     // Extract outpoints (previous transaction outputs) from the transaction inputs and store them in a vector
     let outpoints: Vec<[u8; 36]> = tx
