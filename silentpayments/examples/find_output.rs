@@ -3,16 +3,15 @@ use std::{env, error::Error, str::FromStr};
 // Import necessary libraries and modules
 use bip39::Mnemonic;
 use bitcoin::bip32::{DerivationPath, Xpriv};
-use bitcoin::consensus::deserialize;
+use bitcoin::consensus::{deserialize, serialize};
 use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex;
 
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
-use silentpayments::utils::receiving::{
-    calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
-};
+use silentpayments::utils::common::Raw;
+use silentpayments::utils::receiving::{get_pubkey_from_input, PublicTweak};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Get the command-line arguments
@@ -59,12 +58,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     // Extract outpoints (previous transaction outputs) from the transaction inputs and store them in a vector
-    let outpoints: Vec<(String, u32)> = tx
+    let outpoints: Vec<[u8; 36]> = tx
         .input
         .iter()
         .map(|i| {
             let outpoint = i.previous_output;
-            (outpoint.txid.to_string(), outpoint.vout)
+            serialize(&outpoint).try_into().unwrap()
         })
         .collect();
 
@@ -84,11 +83,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the reference to a vector of public keys for further calculations
     let pubkeys_ref: Vec<&PublicKey> = input_pubkeys.iter().collect();
 
-    // Calculate the tweak data based on the public keys and outpoints
-    let tweak_data = calculate_tweak_data(&pubkeys_ref, &outpoints)?;
+    let combined_keys = PublicKey::combine_keys(&pubkeys_ref).unwrap();
 
-    // Calculate the ECDH shared secret between the scan private key and the tweak data
-    let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &scan_privkey);
+    let (outpoints_head, outpoints_tail) = outpoints.split_first().unwrap();
+
+    let secp = Secp256k1::new();
+    // Calculate the tweak data based on the public keys and outpoints
+    let tweak_data = PublicTweak::<Raw>::from_inner(&combined_keys).calculate_tweak_data(
+        &secp,
+        outpoints_head,
+        outpoints_tail,
+    )?;
+
+    let ecdh_shared_secret = tweak_data.calculate_ecdh_shared_secret(&scan_privkey);
 
     // Filter the transaction outputs that have a valid P2TR scriptpubkey
     let pubkeys_to_check: Vec<_> = tx
@@ -102,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
 
     // Scan the transaction for eligible outputs and store them in a vector with their corresponding labels and key maps
-    let my_outputs = receiver.scan_transaction(&ecdh_shared_secret, &pubkeys_to_check)?;
+    let my_outputs = receiver.scan_transaction(ecdh_shared_secret.as_inner(), &pubkeys_to_check)?;
 
     println!("Found {} output(s)", my_outputs.len());
 

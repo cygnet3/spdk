@@ -5,13 +5,16 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::Network as SpNetwork;
+use silentpayments::bitcoin_hashes::Hash;
+use silentpayments::{
+    Network as SpNetwork,
+    utils::{common::InputHashApplied, receiving::PublicTweak},
+};
 use silentpayments::{
     SilentPaymentAddress,
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
 };
-use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 
@@ -97,8 +100,11 @@ impl SpClient {
 
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
-                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
-                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+                let secret = PublicTweak::<InputHashApplied>::from_inner(&tweak)
+                    .calculate_ecdh_shared_secret(&b_scan);
+                let spks = self
+                    .sp_receiver
+                    .get_spks_from_shared_secret(secret.as_inner())?;
 
                 Ok((secret, spks.into_values()))
             })
@@ -107,7 +113,7 @@ impl SpClient {
         let mut res = HashMap::new();
         for (secret, spks) in items? {
             for spk in spks {
-                res.insert(spk, secret);
+                res.insert(spk, secret.into_inner());
             }
         }
         Ok(res)

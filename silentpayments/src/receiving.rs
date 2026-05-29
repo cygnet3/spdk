@@ -17,7 +17,7 @@ use std::{
 
 use crate::{
     utils::{
-        common::{calculate_P_n, calculate_t_n},
+        common::{calculate_P_n, calculate_t_n, InputHashApplied, SharedSecret},
         hash::LabelHash,
     },
     Error, Network, Result, SilentPaymentAddress,
@@ -396,7 +396,10 @@ impl Receiver {
         let mut n_found: u32 = 0;
         let mut n: u32 = 0;
         while n_found == n {
-            let t_n: SecretKey = calculate_t_n(ecdh_shared_secret, n)?;
+            let t_n: SecretKey = calculate_t_n(
+                &SharedSecret::<InputHashApplied>::from_inner(ecdh_shared_secret),
+                n,
+            )?;
             let P_n: PublicKey = calculate_P_n(&self.spend_pubkey, t_n.into())?;
             let P_n_xonly = P_n.x_only_public_key().0;
             if pubkeys_to_check.iter().any(|p| p.eq(&P_n_xonly)) {
@@ -449,7 +452,10 @@ impl Receiver {
         &self,
         ecdh_shared_secret: &PublicKey,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
-        let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
+        let t_0: SecretKey = calculate_t_n(
+            &SharedSecret::<InputHashApplied>::from_inner(ecdh_shared_secret),
+            0,
+        )?;
         let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;
         let output_key_bytes = P_0.x_only_public_key().0.serialize();
 

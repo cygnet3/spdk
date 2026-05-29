@@ -1,15 +1,174 @@
 //! Sending utility functions.
-use crate::{Error, Result};
-use secp256k1::{ecdh::shared_secret_point, PublicKey, Secp256k1, SecretKey};
+use std::marker::PhantomData;
+
+use crate::{
+    utils::{
+        common::{InputHashApplied, Normalized, Raw, SharedSecret},
+        hash::OUTPOINTS_LEN,
+    },
+    Error, Result,
+};
+use secp256k1::{
+    ecdh::shared_secret_point, PublicKey, Secp256k1, SecretKey, Signing, Verification,
+};
 
 use super::hash::calculate_input_hash;
 
-/// Calculate the partial secret that is needed for generating the recipient pubkeys.
+/// A typed secret key wrapper used to model derivation stages.
+#[derive(Clone, Copy, Debug)]
+pub struct TypedSecretKey<State> {
+    key: SecretKey,
+    _state: PhantomData<State>,
+}
+
+impl<State> TypedSecretKey<State> {
+    pub fn into_inner(self) -> SecretKey {
+        self.key
+    }
+
+    pub fn as_inner(&self) -> &SecretKey {
+        &self.key
+    }
+
+    pub fn from_inner(key: &SecretKey) -> Self {
+        Self {
+            key: *key,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl TypedSecretKey<Raw> {
+    pub fn new(key: SecretKey) -> Self {
+        Self {
+            key,
+            _state: PhantomData,
+        }
+    }
+
+    /// Normalize this key for BIP-352 usage.
+    ///
+    /// For non-taproot inputs the key is unchanged.
+    /// For taproot inputs with odd-y pubkeys, the negated key is returned.
+    pub fn normalize_for_input<C: secp256k1::Signing>(
+        self,
+        secp: &Secp256k1<C>,
+        is_taproot: bool,
+    ) -> TypedSecretKey<Normalized> {
+        let (_, parity) = self.key.x_only_public_key(secp);
+        let key = if is_taproot && parity == secp256k1::Parity::Odd {
+            self.key.negate()
+        } else {
+            self.key
+        };
+
+        TypedSecretKey {
+            key,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl TypedSecretKey<Normalized> {
+    pub fn calculate_ecdh_shared_secret(self, B_scan: &PublicKey) -> SharedSecret<Raw> {
+        let mut ss_bytes = [0u8; 65];
+        ss_bytes[0] = 0x04;
+        ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, self.as_inner()));
+        SharedSecret::<Raw>::try_from(&ss_bytes).expect("guaranteed to be a point on the curve")
+    }
+
+    /// Apply BIP-352 input hash to this normalized key.
+    pub fn apply_input_hash<C: Signing>(
+        self,
+        secp: &Secp256k1<C>,
+        outpoints_head: &[u8; 36],
+        outpoints_tail: &[[u8; 36]],
+    ) -> Result<TypedSecretKey<InputHashApplied>> {
+        let A_sum: PublicKey = self.as_inner().public_key(secp);
+        let input_hash = calculate_input_hash(outpoints_head, outpoints_tail, &A_sum);
+        let tweaked_key = self.key.mul_tweak(&input_hash)?;
+        Ok(TypedSecretKey::<InputHashApplied>::from_inner(&tweaked_key))
+    }
+}
+
+impl TypedSecretKey<InputHashApplied> {
+    pub fn calculate_ecdh_shared_secret(
+        self,
+        B_scan: &PublicKey,
+    ) -> SharedSecret<InputHashApplied> {
+        let mut ss_bytes = [0u8; 65];
+        ss_bytes[0] = 0x04;
+        ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, self.as_inner()));
+        SharedSecret::<InputHashApplied>::try_from(&ss_bytes)
+            .expect("guaranteed to be a point on the curve")
+    }
+}
+
+/// Non-empty normalized key collection.
+#[derive(Clone, Debug)]
+pub struct NonEmptyNormalizedKeys {
+    head: TypedSecretKey<Normalized>,
+    tail: Vec<TypedSecretKey<Normalized>>,
+}
+
+impl NonEmptyNormalizedKeys {
+    pub fn new<C: Signing>(
+        secp: &Secp256k1<C>,
+        head: &(SecretKey, bool),
+        tail: &[(SecretKey, bool)],
+    ) -> Self {
+        let head = TypedSecretKey::<Raw>::from_inner(&head.0).normalize_for_input(secp, head.1);
+        if tail.is_empty() {
+            return Self { head, tail: vec![] };
+        } else {
+            let mut normalized_tail = Vec::with_capacity(tail.len());
+            normalized_tail.extend(tail.iter().map(|(key, is_taproot)| {
+                TypedSecretKey::<Raw>::from_inner(key).normalize_for_input(secp, *is_taproot)
+            }));
+
+            Self {
+                head,
+                tail: normalized_tail,
+            }
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &TypedSecretKey<Normalized>> {
+        std::iter::once(&self.head).chain(self.tail.iter())
+    }
+
+    /// Sum already-normalized keys into an aggregated normalized key.
+    pub fn sum_normalized_keys(self) -> Result<TypedSecretKey<Normalized>> {
+        let result = self.tail.iter().try_fold(self.head.key, |acc, item| {
+            acc.add_tweak(&(*item.as_inner()).into())
+        })?;
+
+        Ok(TypedSecretKey::<Normalized>::from_inner(&result))
+    }
+}
+
+impl SharedSecret<Raw> {
+    pub fn apply_input_hash<C: Verification>(
+        self,
+        secp: &Secp256k1<C>,
+        A_sum: &PublicKey,
+        outpoints_head: &[u8; 36],
+        outpoints_tail: &[[u8; 36]],
+    ) -> Result<SharedSecret<InputHashApplied>> {
+        let input_hash = calculate_input_hash(outpoints_head, outpoints_tail, A_sum);
+        let tweaked_key = self.into_inner().mul_tweak(secp, &input_hash)?;
+        Ok(SharedSecret::<InputHashApplied>::from_inner(&tweaked_key))
+    }
+}
+
+/// Compute the transaction-level partial secret used for output derivation.
 ///
 /// # Arguments
 ///
-/// * `input_keys` - A reference to a list of tuples, each tuple containing a [SecretKey] and [bool]. The [SecretKey] is the private key used in the input, and the [bool] indicates whether this was from a taproot address.
-/// * `outpoints_data` - The prevout outpoints used as input for this transaction. Note that the txid is given in [String] format, which is displayed in reverse order from the inner byte array.
+/// * `secp` - Secp256k1 context used for key arithmetic.
+/// * `input_keys` - Input key metadata as `(SecretKey, is_taproot)` tuples.
+///   Taproot keys are parity-normalized before aggregation.
+/// * `outpoints` - Serialized outpoints used to compute the BIP-352 input hash.
 ///
 /// # Returns
 ///
@@ -19,68 +178,22 @@ use super::hash::calculate_input_hash;
 ///
 /// This function will error if:
 ///
-/// * The input keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
-pub fn calculate_partial_secret(
+/// * `input_keys` is empty, or key aggregation produces an invalid key.
+/// * `outpoints` is empty or cannot be hashed into a valid tweak.
+pub fn calculate_partial_secret<C: Signing>(
+    secp: &Secp256k1<C>,
     input_keys: &[(SecretKey, bool)],
-    outpoints_data: &[(String, u32)],
-) -> Result<SecretKey> {
-    let a_sum = get_a_sum_secret_keys(input_keys)?;
+    outpoints: &[[u8; OUTPOINTS_LEN]],
+) -> Result<TypedSecretKey<InputHashApplied>> {
+    // First check for empty outpoints
+    let (outpoints_head, outpoints_tail) = outpoints
+        .split_first()
+        .ok_or(Error::GenericError("Empty outpoints".to_string()))?;
+    let (input_keys_head, input_keys_tail) = input_keys
+        .split_first()
+        .ok_or(Error::GenericError("Empty input keys".to_string()))?;
+    let normalized = NonEmptyNormalizedKeys::new(secp, input_keys_head, input_keys_tail);
+    let a_sum = normalized.sum_normalized_keys()?;
 
-    let secp = Secp256k1::signing_only();
-    let A_sum = a_sum.public_key(&secp);
-
-    let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
-
-    Ok(a_sum.mul_tweak(&input_hash)?)
-}
-
-/// Calculate the shared secret of a transaction.
-///
-/// Since [generate_recipient_pubkeys](crate::sending::generate_recipient_pubkeys) calls this function internally, it is not needed for the default sending flow.
-///
-/// # Arguments
-///
-/// * `B_scan` - The scan public key used by the wallet.
-/// * `partial_secret` - the sum of all (eligible) input keys multiplied with the input hash, see [calculate_partial_secret].
-///
-/// # Returns
-///
-/// This function returns the shared secret of this transaction. This shared secret can be used to generate output keys for the recipient.
-pub fn calculate_ecdh_shared_secret(B_scan: &PublicKey, partial_secret: &SecretKey) -> PublicKey {
-    let mut ss_bytes = [0u8; 65];
-    ss_bytes[0] = 0x04;
-
-    // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, partial_secret));
-
-    PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve")
-}
-
-fn get_a_sum_secret_keys(input: &[(SecretKey, bool)]) -> Result<SecretKey> {
-    if input.is_empty() {
-        return Err(Error::GenericError("No input provided".to_owned()));
-    }
-
-    let secp = secp256k1::Secp256k1::new();
-
-    let mut negated_keys: Vec<SecretKey> = vec![];
-
-    for (key, is_taproot) in input {
-        let (_, parity) = key.x_only_public_key(&secp);
-
-        if *is_taproot && parity == secp256k1::Parity::Odd {
-            negated_keys.push(key.negate());
-        } else {
-            negated_keys.push(*key);
-        }
-    }
-
-    let (head, tail) = negated_keys.split_first().expect("input is non-empty");
-
-    let result: SecretKey = tail
-        .iter()
-        .try_fold(*head, |acc, &item| acc.add_tweak(&item.into()))?;
-
-    Ok(result)
+    a_sum.apply_input_hash(secp, outpoints_head, outpoints_tail)
 }
