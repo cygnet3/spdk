@@ -31,6 +31,12 @@ const OP_CHECKSIG: u8 = 0xAC;
 // Only compressed pubkeys are supported for silent payments
 const COMPRESSED_PUBKEY_SIZE: usize = 33;
 
+// Derivation paths according to BIP
+pub const MAIN_SCAN_PATH: &str = "m/352h/0h/0h/1h/0";
+pub const MAIN_SPEND_PATH: &str = "m/352h/0h/0h/0h/0";
+pub const TEST_SCAN_PATH: &str = "m/352h/1h/0h/1h/0";
+pub const TEST_SPEND_PATH: &str = "m/352h/1h/0h/0h/0";
+
 // script templates for inputs allowed in BIP352 shared secret derivation
 /// Check if a script_pub_key is taproot.
 pub fn is_p2tr(spk: &[u8]) -> bool {
