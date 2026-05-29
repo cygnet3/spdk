@@ -5,7 +5,7 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::Network as SpNetwork;
+use silentpayments::{Network as SpNetwork, SpVersion};
 use silentpayments::{
     SilentPaymentAddress,
     bitcoin_hashes::sha256,
@@ -39,7 +39,7 @@ impl SpClient {
         };
 
         let sp_receiver = Receiver::new(
-            0,
+            SpVersion::ZERO,
             scan_pubkey,
             (&spend_key).into(),
             change_label,

@@ -20,7 +20,7 @@ use crate::{
         common::{calculate_P_n, calculate_t_n},
         hash::LabelHash,
     },
-    Error, Network, Result, SilentPaymentAddress,
+    Error, Network, Result, SilentPaymentAddress, SpVersion,
 };
 use bimap::BiMap;
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
