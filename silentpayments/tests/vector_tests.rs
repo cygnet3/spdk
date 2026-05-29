@@ -2,13 +2,14 @@
 mod common;
 #[cfg(test)]
 mod tests {
+    use bitcoin::{consensus::serialize, OutPoint, Txid};
     use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
     use silentpayments::{
         receiving::Label,
         utils::{
-            receiving::{
-                calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
-            },
+            common::Raw,
+            is_p2tr,
+            receiving::{get_pubkey_from_input, PublicTweak},
             sending::calculate_partial_secret,
         },
         Network, SilentPaymentAddress,
@@ -47,10 +48,11 @@ mod tests {
         for sendingtest in test_case.sending {
             let given = sendingtest.given;
             let expected = sendingtest.expected;
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<[u8; 36]> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| serialize(&OutPoint::new(Txid::from_str(&vin.txid).unwrap(), vin.vout)))
+                .map(|outpoint| outpoint.try_into().unwrap())
                 .collect();
             let mut input_priv_keys = Vec::new();
             for input in given.vin {
@@ -79,8 +81,10 @@ mod tests {
 
             // as an alternative, we could first multiply each input priv key with the input hash
             // that way, we never expose the sk to our library
-            let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
-            let outputs = generate_recipient_pubkeys(silent_addresses, partial_secret).unwrap();
+            let partial_secret =
+                calculate_partial_secret(&secp, &input_priv_keys, &outpoints).unwrap();
+            let outputs =
+                generate_recipient_pubkeys(silent_addresses, partial_secret.into_inner()).unwrap();
 
             for output_pubkeys in &outputs {
                 for pubkey in output_pubkeys.1 {
@@ -108,10 +112,11 @@ mod tests {
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<[u8; 36]> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| serialize(&OutPoint::new(Txid::from_str(&vin.txid).unwrap(), vin.vout)))
+                .map(|outpoint| outpoint.try_into().unwrap())
                 .collect();
             let mut input_pub_keys = Vec::new();
             for input in given.vin {
@@ -160,11 +165,17 @@ mod tests {
             // to the expected addresses
             assert_eq!(set1, set2);
 
-            let tweak_data = calculate_tweak_data(&input_pub_keys, &outpoints).unwrap();
-            let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);
+            let (outpoints_head, outpoints_tail) = outpoints.split_first().unwrap();
+
+            let combined_keys = PublicKey::combine_keys(&input_pub_keys).unwrap();
+
+            let tweak_data = PublicTweak::<Raw>::from_inner(&combined_keys)
+                .calculate_tweak_data(&secp, outpoints_head, outpoints_tail)
+                .unwrap();
+            let ecdh_shared_secret = tweak_data.calculate_ecdh_shared_secret(&b_scan);
 
             let scanned_outputs_received = sp_receiver
-                .scan_transaction(&ecdh_shared_secret, &outputs_to_check)
+                .scan_transaction(ecdh_shared_secret.as_inner(), &outputs_to_check)
                 .unwrap();
 
             let key_tweaks: Vec<Scalar> = scanned_outputs_received
