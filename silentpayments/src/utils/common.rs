@@ -1,5 +1,6 @@
 #[cfg(feature = "encode")]
 use core::fmt;
+use std::marker::PhantomData;
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
@@ -11,7 +12,7 @@ use bech32::{FromBase32, ToBase32};
 use bitcoin_hashes::Hash;
 use secp256k1::PublicKey;
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use secp256k1::{Scalar, Secp256k1, SecretKey};
+use secp256k1::{Scalar, Secp256k1, SecretKey, Verification};
 #[cfg(all(feature = "serde", feature = "encode"))]
 use serde::ser::Serializer;
 #[cfg(all(feature = "serde", feature = "encode"))]
@@ -19,9 +20,69 @@ use serde::Deserializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+pub const SILENT_PAYMENT_ADDRESS_BYTE_LEN: usize = 67;
+
+/// Typestate marker: keys are not normalized yet.
+#[derive(Clone, Copy, Debug)]
+pub struct Raw;
+/// Typestate marker: taproot parity normalization was applied.
+#[derive(Clone, Copy, Debug)]
+pub struct Normalized;
+/// Typestate marker: BIP-352 input hash was applied.
+#[derive(Clone, Copy, Debug)]
+pub struct InputHashApplied;
+
+#[derive(Clone, Copy, Debug)]
+pub struct SharedSecret<State> {
+    shared_secret: PublicKey,
+    _state: PhantomData<State>,
+}
+
+impl<State> SharedSecret<State> {
+    pub fn into_inner(self) -> PublicKey {
+        self.shared_secret
+    }
+
+    pub fn as_inner(&self) -> &PublicKey {
+        &self.shared_secret
+    }
+
+    pub fn from_inner(shared_secret: &PublicKey) -> Self {
+        Self {
+            shared_secret: *shared_secret,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl TryFrom<&[u8; 65]> for SharedSecret<Raw> {
+    type Error = Error;
+    fn try_from(value: &[u8; 65]) -> Result<Self> {
+        let shared_secret = PublicKey::from_slice(value)?;
+        Ok(Self {
+            shared_secret,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl TryFrom<&[u8; 65]> for SharedSecret<InputHashApplied> {
+    type Error = Error;
+    fn try_from(value: &[u8; 65]) -> Result<Self> {
+        let shared_secret = PublicKey::from_slice(value)?;
+        Ok(Self {
+            shared_secret,
+            _state: PhantomData,
+        })
+    }
+}
+
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_t_n(ecdh_shared_secret: &PublicKey, k: u32) -> Result<SecretKey> {
-    let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret, k).to_byte_array();
+pub(crate) fn calculate_t_n(
+    ecdh_shared_secret: &SharedSecret<InputHashApplied>,
+    k: u32,
+) -> Result<SecretKey> {
+    let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret.as_inner(), k).to_byte_array();
     let sk = SecretKey::from_slice(&hash)?;
 
     Ok(sk)

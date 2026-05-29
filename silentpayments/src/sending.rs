@@ -12,9 +12,11 @@ use secp256k1::{PublicKey, Secp256k1, SecretKey, XOnlyPublicKey};
 use std::collections::HashMap;
 
 use crate::utils::common::calculate_t_n;
-use crate::utils::sending::calculate_ecdh_shared_secret;
+use crate::utils::common::InputHashApplied;
+use crate::utils::common::SharedSecret;
 use crate::Result;
 use crate::SilentPaymentAddress;
+use crate::utils::sending::TypedSecretKey;
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
 ///
@@ -52,9 +54,11 @@ pub fn generate_recipient_pubkeys(
         if let Some((_, payments)) = silent_payment_groups.get_mut(&B_scan) {
             payments.push(address);
         } else {
-            let ecdh_shared_secret = calculate_ecdh_shared_secret(&B_scan, &partial_secret);
+            let ecdh_shared_secret =
+                TypedSecretKey::<InputHashApplied>::from_inner(&partial_secret)
+                    .calculate_ecdh_shared_secret(&B_scan);
 
-            silent_payment_groups.insert(B_scan, (ecdh_shared_secret, vec![address]));
+            silent_payment_groups.insert(B_scan, (ecdh_shared_secret.into_inner(), vec![address]));
         }
     }
 
@@ -65,7 +69,10 @@ pub fn generate_recipient_pubkeys(
         let (ecdh_shared_secret, recipients) = group;
 
         for addr in recipients {
-            let t_n = calculate_t_n(&ecdh_shared_secret, n)?;
+            let t_n = calculate_t_n(
+                &SharedSecret::<InputHashApplied>::from_inner(&ecdh_shared_secret),
+                n,
+            )?;
 
             let res = t_n.public_key(&secp);
             let reskey = res.combine(&addr.get_spend_key())?;
