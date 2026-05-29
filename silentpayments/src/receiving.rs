@@ -473,6 +473,10 @@ impl Receiver {
 
 #[cfg(test)]
 mod tests {
+    use secp256k1::{Secp256k1, SecretKey};
+
+    use crate::SpVersion;
+
     use super::Label;
 
     #[test]
@@ -505,5 +509,29 @@ mod tests {
         // Not 32B
         let s: String = "deadbeef".to_owned();
         Label::try_from(s).unwrap_err();
+    }
+
+    #[test]
+    fn serialize_deserialize_receiver() {
+        let scan_key = SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let spend_key = SecretKey::from_slice(&[2u8; 32]).unwrap();
+
+        let change_label = Label::new(scan_key, 0);
+
+        let secp = Secp256k1::new();
+
+        let receiver = super::Receiver::new(
+            SpVersion::ZERO,
+            scan_key.public_key(&secp),
+            spend_key.public_key(&secp),
+            change_label,
+            crate::Network::Testnet,
+        )
+        .unwrap();
+
+        let serialized = serde_json::to_string(&receiver).unwrap();
+        let deserialized: super::Receiver = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(receiver, deserialized);
     }
 }
