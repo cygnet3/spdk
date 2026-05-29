@@ -6,6 +6,7 @@ use bdk_coin_select::{
     TargetFee, TargetOutputs,
 };
 use bitcoin::absolute::LockTime;
+use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::key::TapTweak;
 use bitcoin::script::PushBytesBuf;
@@ -438,11 +439,12 @@ impl SpClient {
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
     ) -> Result<SecretKey> {
+        let secp = Secp256k1::new();
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints: Vec<_> = selected_utxos
+        let outpoints: Vec<[u8; 36]> = selected_utxos
             .iter()
-            .map(|(outpoint, _)| (outpoint.txid.to_string(), outpoint.vout))
+            .map(|(outpoint, _)| serialize(&outpoint).try_into().unwrap())
             .collect();
         let input_privkeys = selected_utxos
             .iter()
@@ -450,8 +452,8 @@ impl SpClient {
             .collect::<Result<Vec<_>>>()?;
 
         let partial_secret =
-            sp_utils::sending::calculate_partial_secret(&input_privkeys, &outpoints)?;
+            sp_utils::sending::calculate_partial_secret(&secp, &input_privkeys, &outpoints)?;
 
-        Ok(partial_secret)
+        Ok(partial_secret.into_inner())
     }
 }
