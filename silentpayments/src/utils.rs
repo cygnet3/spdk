@@ -9,7 +9,7 @@ pub mod receiving;
 #[cfg(feature = "sending")]
 pub mod sending;
 
-pub(crate) mod common;
+pub mod common;
 
 /// [BIP341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki)-defined 'Nothing Up My Sleeve' point.
 pub const NUMS_H: [u8; 32] = [
