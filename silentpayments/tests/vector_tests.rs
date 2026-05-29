@@ -104,7 +104,14 @@ mod tests {
             let B_scan = b_scan.public_key(&secp);
 
             let change_label = Label::new(b_scan, 0);
-            let mut sp_receiver = Receiver::new(0, B_scan, B_spend, change_label, NETWORK).unwrap();
+            let mut sp_receiver = Receiver::new(
+                silentpayments::SpVersion::ZERO,
+                B_scan,
+                B_spend,
+                change_label,
+                NETWORK,
+            )
+            .unwrap();
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
