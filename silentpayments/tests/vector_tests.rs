@@ -175,7 +175,7 @@ mod tests {
 
             let combined_keys = PublicKey::combine_keys(&input_pub_keys).unwrap();
 
-            let tweak_data = PublicTweak::<Raw>::from_inner(&combined_keys)
+            let tweak_data = PublicTweak::from_inner(&combined_keys)
                 .calculate_tweak_data(&secp, outpoints_head, outpoints_tail)
                 .unwrap();
             let ecdh_shared_secret = tweak_data.calculate_ecdh_shared_secret(&b_scan);
