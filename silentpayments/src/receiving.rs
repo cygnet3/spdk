@@ -362,7 +362,7 @@ impl Receiver {
     ///
     /// # Arguments
     ///
-    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient as a [PublicKey], the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
+    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
     /// * `pubkeys_to_check` - A [HashSet] of public keys of all (unspent) taproot output of the transaction.
     ///
     /// # Returns
@@ -377,7 +377,7 @@ impl Receiver {
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
     pub fn scan_transaction(
         &self,
-        ecdh_shared_secret: &PublicKey,
+        ecdh_shared_secret: SharedSecret<InputHashApplied>,
         pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
         let secp = secp256k1::Secp256k1::new();

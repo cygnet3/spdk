@@ -15,7 +15,7 @@ use bitcoin::{
 };
 use futures::{Stream, StreamExt, pin_mut};
 use log::info;
-use silentpayments::receiving::Label;
+use silentpayments::{receiving::Label, utils::common::SharedSecret};
 
 use spdk_core::chain::{BlockData, ChainBackend, FilterData, UtxoData};
 use spdk_core::updater::{DiscoveredOutput, Updater};
@@ -246,7 +246,7 @@ impl<'a> SpScanner<'a> {
 
             // skip this tx if no secret is found
             let secret = match secret {
-                Some(secret) => secret,
+                Some(secret) => SharedSecret::from_inner(secret),
                 None => continue,
             };
 
