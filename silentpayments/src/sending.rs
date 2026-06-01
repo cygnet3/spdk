@@ -17,7 +17,6 @@ use crate::utils::common::SharedSecret;
 use crate::utils::sending::TypedSecretKey;
 use crate::Result;
 use crate::SilentPaymentAddress;
-use crate::utils::sending::TypedSecretKey;
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
 ///
