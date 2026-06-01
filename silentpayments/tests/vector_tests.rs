@@ -7,7 +7,6 @@ mod tests {
     use silentpayments::{
         receiving::Label,
         utils::{
-            common::Raw,
             is_p2tr,
             receiving::{get_pubkey_from_input, PublicTweak},
             sending::calculate_partial_secret,
