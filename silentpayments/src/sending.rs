@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use crate::utils::common::calculate_t_n;
 use crate::utils::common::InputHashApplied;
 use crate::utils::common::SharedSecret;
+use crate::utils::sending::TypedSecretKey;
 use crate::Result;
 use crate::SilentPaymentAddress;
 use crate::utils::sending::TypedSecretKey;
