@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let secp = Secp256k1::new();
     // Calculate the tweak data based on the public keys and outpoints
-    let tweak_data = PublicTweak::<Raw>::from_inner(&combined_keys).calculate_tweak_data(
+    let tweak_data = PublicTweak::from_inner(&combined_keys).calculate_tweak_data(
         &secp,
         outpoints_head,
         outpoints_tail,
