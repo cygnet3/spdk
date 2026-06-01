@@ -46,7 +46,7 @@ impl PublicTweak<Raw> {
         outpoints_head: &[u8; OUTPOINTS_LEN],
         outpoints_tail: &[[u8; OUTPOINTS_LEN]],
     ) -> Result<PublicTweak<InputHashApplied>> {
-        let input_hash = calculate_input_hash(&outpoints_head, &outpoints_tail, self.as_inner());
+        let input_hash = calculate_input_hash(outpoints_head, outpoints_tail, self.as_inner());
 
         let tweak_key = self.as_inner().mul_tweak(secp, &input_hash)?;
 
