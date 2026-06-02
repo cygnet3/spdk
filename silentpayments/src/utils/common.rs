@@ -4,6 +4,7 @@ use core::fmt;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
 use crate::Error;
+#[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Result;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
