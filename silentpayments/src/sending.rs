@@ -27,7 +27,7 @@ use crate::SilentPaymentAddress;
 /// # Arguments
 ///
 /// * `recipients` - A [Vec] of silent payment addresses strings to be paid.
-/// * `partial_secret` - A [SecretKey] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
+/// * `partial_secret` - [PartialSecret] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
 ///
 /// # Returns
 ///
