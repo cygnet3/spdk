@@ -5,7 +5,7 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{Network as SpNetwork, SpVersion};
+use silentpayments::{Network as SpNetwork, SharedSecret, SpVersion};
 use silentpayments::{
     SilentPaymentAddress,
     bitcoin_hashes::sha256,
@@ -80,7 +80,7 @@ impl SpClient {
     pub fn get_script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
-    ) -> Result<HashMap<[u8; 34], PublicKey>> {
+    ) -> Result<HashMap<[u8; 34], SharedSecret>> {
         // if using rayon feature, import the preludes
         #[cfg(feature = "rayon")]
         use rayon::prelude::*;

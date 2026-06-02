@@ -8,11 +8,13 @@
 //! See the [tests on github](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs)
 //! for a concrete example.
 
-use secp256k1::{PublicKey, Secp256k1, SecretKey, XOnlyPublicKey};
+use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
 use crate::utils::common::calculate_t_n;
+use crate::utils::common::SharedSecret;
 use crate::utils::sending::calculate_ecdh_shared_secret;
+use crate::utils::sending::PartialSecret;
 use crate::Result;
 use crate::SilentPaymentAddress;
 
@@ -40,11 +42,11 @@ use crate::SilentPaymentAddress;
 /// * Edge cases are hit during elliptic curve computation (extremely unlikely).
 pub fn generate_recipient_pubkeys(
     recipients: Vec<SilentPaymentAddress>,
-    partial_secret: SecretKey,
+    partial_secret: PartialSecret,
 ) -> Result<HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
-    let mut silent_payment_groups: HashMap<PublicKey, (PublicKey, Vec<SilentPaymentAddress>)> =
+    let mut silent_payment_groups: HashMap<PublicKey, (SharedSecret, Vec<SilentPaymentAddress>)> =
         HashMap::new();
     for address in recipients {
         let B_scan = address.get_scan_key();

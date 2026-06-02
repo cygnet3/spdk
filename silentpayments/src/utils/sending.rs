@@ -1,8 +1,26 @@
 //! Sending utility functions.
-use crate::{Error, Result};
-use secp256k1::{ecdh::shared_secret_point, PublicKey, Secp256k1, SecretKey};
+use crate::{utils::common::SharedSecret, Error, Result};
+use secp256k1::constants::SECRET_KEY_SIZE;
+use secp256k1::ecdh::shared_secret_point;
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 use super::hash::calculate_input_hash;
+
+/// Represents the sum of all eligible public keys multiplied with the input hash
+#[derive(Clone, Copy, Debug)]
+pub struct PartialSecret(pub(crate) SecretKey);
+
+impl PartialSecret {
+    /// Re-construct the partial secret from the inner bytes.
+    pub fn from_slice(data: &[u8]) -> Result<Self> {
+        Ok(Self(SecretKey::from_slice(data)?))
+    }
+
+    /// Returns the inner bytes of the partial secret
+    pub fn secret_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
+        self.0.secret_bytes()
+    }
+}
 
 /// Calculate the partial secret that is needed for generating the recipient pubkeys.
 ///
@@ -24,7 +42,7 @@ use super::hash::calculate_input_hash;
 pub fn calculate_partial_secret(
     input_keys: &[(SecretKey, bool)],
     outpoints_data: &[(String, u32)],
-) -> Result<SecretKey> {
+) -> Result<PartialSecret> {
     let a_sum = get_a_sum_secret_keys(input_keys)?;
 
     let secp = Secp256k1::signing_only();
@@ -32,7 +50,7 @@ pub fn calculate_partial_secret(
 
     let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
 
-    Ok(a_sum.mul_tweak(&input_hash)?)
+    Ok(PartialSecret(a_sum.mul_tweak(&input_hash)?))
 }
 
 /// Calculate the shared secret of a transaction.
@@ -46,15 +64,18 @@ pub fn calculate_partial_secret(
 ///
 /// # Returns
 ///
-/// This function returns the shared secret of this transaction. This shared secret can be used to generate output keys for the recipient.
-pub fn calculate_ecdh_shared_secret(B_scan: &PublicKey, partial_secret: &SecretKey) -> PublicKey {
+/// This function returns the shared secret unique to this recipient and input keys. This shared secret can be used to generate output keys for the recipient.
+pub fn calculate_ecdh_shared_secret(
+    B_scan: &PublicKey,
+    partial_secret: &PartialSecret,
+) -> SharedSecret {
     let mut ss_bytes = [0u8; 65];
     ss_bytes[0] = 0x04;
 
     // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, partial_secret));
+    ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, &partial_secret.0));
 
-    PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve")
+    SharedSecret(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
 }
 
 fn get_a_sum_secret_keys(input: &[(SecretKey, bool)]) -> Result<SecretKey> {
