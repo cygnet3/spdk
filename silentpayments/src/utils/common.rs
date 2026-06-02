@@ -20,7 +20,11 @@ use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_t_n(ecdh_shared_secret: &PublicKey, k: u32) -> Result<SecretKey> {
+#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct SharedSecret(pub(crate) PublicKey);
+
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub(crate) fn calculate_t_n(ecdh_shared_secret: &SharedSecret, k: u32) -> Result<SecretKey> {
     let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret, k).to_byte_array();
     let sk = SecretKey::from_slice(&hash)?;
 

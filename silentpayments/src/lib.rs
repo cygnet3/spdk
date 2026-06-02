@@ -52,6 +52,7 @@ pub use secp256k1;
 
 pub use crate::error::Error;
 pub use utils::common::Network;
+pub use utils::common::SharedSecret;
 pub use utils::common::SilentPaymentAddress;
 pub use utils::common::SpVersion;
 

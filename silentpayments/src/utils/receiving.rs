@@ -1,8 +1,8 @@
 //! Receiving utility functions.
 use crate::{
     utils::{
-        OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
-        OP_PUSHBYTES_32,
+        common::SharedSecret, OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY,
+        OP_HASH160, OP_PUSHBYTES_20, OP_PUSHBYTES_32,
     },
     Error, Result,
 };
@@ -54,14 +54,14 @@ pub fn calculate_tweak_data(
 /// # Returns
 ///
 /// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
-pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) -> PublicKey {
+pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) -> SharedSecret {
     let mut ss_bytes = [0u8; 65];
     ss_bytes[0] = 0x04;
 
     // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(&tweak_data, &b_scan));
+    ss_bytes[1..].copy_from_slice(&shared_secret_point(tweak_data, b_scan));
 
-    PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve")
+    SharedSecret(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
 }
 
 /// Get the public keys from a set of input data.

@@ -9,7 +9,7 @@ use bitcoin::absolute::LockTime;
 use bitcoin::hashes::Hash;
 use bitcoin::key::TapTweak;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{Keypair, Message, Secp256k1};
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::Signature;
 use bitcoin::transaction::Version;
@@ -17,6 +17,7 @@ use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
 use silentpayments::utils as sp_utils;
+use silentpayments::utils::sending::PartialSecret;
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
@@ -437,7 +438,7 @@ impl SpClient {
     pub fn get_partial_secret_for_selected_utxos(
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
-    ) -> Result<SecretKey> {
+    ) -> Result<PartialSecret> {
         let b_spend = self.try_get_secret_spend_key()?;
 
         let outpoints: Vec<_> = selected_utxos
