@@ -327,3 +327,29 @@ impl From<SilentPaymentAddress> for String {
         bech32::encode(hrp, data, bech32::Variant::Bech32m).unwrap()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bitcoin::consensus::serialize;
+
+    use crate::utils;
+
+    #[test]
+    fn outpoint_parsing_equivalence() {
+        // example outpoint from genesis block
+        let txid = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
+        let vout = 0;
+
+        let sp_outpoint_from_txid_and_vout =
+            utils::OutPoint::from_txid_and_vout(txid.to_string(), vout).unwrap();
+
+        let outpoint = bitcoin::OutPoint::from_str(&format!("{txid}:{vout}")).unwrap();
+        // consensus serialization of bitcoin outpoint struct to byte array
+        let outpoint_bytes: [u8; 36] = serialize(&outpoint).try_into().unwrap();
+        let sp_outpoint_from_bytes = utils::OutPoint::from_bytes(outpoint_bytes);
+
+        assert_eq!(sp_outpoint_from_txid_and_vout, sp_outpoint_from_bytes);
+    }
+}
