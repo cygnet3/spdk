@@ -1,4 +1,5 @@
 //! Sending utility functions.
+use crate::utils::common::OutPoint;
 use crate::{utils::common::SharedSecret, Error, Result};
 use secp256k1::constants::SECRET_KEY_SIZE;
 use secp256k1::ecdh::shared_secret_point;
@@ -41,7 +42,7 @@ impl PartialSecret {
 /// * The outpoints_data is of length zero, or invalid.
 pub fn calculate_partial_secret(
     input_keys: &[(SecretKey, bool)],
-    outpoints_data: &[(String, u32)],
+    outpoints_data: &[OutPoint],
 ) -> Result<PartialSecret> {
     let a_sum = get_a_sum_secret_keys(input_keys)?;
 

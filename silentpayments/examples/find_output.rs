@@ -8,6 +8,7 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex;
 
+use silentpayments::utils::OutPoint;
 use silentpayments::SpVersion;
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
@@ -60,12 +61,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     // Extract outpoints (previous transaction outputs) from the transaction inputs and store them in a vector
-    let outpoints: Vec<(String, u32)> = tx
+    let outpoints: Vec<OutPoint> = tx
         .input
         .iter()
         .map(|i| {
-            let outpoint = i.previous_output;
-            (outpoint.txid.to_string(), outpoint.vout)
+            let prevout = i.previous_output;
+            OutPoint::from_txid_and_vout(prevout.txid.to_string(), prevout.vout).unwrap()
         })
         .collect();
 

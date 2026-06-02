@@ -441,10 +441,15 @@ impl SpClient {
     ) -> Result<PartialSecret> {
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints: Vec<_> = selected_utxos
+        let outpoints = selected_utxos
             .iter()
-            .map(|(outpoint, _)| (outpoint.txid.to_string(), outpoint.vout))
-            .collect();
+            .map(|(outpoint, _)| {
+                Ok(sp_utils::OutPoint::from_txid_and_vout(
+                    outpoint.txid.to_string(),
+                    outpoint.vout,
+                )?)
+            })
+            .collect::<Result<Vec<sp_utils::OutPoint>>>()?;
         let input_privkeys = selected_utxos
             .iter()
             .map(|(_, output)| Ok((b_spend.add_tweak(&output.tweak)?, true)))

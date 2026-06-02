@@ -10,6 +10,7 @@ mod tests {
                 calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
             },
             sending::calculate_partial_secret,
+            OutPoint,
         },
         Network, SilentPaymentAddress,
     };
@@ -47,10 +48,10 @@ mod tests {
         for sendingtest in test_case.sending {
             let given = sendingtest.given;
             let expected = sendingtest.expected;
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
                 .collect();
             let mut input_priv_keys = Vec::new();
             for input in given.vin {
@@ -115,10 +116,10 @@ mod tests {
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
-            let outpoints: Vec<(String, u32)> = given
+            let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| (vin.txid.clone(), vin.vout))
+                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
                 .collect();
             let mut input_pub_keys = Vec::new();
             for input in given.vin {
