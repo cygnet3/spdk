@@ -20,6 +20,54 @@ use serde::Deserializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Struct representing an OutPoint type.
+///
+/// This can be constructed from a rust-bitcoin outpoint:
+/// ```
+/// use silentpayments::utils::OutPoint;
+/// use bitcoin::consensus::serialize;
+/// # use std::str::FromStr;
+///
+/// # let bitcoin_outpoint = bitcoin::OutPoint::from_str(&format!("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f:0")).unwrap();
+/// let serialized: [u8; 36] = serialize(&bitcoin_outpoint).try_into().unwrap();
+/// let outpoint = OutPoint::from_bytes(serialized);
+/// ```
+#[cfg(any(feature = "sending", feature = "receiving"))]
+#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct OutPoint(pub(crate) [u8; 36]);
+
+impl OutPoint {
+    /// Parse outpoin from a [String] txid and [u32] vout.
+    /// This may fail if the txid is not a valid 32 byte hex string.
+    pub fn from_txid_and_vout(txid: String, vout: u32) -> Result<Self> {
+        let mut bytes: Vec<u8> = hex::decode(&txid)?;
+
+        if bytes.len() != 32 {
+            return Err(Error::GenericError(format!(
+                "Invalid outpoint hex representation: {}",
+                txid
+            )));
+        }
+
+        // txid in string format is big endian and we need little endian
+        bytes.reverse();
+
+        let mut buffer = [0u8; 36];
+
+        buffer[..32].copy_from_slice(&bytes);
+        buffer[32..].copy_from_slice(&vout.to_le_bytes());
+        Ok(Self(buffer))
+    }
+
+    pub fn from_bytes(bytes: [u8; 36]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn to_bytes(&self) -> [u8; 36] {
+        self.0
+    }
+}
+
 #[cfg(any(feature = "sending", feature = "receiving"))]
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SharedSecret(pub(crate) PublicKey);

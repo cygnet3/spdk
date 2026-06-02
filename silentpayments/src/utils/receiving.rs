@@ -1,8 +1,9 @@
 //! Receiving utility functions.
 use crate::{
     utils::{
-        common::SharedSecret, OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY,
-        OP_HASH160, OP_PUSHBYTES_20, OP_PUSHBYTES_32,
+        common::{OutPoint, SharedSecret},
+        OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
+        OP_PUSHBYTES_32,
     },
     Error, Result,
 };
@@ -35,7 +36,7 @@ use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
 /// * Elliptic curve computation results in an invalid public key.
 pub fn calculate_tweak_data(
     input_pub_keys: &[&PublicKey],
-    outpoints_data: &[(String, u32)],
+    outpoints_data: &[OutPoint],
 ) -> Result<PublicKey> {
     let secp = secp256k1::Secp256k1::verification_only();
     let A_sum = PublicKey::combine_keys(input_pub_keys)?;
