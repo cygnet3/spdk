@@ -6,7 +6,7 @@ use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 use super::hash::calculate_input_hash;
 
-/// Represents the sum of all eligible public keys multiplied with the input hash
+/// Represents the sum of all eligible input private keys of a transaction, multiplied with the input hash.
 #[derive(Clone, Copy, Debug)]
 pub struct PartialSecret(pub(crate) SecretKey);
 
