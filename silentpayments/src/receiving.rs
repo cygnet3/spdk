@@ -176,8 +176,8 @@ impl<'de> Deserialize<'de> for SerializablePubkey {
                 V: SeqAccess<'de>,
             {
                 let mut arr = [0u8; 33];
-                for i in 0..33 {
-                    arr[i] = seq
+                for (i, byte) in arr.iter_mut().enumerate() {
+                    *byte = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }

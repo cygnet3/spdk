@@ -117,7 +117,7 @@ impl Serialize for SilentPaymentAddress {
     where
         S: Serializer,
     {
-        let encoded: String = self.clone().into();
+        let encoded: String = (*self).into();
         serializer.serialize_str(&encoded)
     }
 }

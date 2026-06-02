@@ -83,7 +83,7 @@ pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) 
 /// * The provided Vin data is incorrect.
 pub fn get_pubkey_from_input(
     script_sig: &[u8],
-    txinwitness: &Vec<Vec<u8>>,
+    txinwitness: &[Vec<u8>],
     script_pub_key: &[u8],
 ) -> Result<Option<PublicKey>> {
     if is_p2pkh(script_pub_key) {
