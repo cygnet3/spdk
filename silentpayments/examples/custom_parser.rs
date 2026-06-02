@@ -8,7 +8,6 @@
 /// ```bash
 /// cargo run --example custom_parser --no-default-features
 /// ```
-
 fn main() {
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use silentpayments::{Network, SilentPaymentAddress};

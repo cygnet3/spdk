@@ -69,7 +69,7 @@ mod tests {
                     Err(e) => panic!("Problem parsing the input: {:?}", e),
                 }
             }
-            if input_priv_keys.len() == 0 {
+            if input_priv_keys.is_empty() {
                 continue;
             }
 
@@ -134,7 +134,7 @@ mod tests {
                     Err(e) => panic!("Problem parsing the input: {:?}", e),
                 }
             }
-            if input_pub_keys.len() == 0 {
+            if input_pub_keys.is_empty() {
                 continue;
             };
 
@@ -156,7 +156,7 @@ mod tests {
                     .insert(sp_receiver.get_receiving_address_for_label(label).unwrap());
             }
 
-            if !&given.labels.iter().any(|l| *l == 0) {
+            if !&given.labels.contains(&0) {
                 receiving_addresses.remove(&sp_receiver.get_change_address());
             }
 
