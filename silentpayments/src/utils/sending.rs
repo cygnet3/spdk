@@ -1,5 +1,5 @@
 //! Sending utility functions.
-use crate::utils::common::OutPoint;
+use crate::utils::common::{NonEmptyArray, OutPoint};
 use crate::{utils::common::SharedSecret, Error, Result};
 use secp256k1::constants::SECRET_KEY_SIZE;
 use secp256k1::ecdh::shared_secret_point;
@@ -49,7 +49,8 @@ pub fn calculate_partial_secret(
     let secp = Secp256k1::signing_only();
     let A_sum = a_sum.public_key(&secp);
 
-    let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
+    let outpoints = NonEmptyArray::new(outpoints_data)?;
+    let input_hash = calculate_input_hash(outpoints, A_sum);
 
     Ok(PartialSecret(a_sum.mul_tweak(&input_hash)?))
 }

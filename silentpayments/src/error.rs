@@ -11,6 +11,7 @@ pub enum Error {
     Secp256k1Error(secp256k1::Error),
     OutOfRangeError(secp256k1::scalar::OutOfRangeError),
     IOError(std::io::Error),
+    EmptyArray,
 }
 
 impl fmt::Display for Error {
@@ -25,6 +26,7 @@ impl fmt::Display for Error {
             Error::Secp256k1Error(e) => e.fmt(f),
             Error::OutOfRangeError(e) => e.fmt(f),
             Error::IOError(e) => e.fmt(f),
+            Error::EmptyArray => write!(f, "Non-empty array required"),
         }
     }
 }
