@@ -1,7 +1,7 @@
 //! Receiving utility functions.
 use crate::{
     utils::{
-        common::{OutPoint, SharedSecret},
+        common::{NonEmptyArray, OutPoint, SharedSecret},
         OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
         OP_PUSHBYTES_32,
     },
@@ -40,7 +40,9 @@ pub fn calculate_tweak_data(
 ) -> Result<PublicKey> {
     let secp = secp256k1::Secp256k1::verification_only();
     let A_sum = PublicKey::combine_keys(input_pub_keys)?;
-    let input_hash = calculate_input_hash(outpoints_data, A_sum)?;
+
+    let outpoints = NonEmptyArray::new(outpoints_data)?;
+    let input_hash = calculate_input_hash(outpoints, A_sum);
 
     Ok(A_sum.mul_tweak(&secp, &input_hash)?)
 }

@@ -1,7 +1,4 @@
-use crate::{
-    utils::common::{OutPoint, SharedSecret},
-    Error,
-};
+use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
 use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use secp256k1::{PublicKey, Scalar, SecretKey};
 
@@ -71,15 +68,8 @@ impl SharedSecretHash {
 }
 
 pub(crate) fn calculate_input_hash(
-    outpoints_data: &[OutPoint],
+    outpoints_data: NonEmptyArray<OutPoint>,
     A_sum: PublicKey,
-) -> Result<Scalar, Error> {
-    if outpoints_data.is_empty() {
-        return Err(Error::GenericError("No outpoints provided".to_owned()));
-    }
-    let smallest_outpoint = outpoints_data
-        .iter()
-        .min()
-        .expect("must be present if array is non-empty");
-    Ok(InputsHash::from_outpoint_and_A_sum(smallest_outpoint, A_sum).to_scalar())
+) -> Scalar {
+    InputsHash::from_outpoint_and_A_sum(outpoints_data.min(), A_sum).to_scalar()
 }

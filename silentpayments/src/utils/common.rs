@@ -328,6 +328,30 @@ impl From<SilentPaymentAddress> for String {
     }
 }
 
+pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
+
+impl<'a, T> NonEmptyArray<'a, T> {
+    pub fn new(arr: &'a [T]) -> crate::Result<Self> {
+        match !arr.is_empty() {
+            true => Ok(Self(arr)),
+            false => Err(crate::Error::EmptyArray),
+        }
+    }
+
+    pub fn as_inner(&'a self) -> &'a [T] {
+        self.0
+    }
+}
+
+impl<'a, T> NonEmptyArray<'a, T>
+where
+    T: Ord,
+{
+    pub fn min(&'a self) -> &'a T {
+        self.0.iter().min().expect("Is non-empty")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
