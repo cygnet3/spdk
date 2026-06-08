@@ -57,18 +57,18 @@ silentpayments = { version = "0.4", default-features = false, features = ["recei
 
 ## Sending
 
-For sending to a silent payment address, you can call the `sender::generate_recipient_pubkeys` function.
-This function takes a list of silent payment recipients, as well as a `partial_secret`.
+For sending to silent payment addresses, call `sending::generate_recipient_pubkeys`.
+It takes a recipient list and a map of `TransactionSharedSecret` keyed by scan key (`B_scan`).
 
-The `partial_secret` represents the sum of all input private keys multiplied with the input hash.
-To compute the `partial_secret`, the `utils::sending::compute_partial_secret` function can be used,
-although this requires exposing secret data to this library.
-Other methods for calculating the `partial_secret` will be added later.
+Build the shared secret on the sender side via `utils::sending::GlobalSenderEcdhShare` (single signer)
+or `PartialSenderEcdhShare` (multi-signer), applying an `InputsHash` before converting to `TransactionSharedSecret`.
+See `tests/vector_tests.rs` for the full flow.
 
-## Recipient
+## Receiving
 
-For receiving silent payments, we use the `receiving::Receiver` struct.
-This `Receiver` struct implements a `scan_transaction` function that can be used to scan an incoming transaction for newly received payments.
+For receiving silent payments, use the `receiving::Receiver` struct.
+Call `scan_transaction` with a `TransactionSharedSecret` computed from `PublicTweakData` and your scan private key.
+Tweak data can be calculated locally with `PublicTweakData::new` (same inputs as `InputsHash::new`), or received from an indexing server via `PublicTweakData::new_unchecked`.
 
 The library also supports labels.
 The change label (label for generating change addresses) is included by default.
