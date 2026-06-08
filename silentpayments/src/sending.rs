@@ -1,21 +1,19 @@
 //! The sending component of silent payments.
 //!
-//! The [`generate_recipient_pubkeys`] function can be used to create outputs for a list of silent payment recipients.
+//! The [`generate_recipient_pubkeys`] function creates taproot output keys for silent payment recipients.
 //!
-//! Using [`generate_recipient_pubkeys`] will require calculating a
-//! `partial_secret` beforehand.
-//! To do this, you can use [`calculate_partial_secret`](crate::utils::sending::calculate_partial_secret) from the `utils` module.
-//! See the [tests on github](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs)
-//! for a concrete example.
+//! Callers must supply a [`TransactionSharedSecret`] per unique recipient scan key.
+//! On the sender side, build secrets from a [`GlobalSenderEcdhShare`](crate::utils::sending::GlobalSenderEcdhShare)
+//! or from combined [`PartialSenderEcdhShare`](crate::utils::sending::PartialSenderEcdhShare)s.
+//! See [the test vectors](https://github.com/cygnet3/spdk/blob/master/silentpayments/tests/vector_tests.rs)
+//! for a full example.
 
 use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
 use crate::utils::common::TransactionSharedSecret;
 use crate::utils::common::calculate_t_n;
-use crate::utils::sending::calculate_ecdh_shared_secret;
-use crate::utils::sending::PartialSecret;
-use crate::Result;
+use crate::{Error, Result};
 use crate::SilentPaymentAddress;
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
@@ -26,8 +24,10 @@ use crate::SilentPaymentAddress;
 ///
 /// # Arguments
 ///
-/// * `recipients` - A [Vec] of silent payment addresses strings to be paid.
-/// * `partial_secret` - [PartialSecret] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
+/// * `recipients` - Silent payment addresses to pay, in output order. Multiple entries may share the
+///   same scan key; output index `n` is assigned per scan-key group in this order.
+/// * `shared_secrets` - One [`TransactionSharedSecret`] per unique scan key (`B_scan`), keyed by that
+///   public key.
 ///
 /// # Returns
 ///
@@ -38,33 +38,32 @@ use crate::SilentPaymentAddress;
 ///
 /// This function will return an error if:
 ///
-/// * The recipients [Vec] contains a silent payment address with an incorrect format.
+/// * A recipient's scan key is missing from `shared_secrets`.
 /// * Edge cases are hit during elliptic curve computation (extremely unlikely).
 pub fn generate_recipient_pubkeys(
-    recipients: Vec<SilentPaymentAddress>,
-    partial_secret: PartialSecret,
+    recipients: &[SilentPaymentAddress],
+    shared_secrets: &HashMap<PublicKey, TransactionSharedSecret>,
 ) -> Result<HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
     let mut silent_payment_groups: HashMap<PublicKey, (TransactionSharedSecret, Vec<SilentPaymentAddress>)> =
         HashMap::new();
     for address in recipients {
-        let B_scan = address.get_scan_key();
+        let b_scan = address.get_scan_key();
 
-        if let Some((_, payments)) = silent_payment_groups.get_mut(&B_scan) {
-            payments.push(address);
+        if let Some((_, payments)) = silent_payment_groups.get_mut(&b_scan) {
+            payments.push(*address);
         } else {
-            let ecdh_shared_secret = calculate_ecdh_shared_secret(&B_scan, &partial_secret);
-
-            silent_payment_groups.insert(B_scan, (ecdh_shared_secret, vec![address]));
+            let shared_secret = shared_secrets.get(&b_scan).ok_or_else(|| {
+                Error::GenericError(format!("Missing shared secret for scan key {b_scan}"))
+            })?;
+            silent_payment_groups.insert(b_scan, (*shared_secret, vec![*address]));
         }
     }
 
     let mut result: HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>> = HashMap::new();
-    for group in silent_payment_groups.into_values() {
-        let (ecdh_shared_secret, recipients) = group;
-
-        for (n, addr) in recipients.into_iter().enumerate() {
+    for (ecdh_shared_secret, addresses) in silent_payment_groups.into_values() {
+        for (n, addr) in addresses.into_iter().enumerate() {
             let t_n = calculate_t_n(&ecdh_shared_secret, n as u32)?;
 
             let res = t_n.public_key(&secp);
