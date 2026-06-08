@@ -3,14 +3,14 @@ use core::fmt;
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
-use crate::{Error, utils::{hash::calculate_input_hash, script::is_eligible}};
+use crate::{Error, utils::{hash::calculate_input_hash, receiving::PublicTweakData, script::is_eligible}};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Result;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use bitcoin_hashes::Hash;
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, ecdh::shared_secret_point};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
 #[cfg(all(feature = "serde", feature = "encode"))]
@@ -125,6 +125,34 @@ impl InputsHash {
     }
 }
 
+/// Compute `private_key * public_key` as a secp256k1 [`PublicKey`].
+/// 
+/// # Arguments
+///
+/// * `public_key` - Either the recipient scan public key (sender) or the sum of all eligible inputs public keys (recipient).
+/// * `private_key` - Either one or all private keys used in the inputs of the transaction (sender) or the private scan key (recipient).
+///
+/// # Returns
+///
+/// The shared secret as a [`PublicKey`].
+/// 
+/// # Errors
+///
+/// This function will error if:
+///
+/// * The elliptic curve computation results in an invalid public key.
+///
+/// Uses `shared_secret_point` for constant-time scalar multiplication.
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub(crate) fn ecdh_multiply(
+    public_key: &PublicKey,
+    private_key: &SecretKey,
+) -> Result<PublicKey> {
+    let mut ss_bytes = [0u8; 65];
+    ss_bytes[0] = 0x04;
+    ss_bytes[1..].copy_from_slice(&shared_secret_point(public_key, private_key));
+    Ok(PublicKey::from_slice(&ss_bytes)?)
+}
 
 /// Represents the shared secret, one for each scan key in the outputs, which is either obtained from 
 /// * sum of all eligible inputs private keys multiplied with the input hash, multiplied with the scan public key, or

@@ -6,10 +6,13 @@
 //!
 //! After creating a [`Receiver`] object, you can call [`scan_transaction`](Receiver::scan_transaction),
 //! to scan a specific transaction for outputs belonging to this receiver.
-//! For this, you need to have calculated the `ecdh_shared_secret` beforehand.
-//! To do so, you can use [`calculate_ecdh_shared_secret`](`crate::utils::receiving::calculate_ecdh_shared_secret`) from the `utils` module.
 //!
-//! For a concrete example, have a look at the [test vectors](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs).
+//! This requires a [`TransactionSharedSecret`] for the transaction. Compute it from
+//! [`PublicTweakData`](crate::utils::receiving::PublicTweakData) and the scan private key via
+//! [`TransactionSharedSecret::new_from_public_tweak_data`].
+//!
+//! For a concrete example, see the [test vectors](https://github.com/cygnet3/spdk/blob/master/silentpayments/tests/vector_tests.rs)
+//! or the `find_output` example.
 use std::{
     collections::{HashMap, HashSet},
     fmt,
