@@ -3,7 +3,7 @@ use core::fmt;
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
-use crate::{Error, utils::{hash::calculate_input_hash, receiving::PublicTweakData, script::is_eligible}};
+use crate::{Error, utils::{hash::calculate_input_hash, receiving::PublicTweakData, script::is_eligible, sending::{GlobalSenderEcdhShare, PartialSenderEcdhShare}}};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Result;
 #[cfg(feature = "encode")]

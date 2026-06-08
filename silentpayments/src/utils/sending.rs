@@ -1,109 +1,205 @@
 //! Sending utility functions.
-use crate::utils::common::{NonEmptyArray, OutPoint};
-use crate::{utils::common::SharedSecret, Error, Result};
-use secp256k1::constants::SECRET_KEY_SIZE;
-use secp256k1::ecdh::shared_secret_point;
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+//!
+//! The typical flow for a single signer is:
+//!
+//! 1. Normalize input private keys with [`NormalizedSecretKey`].
+//! 2. Build an [`InputsHash`] from outpoints and eligible input public keys.
+//! 3. Create a [`GlobalSenderEcdhShare`] (single spender) or [`PartialSenderEcdhShare`]s (per input - collaborative transaction).
+//! 4. Call [`GlobalSenderEcdhShare::apply_input_hash`] / [`PartialSenderEcdhShare::apply_input_hash`].
+//! 5. Convert to a [`TransactionSharedSecret`](crate::TransactionSharedSecret) and pass to [`generate_recipient_pubkeys`](crate::sending::generate_recipient_pubkeys).
+use std::collections::HashSet;
 
-use super::hash::calculate_input_hash;
+use crate::utils::common::{ecdh_multiply, InputsHash, NonEmptyArray};
+use crate::{Error, Result};
+use secp256k1::{PublicKey, Secp256k1, SecretKey, Signing, Verification};
 
-/// Represents the sum of all eligible input private keys of a transaction, multiplied with the input hash.
-#[derive(Clone, Copy, Debug)]
-pub struct PartialSecret(pub(crate) SecretKey);
+/// Guarantees that the secret key is producing even xonly public key if output spent is taproot
+/// by negating the secret key if necessary
+#[derive(Debug, Clone)]
+pub struct NormalizedSecretKey(SecretKey);
 
-impl PartialSecret {
-    /// Re-construct the partial secret from the inner bytes.
-    pub fn from_slice(data: &[u8]) -> Result<Self> {
-        Ok(Self(SecretKey::from_slice(data)?))
-    }
+impl NormalizedSecretKey {
+    pub fn new<C: Signing>(secp: &Secp256k1<C>, secret_key: SecretKey, is_taproot: bool) -> Self {
+        let (_, parity) = secret_key.x_only_public_key(&secp);
 
-    /// Returns the inner bytes of the partial secret
-    pub fn secret_bytes(&self) -> [u8; SECRET_KEY_SIZE] {
-        self.0.secret_bytes()
-    }
-}
-
-/// Calculate the partial secret that is needed for generating the recipient pubkeys.
-///
-/// # Arguments
-///
-/// * `input_keys` - A reference to a list of tuples, each tuple containing a [SecretKey] and [bool]. The [SecretKey] is the private key used in the input, and the [bool] indicates whether this was from a taproot address.
-/// * `outpoints_data` - The prevout outpoints used as input for this transaction. Note that the txid is given in [String] format, which is displayed in reverse order from the inner byte array.
-///
-/// # Returns
-///
-/// This function returns the partial secret, which represents the sum of all (eligible) input keys multiplied with the input hash.
-///
-/// # Errors
-///
-/// This function will error if:
-///
-/// * The input keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
-pub fn calculate_partial_secret(
-    input_keys: &[(SecretKey, bool)],
-    outpoints_data: &[OutPoint],
-) -> Result<PartialSecret> {
-    let a_sum = get_a_sum_secret_keys(input_keys)?;
-
-    let secp = Secp256k1::signing_only();
-    let A_sum = a_sum.public_key(&secp);
-
-    let outpoints = NonEmptyArray::new(outpoints_data)?;
-    let input_hash = calculate_input_hash(outpoints, A_sum);
-
-    Ok(PartialSecret(a_sum.mul_tweak(&input_hash)?))
-}
-
-/// Calculate the shared secret of a transaction.
-///
-/// Since [generate_recipient_pubkeys](crate::sending::generate_recipient_pubkeys) calls this function internally, it is not needed for the default sending flow.
-///
-/// # Arguments
-///
-/// * `B_scan` - The scan public key used by the wallet.
-/// * `partial_secret` - the sum of all (eligible) input keys multiplied with the input hash, see [calculate_partial_secret].
-///
-/// # Returns
-///
-/// This function returns the shared secret unique to this recipient and input keys. This shared secret can be used to generate output keys for the recipient.
-pub fn calculate_ecdh_shared_secret(
-    B_scan: &PublicKey,
-    partial_secret: &PartialSecret,
-) -> SharedSecret {
-    let mut ss_bytes = [0u8; 65];
-    ss_bytes[0] = 0x04;
-
-    // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(B_scan, &partial_secret.0));
-
-    SharedSecret(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
-}
-
-fn get_a_sum_secret_keys(input: &[(SecretKey, bool)]) -> Result<SecretKey> {
-    if input.is_empty() {
-        return Err(Error::GenericError("No input provided".to_owned()));
-    }
-
-    let secp = secp256k1::Secp256k1::new();
-
-    let mut negated_keys: Vec<SecretKey> = vec![];
-
-    for (key, is_taproot) in input {
-        let (_, parity) = key.x_only_public_key(&secp);
-
-        if *is_taproot && parity == secp256k1::Parity::Odd {
-            negated_keys.push(key.negate());
-        } else {
-            negated_keys.push(*key);
+        if is_taproot && parity == secp256k1::Parity::Odd {
+            return Self(secret_key.negate());
         }
+
+        Self(secret_key)
     }
 
-    let (head, tail) = negated_keys.split_first().expect("input is non-empty");
+    pub fn as_inner(&self) -> &SecretKey {
+        &self.0
+    }
 
-    let result: SecretKey = tail
-        .iter()
-        .try_fold(*head, |acc, &item| acc.add_tweak(&item.into()))?;
+    pub fn into_inner(self) -> SecretKey {
+        self.0
+    }
+}
 
-    Ok(result)
+impl<'a> NonEmptyArray<'a, NormalizedSecretKey> {
+    pub fn sum_keys(&self) -> Result<SecretKey> {
+        let (head, tail) = self.as_inner().split_first().expect("Is non-empty");
+        let result = tail
+            .iter()
+            .try_fold(*head.as_inner(), |acc, item| acc.add_tweak(&(*item.as_inner()).into()))?;
+        Ok(result)
+    }
+}
+
+/// ECDH share for a single eligible input: `a_i * B_scan` (before input hash).
+///
+/// Used in multi-signer flows where each party contributes one input.
+/// Apply the input hash before combining into a [`GlobalSenderEcdhShare`].
+pub struct PartialSenderEcdhShare {
+    recipient_scan_key: PublicKey,
+    input_vin: usize,
+    ecdh_shared_secret: PublicKey,
+    dleq_proof: Option<PublicKey>, // TODO: implement DLEQ proof
+    input_hash_applied: bool,
+}
+
+impl PartialSenderEcdhShare {
+    pub fn new(
+        recipient_scan_key: PublicKey,
+        input_vin: usize,
+        private_key: NormalizedSecretKey,
+    ) -> Result<Self> {
+        let shared_secret = ecdh_multiply(&recipient_scan_key, private_key.as_inner())?;
+        Ok(Self {
+            recipient_scan_key,
+            input_vin,
+            ecdh_shared_secret: shared_secret,
+            dleq_proof: None,
+            input_hash_applied: false,
+        })
+    }
+
+    pub fn apply_input_hash<C: Verification>(
+        &mut self,
+        secp: &Secp256k1<C>,
+        input_hash: InputsHash,
+    ) -> Result<()> {
+        if self.input_hash_applied {
+            return Err(Error::GenericError(
+                "Input hash already applied".to_owned(),
+            ));
+        }
+        self.ecdh_shared_secret = self
+            .ecdh_shared_secret
+            .mul_tweak(secp, input_hash.as_inner())?;
+        self.input_hash_applied = true;
+        Ok(())
+    }
+
+    pub fn recipient_scan_key(&self) -> &PublicKey {
+        &self.recipient_scan_key
+    }
+
+    pub fn input_vin(&self) -> usize {
+        self.input_vin
+    }
+
+    pub fn as_ecdh_shared_secret(&self) -> &PublicKey {
+        &self.ecdh_shared_secret
+    }
+}
+
+/// ECDH share for all eligible inputs combined.
+///
+/// Built either by summing private keys first ([`Self::new_from_summed_keys`])
+/// or by summing hashed partial shares ([`Self::from_partial_shares`]).
+pub struct GlobalSenderEcdhShare {
+    recipient_scan_key: PublicKey,
+    ecdh_shared_secret: PublicKey,
+    dleq_proof: Option<PublicKey>, // TODO: implement DLEQ proof
+    input_hash_applied: bool,
+}
+
+impl GlobalSenderEcdhShare {
+    pub fn new_from_summed_keys(
+        recipient_scan_key: PublicKey,
+        summed_keys: NonEmptyArray<NormalizedSecretKey>,
+    ) -> Result<Self> {
+        let secret_key = summed_keys.sum_keys()?;
+        let shared_secret = ecdh_multiply(&recipient_scan_key, &secret_key)?;
+        Ok(Self {
+            recipient_scan_key,
+            ecdh_shared_secret: shared_secret,
+            dleq_proof: None,
+            input_hash_applied: false,
+        })
+    }
+
+    pub fn from_partial_shares(
+        partial_shares: NonEmptyArray<PartialSenderEcdhShare>,
+    ) -> Result<Self> {
+        let mut vin_seen: HashSet<usize> = HashSet::new();
+        let recipient_scan_key = partial_shares.as_inner()[0].recipient_scan_key;
+        let mut shares_to_sum: Vec<&PublicKey> =
+            Vec::with_capacity(partial_shares.as_inner().len());
+
+        for share in partial_shares.as_inner() {
+            if share.recipient_scan_key != recipient_scan_key {
+                return Err(Error::GenericError(
+                    format!("Multiple recipient scan keys found: {} and {}", share.recipient_scan_key, recipient_scan_key),
+                ));
+            }
+            if vin_seen.contains(&share.input_vin) {
+                return Err(Error::GenericError(
+                    format!("Input vin {} already seen", share.input_vin),
+                ));
+            }
+            if !share.input_hash_applied {
+                return Err(Error::GenericError(
+                    format!("No input hash applied for input vin {}", share.input_vin),
+                ));
+            }
+            vin_seen.insert(share.input_vin);
+            shares_to_sum.push(&share.ecdh_shared_secret);
+        }
+
+        // TODO check the dleq proofs
+        let shared_secret = PublicKey::combine_keys(shares_to_sum.as_slice())?;
+        Ok(Self {
+            recipient_scan_key,
+            ecdh_shared_secret: shared_secret,
+            dleq_proof: None,
+            input_hash_applied: true,
+        })
+    }
+
+    pub fn apply_input_hash<C: Verification>(
+        &mut self,
+        secp: &Secp256k1<C>,
+        input_hash: InputsHash,
+    ) -> Result<()> {
+        if self.input_hash_applied {
+            return Err(Error::GenericError(
+                "Input hash already applied".to_owned(),
+            ));
+        }
+        self.ecdh_shared_secret = self
+            .ecdh_shared_secret
+            .mul_tweak(secp, input_hash.as_inner())?;
+        self.input_hash_applied = true;
+        Ok(())
+    }
+
+    pub fn recipient_scan_key(&self) -> &PublicKey {
+        &self.recipient_scan_key
+    }
+
+    pub fn as_ecdh_shared_secret(&self) -> &PublicKey {
+        &self.ecdh_shared_secret
+    }
+
+    pub fn into_ecdh_shared_secret(self) -> PublicKey {
+        self.ecdh_shared_secret
+    }
+
+    pub(crate) fn is_input_hash_applied(&self) -> bool {
+        self.input_hash_applied
+    }
 }
