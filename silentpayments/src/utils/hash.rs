@@ -3,13 +3,13 @@ use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use secp256k1::{PublicKey, Scalar, SecretKey};
 
 sha256t_hash_newtype! {
-    pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
+    struct InputsTag = hash_str("BIP0352/Inputs");
 
     /// BIP0352-tagged hash with tag \"Inputs\".
     ///
     /// This is used for computing the inputs hash.
     #[hash_newtype(forward)]
-    pub(crate) struct InputsHash(_);
+    struct InputsHash(_);
 
     pub(crate) struct LabelTag = hash_str("BIP0352/Label");
 
@@ -29,7 +29,7 @@ sha256t_hash_newtype! {
 }
 
 impl InputsHash {
-    pub(crate) fn from_outpoint_and_A_sum(
+    fn from_outpoint_and_A_sum(
         smallest_outpoint: &OutPoint,
         A_sum: PublicKey,
     ) -> InputsHash {
@@ -38,7 +38,8 @@ impl InputsHash {
         eng.input(&A_sum.serialize());
         InputsHash::from_engine(eng)
     }
-    pub(crate) fn to_scalar(self) -> Scalar {
+
+    fn to_scalar(self) -> Scalar {
         // This is statistically extremely unlikely to panic.
         Scalar::from_be_bytes(self.to_byte_array()).expect("hash value greater than curve order")
     }
@@ -68,8 +69,8 @@ impl SharedSecretHash {
 }
 
 pub(crate) fn calculate_input_hash(
-    outpoints_data: NonEmptyArray<OutPoint>,
+    smaller_outpoint: &OutPoint,
     A_sum: PublicKey,
 ) -> Scalar {
-    InputsHash::from_outpoint_and_A_sum(outpoints_data.min(), A_sum).to_scalar()
+    InputsHash::from_outpoint_and_A_sum(&smaller_outpoint, A_sum).to_scalar()
 }

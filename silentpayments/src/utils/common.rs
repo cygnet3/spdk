@@ -3,7 +3,7 @@ use core::fmt;
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
-use crate::Error;
+use crate::{Error, utils::{hash::calculate_input_hash, script::is_eligible}};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Result;
 #[cfg(feature = "encode")]
@@ -68,6 +68,68 @@ impl OutPoint {
     }
 }
 
+/// Collect pubkeys from inputs that are silent-payment eligible per BIP352.
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub(crate) fn eligible_input_pubkey_refs<'a>(
+    script_pubkeys: &'a [(Vec<u8>, Option<PublicKey>)],
+) -> Result<Vec<&'a PublicKey>> {
+    let eligible: Vec<&PublicKey> = script_pubkeys
+        .iter()
+        .filter_map(|(spk, pubkey)| pubkey.as_ref().filter(|_| is_eligible(spk)))
+        .collect();
+    if eligible.is_empty() {
+        return Err(Error::GenericError(
+            "No eligible input pubkeys".to_owned(),
+        ));
+    }
+    Ok(eligible)
+}
+
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub struct InputsHash(Scalar);
+
+impl InputsHash {
+    /// Build the BIP352 input hash from transaction inputs.
+    ///
+    /// # Arguments
+    ///
+    /// * `outpoints` - All prevout outpoints of the transaction.
+    /// * `script_pubkeys` - For each outpoint, the prevout script pubkey and its extracted pubkey
+    ///   if the input is silent-payment eligible. Pass `None` when no pubkey could be extracted.
+    ///
+    /// Only entries with an eligible script type and a present pubkey contribute to the hash.
+    /// # Note
+    /// 
+    /// We enforce passing all the scriptpubkeys and public keys for each outpoint in order to 
+    /// nudge caller into checking it actually possesses the pubkey.
+    /// The problem is that we can't be fully certain of the eligible pubkeys in the case
+    /// of p2tr that may have a script spend path. Owners of p2tr outputs should sign 
+    /// before the other senders to reveal that such a path indeed doesn't exist.
+    /// In the case we falsely assumed a p2tr input is eligible, transaction must be aborted.
+    pub fn new(outpoints: NonEmptyArray<OutPoint>, script_pubkeys: NonEmptyArray<(Vec<u8>, Option<PublicKey>)>) -> Result<Self> {
+        if outpoints.as_inner().len() == 0 || script_pubkeys.as_inner().len() == 0 {
+            return Err(Error::GenericError("Outpoints and txouts must be non-empty".to_owned()));
+        }
+        if outpoints.as_inner().len() != script_pubkeys.as_inner().len() {
+            return Err(Error::GenericError("Outpoints and txouts must have the same length".to_owned()));
+        }
+        let eligible_pubkeys = eligible_input_pubkey_refs(script_pubkeys.as_inner())?;
+        Ok(Self(calculate_input_hash(
+            outpoints.min(),
+            PublicKey::combine_keys(&eligible_pubkeys)?,
+        )))
+    }
+
+    pub fn as_inner(&self) -> &Scalar {
+        &self.0
+    }
+}
+
+
+/// Represents the shared secret, one for each scan key in the outputs, which is either obtained from 
+/// * sum of all eligible inputs private keys multiplied with the input hash, multiplied with the scan public key, or
+/// * sum of all eligible inputs public keys multiplied with the input hash, multiplied with the scan private key
+/// Since sender and recipient are supposed to end up with the same shared secret, this is the final type used for both.
 #[cfg(any(feature = "sending", feature = "receiving"))]
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SharedSecret(pub(crate) PublicKey);
@@ -328,7 +390,7 @@ impl From<SilentPaymentAddress> for String {
     }
 }
 
-pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
+pub struct NonEmptyArray<'a, T>(&'a [T]);
 
 impl<'a, T> NonEmptyArray<'a, T> {
     pub fn new(arr: &'a [T]) -> crate::Result<Self> {
