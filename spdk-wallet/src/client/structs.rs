@@ -8,7 +8,6 @@ use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddress;
-use silentpayments::utils::sending::PartialSecret;
 
 use spdk_core::updater::DiscoveredOutput;
 
@@ -59,7 +58,6 @@ pub struct Recipient {
 pub struct SilentPaymentUnsignedTransaction {
     pub selected_utxos: Vec<(OutPoint, DiscoveredOutput)>,
     pub recipients: Vec<Recipient>,
-    pub partial_secret: PartialSecret,
     pub unsigned_tx: Option<Transaction>,
     pub network: Network,
 }
