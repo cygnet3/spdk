@@ -1,4 +1,4 @@
-use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
+use crate::utils::common::{OutPoint, TransactionSharedSecret};
 use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
 use secp256k1::{PublicKey, Scalar, SecretKey};
 
@@ -60,9 +60,9 @@ impl LabelHash {
 }
 
 impl SharedSecretHash {
-    pub(crate) fn from_ecdh_and_k(ecdh: &SharedSecret, k: u32) -> SharedSecretHash {
+    pub(crate) fn from_ecdh_and_k(ecdh: &TransactionSharedSecret, k: u32) -> SharedSecretHash {
         let mut eng = SharedSecretHash::engine();
-        eng.input(&ecdh.0.serialize());
+        eng.input(&ecdh.as_inner().serialize());
         eng.input(&k.to_be_bytes());
         SharedSecretHash::from_engine(eng)
     }

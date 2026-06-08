@@ -17,7 +17,7 @@ use std::{
 
 use crate::{
     utils::{
-        common::{calculate_P_n, calculate_t_n, SharedSecret},
+        common::{calculate_P_n, calculate_t_n, TransactionSharedSecret},
         hash::LabelHash,
     },
     Error, Network, Result, SilentPaymentAddress, SpVersion,
@@ -377,7 +377,7 @@ impl Receiver {
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
     pub fn scan_transaction(
         &self,
-        ecdh_shared_secret: &SharedSecret,
+        ecdh_shared_secret: &TransactionSharedSecret,
         pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
         let secp = secp256k1::Secp256k1::new();
@@ -437,7 +437,7 @@ impl Receiver {
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
     pub fn get_spks_from_shared_secret(
         &self,
-        ecdh_shared_secret: &SharedSecret,
+        ecdh_shared_secret: &TransactionSharedSecret,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
         let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
         let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;

@@ -132,10 +132,50 @@ impl InputsHash {
 /// Since sender and recipient are supposed to end up with the same shared secret, this is the final type used for both.
 #[cfg(any(feature = "sending", feature = "receiving"))]
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct SharedSecret(pub(crate) PublicKey);
+pub struct TransactionSharedSecret(PublicKey);
+
+impl TransactionSharedSecret {
+    /// Create a shared secret from a finalized global ECDH share (sender path).
+    pub fn new_from_global_share(global_share: &GlobalSenderEcdhShare) -> Result<Self> {
+        if !global_share.is_input_hash_applied() {
+            return Err(Error::GenericError(
+                "Input hash must be applied before creating a shared secret".to_owned(),
+            ));
+        }
+        Ok(Self(*global_share.as_ecdh_shared_secret()))
+    }
+
+    /// Create a shared secret by summing hashed partial ECDH shares (multi-signer sender path).
+    pub fn new_from_partial_shares(partial_shares: &[PartialSenderEcdhShare]) -> Result<Self> {
+        let global_share = GlobalSenderEcdhShare::from_partial_shares(NonEmptyArray(partial_shares))?;
+        Self::new_from_global_share(&global_share)
+    }
+
+    /// Calculate the shared secret of a transaction as a receiver.
+    ///
+    /// # Arguments
+    ///
+    /// * `tweak_data` - The tweak data of the transaction, see [`PublicTweakData::new`].
+    /// * `recipient_scan_key` - The scan private key used by the wallet.
+    ///
+    /// # Returns
+    ///
+    /// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
+    pub fn new_from_public_tweak_data(tweak_data: &PublicTweakData, recipient_scan_key: &SecretKey) -> Result<Self> {
+        Ok(Self(ecdh_multiply(tweak_data.as_inner(), recipient_scan_key)?))
+    }
+
+    pub fn as_inner(&self) -> &PublicKey {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> PublicKey {
+        self.0
+    }
+}
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_t_n(ecdh_shared_secret: &SharedSecret, k: u32) -> Result<SecretKey> {
+pub(crate) fn calculate_t_n(ecdh_shared_secret: &TransactionSharedSecret, k: u32) -> Result<SecretKey> {
     let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret, k).to_byte_array();
     let sk = SecretKey::from_slice(&hash)?;
 
