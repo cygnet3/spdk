@@ -4,6 +4,8 @@
 //! than the basic sending and receiving logic.
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub(crate) mod hash;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub(crate) mod script;
 #[cfg(feature = "receiving")]
 pub mod receiving;
 #[cfg(feature = "sending")]
