@@ -11,13 +11,13 @@ sha256t_hash_newtype! {
     #[hash_newtype(forward)]
     struct InputsHash(_);
 
-    pub(crate) struct LabelTag = hash_str("BIP0352/Label");
+    struct LabelTag = hash_str("BIP0352/Label");
 
     /// BIP0352-tagged hash with tag \"Label\".
     ///
     /// This is used for computing the label tweak.
     #[hash_newtype(forward)]
-    pub(crate) struct LabelHash(_);
+    struct LabelHash(_);
 
     pub(crate) struct SharedSecretTag = hash_str("BIP0352/SharedSecret");
 
@@ -29,10 +29,7 @@ sha256t_hash_newtype! {
 }
 
 impl InputsHash {
-    fn from_outpoint_and_A_sum(
-        smallest_outpoint: &OutPoint,
-        A_sum: PublicKey,
-    ) -> InputsHash {
+    fn from_outpoint_and_A_sum(smallest_outpoint: &OutPoint, A_sum: PublicKey) -> InputsHash {
         let mut eng = InputsHash::engine();
         eng.input(&smallest_outpoint.0);
         eng.input(&A_sum.serialize());

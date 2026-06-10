@@ -20,6 +20,8 @@ use serde::Deserializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use secp256k1::{ecdh::shared_secret_point, PublicKey};
+
 /// Struct representing an OutPoint type.
 ///
 /// This can be constructed from a rust-bitcoin outpoint:
@@ -68,65 +70,103 @@ impl OutPoint {
     }
 }
 
-/// Collect pubkeys from inputs that are silent-payment eligible per BIP352.
+/// Parallel per-vin input data for BIP352 shared secret derivation.
+///
+/// All fields are indexed by input vin. Use [`Self::new`] and [`Self::push`] when building
+/// from chain data.
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn eligible_input_pubkey_refs<'a>(
-    script_pubkeys: &'a [(Vec<u8>, Option<PublicKey>)],
-) -> Result<Vec<&'a PublicKey>> {
-    let eligible: Vec<&PublicKey> = script_pubkeys
-        .iter()
-        .filter_map(|(spk, pubkey)| pubkey.as_ref().filter(|_| is_eligible(spk)))
-        .collect();
-    if eligible.is_empty() {
-        return Err(Error::GenericError(
-            "No eligible input pubkeys".to_owned(),
-        ));
-    }
-    Ok(eligible)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactionInputs {
+    outpoints: Vec<OutPoint>,
+    script_pubkeys: Vec<Vec<u8>>,
+    input_pubkeys: Vec<Option<PublicKey>>,
 }
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub struct InputsHash(Scalar);
-
-impl InputsHash {
-    /// Build the BIP352 input hash from transaction inputs.
-    ///
-    /// # Arguments
-    ///
-    /// * `outpoints` - All prevout outpoints of the transaction.
-    /// * `script_pubkeys` - For each outpoint, the prevout script pubkey and its extracted pubkey
-    ///   if the input is silent-payment eligible. Pass `None` when no pubkey could be extracted.
-    ///
-    /// Only entries with an eligible script type and a present pubkey contribute to the hash.
-    /// # Note
-    /// 
-    /// We enforce passing all the scriptpubkeys and public keys for each outpoint in order to 
-    /// nudge caller into checking it actually possesses the pubkey.
-    /// The problem is that we can't be fully certain of the eligible pubkeys in the case
-    /// of p2tr that may have a script spend path. Owners of p2tr outputs should sign 
-    /// before the other senders to reveal that such a path indeed doesn't exist.
-    /// In the case we falsely assumed a p2tr input is eligible, transaction must be aborted.
-    pub fn new(outpoints: NonEmptyArray<OutPoint>, script_pubkeys: NonEmptyArray<(Vec<u8>, Option<PublicKey>)>) -> Result<Self> {
-        if outpoints.as_inner().len() == 0 || script_pubkeys.as_inner().len() == 0 {
-            return Err(Error::GenericError("Outpoints and txouts must be non-empty".to_owned()));
+impl TransactionInputs {
+    /// Create an empty input set for incremental construction.
+    pub fn new() -> Self {
+        Self {
+            outpoints: Vec::new(),
+            script_pubkeys: Vec::new(),
+            input_pubkeys: Vec::new(),
         }
-        if outpoints.as_inner().len() != script_pubkeys.as_inner().len() {
-            return Err(Error::GenericError("Outpoints and txouts must have the same length".to_owned()));
-        }
-        let eligible_pubkeys = eligible_input_pubkey_refs(script_pubkeys.as_inner())?;
-        Ok(Self(calculate_input_hash(
-            outpoints.min(),
-            PublicKey::combine_keys(&eligible_pubkeys)?,
-        )))
     }
 
-    pub fn as_inner(&self) -> &Scalar {
-        &self.0
+    /// Append one transaction input.
+    pub fn push(
+        &mut self,
+        outpoint: OutPoint,
+        script_pubkey: Vec<u8>,
+        input_pubkey: Option<PublicKey>,
+    ) {
+        self.outpoints.push(outpoint);
+        self.script_pubkeys.push(script_pubkey);
+        self.input_pubkeys.push(input_pubkey);
+    }
+
+    pub fn len(&self) -> usize {
+        self.outpoints.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.outpoints.is_empty()
+    }
+
+    pub fn outpoints(&self) -> &[OutPoint] {
+        &self.outpoints
+    }
+
+    pub fn script_pubkeys(&self) -> &[Vec<u8>] {
+        &self.script_pubkeys
+    }
+
+    pub fn input_pubkeys(&self) -> &[Option<PublicKey>] {
+        &self.input_pubkeys
+    }
+
+    pub fn input_pubkey(&self, vin: usize) -> Option<&PublicKey> {
+        self.input_pubkeys.get(vin).and_then(|pk| pk.as_ref())
+    }
+
+    pub(crate) fn min_outpoint(&self) -> &OutPoint {
+        self.outpoints.iter().min().expect("non-empty")
+    }
+
+    pub(crate) fn eligible_pubkeys(&self) -> Result<Vec<&PublicKey>> {
+        let eligible: Vec<&PublicKey> = self
+            .script_pubkeys
+            .iter()
+            .zip(&self.input_pubkeys)
+            .filter_map(|(spk, pk)| pk.as_ref().filter(|_| is_eligible(spk)))
+            .collect();
+        if eligible.is_empty() {
+            return Err(Error::GenericError("No eligible input pubkeys".to_owned()));
+        }
+        Ok(eligible)
+    }
+
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub(crate) fn eligible_vins(&self) -> HashSet<usize> {
+        self.script_pubkeys
+            .iter()
+            .zip(&self.input_pubkeys)
+            .enumerate()
+            .filter_map(|(vin, (spk, pk))| (pk.is_some() && is_eligible(spk)).then_some(vin))
+            .collect()
+    }
+
+    pub(crate) fn eligible_pubkeys_sum(&self) -> Result<PublicKey> {
+        let eligible_pubkeys = self.eligible_pubkeys()?;
+        Ok(PublicKey::combine_keys(&eligible_pubkeys)?)
     }
 }
 
 /// Compute `private_key * public_key` as a secp256k1 [`PublicKey`].
-/// 
+///
 /// # Arguments
 ///
 /// * `public_key` - Either the recipient scan public key (sender) or the sum of all eligible inputs public keys (recipient).
@@ -135,7 +175,7 @@ impl InputsHash {
 /// # Returns
 ///
 /// The shared secret as a [`PublicKey`].
-/// 
+///
 /// # Errors
 ///
 /// This function will error if:
