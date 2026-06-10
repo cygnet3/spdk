@@ -7,6 +7,7 @@ use bitcoin::secp256k1::Secp256k1;
 
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
+use silentpayments::utils::{TEST_SCAN_PATH, TEST_SPEND_PATH};
 use silentpayments::{Network, SpVersion};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -24,8 +25,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(passphrase))?;
 
     // Define the scan and spend paths for the wallet
-    let scan_path = DerivationPath::from_str("m/352h/1h/0h/1h/0").unwrap();
-    let spend_path = DerivationPath::from_str("m/352h/1h/0h/0h/0").unwrap();
+    let scan_path = DerivationPath::from_str(TEST_SCAN_PATH).unwrap();
+    let spend_path = DerivationPath::from_str(TEST_SPEND_PATH).unwrap();
 
     // Get the private keys for both scan and spend paths
     let scan_privkey = master_key.derive_priv(&secp, &scan_path)?.private_key;
