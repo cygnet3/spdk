@@ -8,8 +8,9 @@
 //! - **default**: Enables `encode`, `sending`, and `receiving` features
 //! - **encode**: Enables string encoding/decoding for `SilentPaymentAddress` (requires `bech32`)
 //! - **serde**: Enables serde serialization/deserialization for types
-//! - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex`, and `encode`)
-//! - **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`, `bimap`, `serde`, and `encode`)
+//! - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex`, `rust-dleq`, and `encode`).
+//!   Also enable exactly one of `dleq-standalone` (pure Rust, default) or `dleq-native` (libsecp256k1 C).
+//! - **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`, `serde`, and `encode`)
 //!
 //! ### Minimal Usage
 //!
@@ -38,11 +39,23 @@
 //! Alternatively, have a look at [Sp client](https://github.com/cygnet3/sp-client/tree/master),
 //! which is a WIP wallet client for building silent payment wallets.
 #![allow(dead_code, non_snake_case)]
+
+#[cfg(all(
+    feature = "sending",
+    not(any(feature = "dleq-standalone", feature = "dleq-native"))
+))]
+compile_error!(
+    "The `sending` feature requires either `dleq-standalone` or `dleq-native` to select a DLEQ backend."
+);
+
 mod error;
 
 #[cfg(feature = "receiving")]
 pub mod receiving;
-#[cfg(feature = "sending")]
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
 pub mod sending;
 pub mod utils;
 
@@ -51,10 +64,15 @@ pub use bitcoin_hashes;
 pub use secp256k1;
 
 pub use crate::error::Error;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+pub use rust_dleq::DleqProof;
 pub use utils::common::Network;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-pub use utils::common::{InputsHash, NonEmptyArray, TransactionSharedSecret};
 pub use utils::common::SilentPaymentAddress;
 pub use utils::common::SpVersion;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub use utils::common::{NonEmptyArray, TransactionInputs, TransactionSharedSecret};
 
 pub type Result<T> = std::result::Result<T, Error>;

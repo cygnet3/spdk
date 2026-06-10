@@ -11,10 +11,10 @@
 use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
-use crate::utils::common::TransactionSharedSecret;
 use crate::utils::common::calculate_t_n;
-use crate::{Error, Result};
+use crate::utils::common::TransactionSharedSecret;
 use crate::SilentPaymentAddress;
+use crate::{Error, Result};
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
 ///
@@ -26,7 +26,7 @@ use crate::SilentPaymentAddress;
 ///
 /// * `recipients` - Silent payment addresses to pay, in output order. Multiple entries may share the
 ///   same scan key; output index `n` is assigned per scan-key group in this order.
-/// * `shared_secrets` - One [`TransactionSharedSecret`] per unique scan key (`B_scan`), keyed by that
+/// * `shared_secrets` - One [`TransactionSharedSecret`] per unique scan key (`recipient_scan_key`), keyed by that
 ///   public key.
 ///
 /// # Returns
@@ -46,18 +46,25 @@ pub fn generate_recipient_pubkeys(
 ) -> Result<HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
-    let mut silent_payment_groups: HashMap<PublicKey, (TransactionSharedSecret, Vec<SilentPaymentAddress>)> =
-        HashMap::new();
+    let mut silent_payment_groups: HashMap<
+        PublicKey,
+        (TransactionSharedSecret, Vec<SilentPaymentAddress>),
+    > = HashMap::new();
     for address in recipients {
-        let b_scan = address.get_scan_key();
+        let recipient_scan_key = address.get_scan_key();
 
-        if let Some((_, payments)) = silent_payment_groups.get_mut(&b_scan) {
+        if let Some((_, payments)) = silent_payment_groups.get_mut(&recipient_scan_key) {
             payments.push(*address);
         } else {
-            let shared_secret = shared_secrets.get(&b_scan).ok_or_else(|| {
-                Error::GenericError(format!("Missing shared secret for scan key {b_scan}"))
+            let shared_secret = shared_secrets.get(&recipient_scan_key).ok_or_else(|| {
+                Error::GenericError(format!(
+                    "Missing shared secret for scan key {recipient_scan_key}"
+                ))
             })?;
-            silent_payment_groups.insert(b_scan, (*shared_secret, vec![*address]));
+            if shared_secret.as_recipient_scan_key() != &recipient_scan_key {
+                return Err(Error::GenericError(format!("Shared secret for scan key {recipient_scan_key} does not match the recipient scan key: {} != {}", shared_secret.as_recipient_scan_key(), recipient_scan_key)));
+            }
+            silent_payment_groups.insert(recipient_scan_key, (*shared_secret, vec![*address]));
         }
     }
 

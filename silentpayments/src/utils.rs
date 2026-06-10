@@ -4,11 +4,14 @@
 //! than the basic sending and receiving logic.
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub(crate) mod hash;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) mod script;
 #[cfg(feature = "receiving")]
 pub mod receiving;
-#[cfg(feature = "sending")]
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub(crate) mod script;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
 pub mod sending;
 
 pub(crate) mod common;

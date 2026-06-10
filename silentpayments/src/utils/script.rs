@@ -1,6 +1,9 @@
 //! Script template matching for silent payment-eligible inputs (BIP352).
 
-use super::{OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20, OP_PUSHBYTES_32};
+use super::{
+    OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
+    OP_PUSHBYTES_32,
+};
 
 /// Check if a script_pub_key is taproot.
 pub fn is_p2tr(spk: &[u8]) -> bool {

@@ -21,7 +21,7 @@ use std::{
 use crate::{
     utils::{
         common::{calculate_P_n, calculate_t_n, TransactionSharedSecret},
-        hash::LabelHash,
+        hash::calculate_label_hash,
     },
     Error, Network, Result, SilentPaymentAddress, SpVersion,
 };
@@ -41,7 +41,7 @@ pub struct Label {
 impl Label {
     pub fn new(b_scan: SecretKey, m: u32) -> Label {
         Label {
-            s: LabelHash::from_b_scan_and_m(b_scan, m).to_scalar(),
+            s: calculate_label_hash(b_scan, m),
         }
     }
 

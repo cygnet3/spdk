@@ -1,16 +1,33 @@
 #[cfg(feature = "encode")]
 use core::fmt;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use std::collections::HashSet;
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::hash::SharedSecretHash;
-use crate::{Error, utils::{hash::calculate_input_hash, receiving::PublicTweakData, script::is_eligible, sending::{GlobalSenderEcdhShare, PartialSenderEcdhShare}}};
+use crate::utils::hash::calculate_shared_secret_hash;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Result;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use crate::utils::hash::calculate_input_hash;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::utils::script::is_eligible;
+#[cfg(feature = "receiving")]
+use crate::utils::receiving::PublicTweakData;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use crate::utils::sending::{GlobalSenderEcdhShare, PartialSenderEcdhShare};
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::Error;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use bitcoin_hashes::Hash;
-use secp256k1::{PublicKey, ecdh::shared_secret_point};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
 #[cfg(all(feature = "serde", feature = "encode"))]
@@ -184,39 +201,122 @@ impl TransactionInputs {
 ///
 /// Uses `shared_secret_point` for constant-time scalar multiplication.
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn ecdh_multiply(
-    public_key: &PublicKey,
-    private_key: &SecretKey,
-) -> Result<PublicKey> {
+pub(crate) fn ecdh_multiply(public_key: &PublicKey, private_key: &SecretKey) -> Result<PublicKey> {
     let mut ss_bytes = [0u8; 65];
     ss_bytes[0] = 0x04;
     ss_bytes[1..].copy_from_slice(&shared_secret_point(public_key, private_key));
     Ok(PublicKey::from_slice(&ss_bytes)?)
 }
 
-/// Represents the shared secret, one for each scan key in the outputs, which is either obtained from 
+/// Represents the shared secret, one for each scan key in the outputs, which is either obtained from
 /// * sum of all eligible inputs private keys multiplied with the input hash, multiplied with the scan public key, or
 /// * sum of all eligible inputs public keys multiplied with the input hash, multiplied with the scan private key
 /// Since sender and recipient are supposed to end up with the same shared secret, this is the final type used for both.
 #[cfg(any(feature = "sending", feature = "receiving"))]
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct TransactionSharedSecret(PublicKey);
+pub struct TransactionSharedSecret {
+    ecdh_shared_secret: PublicKey,
+    recipient_scan_key: PublicKey,
+}
 
 impl TransactionSharedSecret {
     /// Create a shared secret from a finalized global ECDH share (sender path).
-    pub fn new_from_global_share(global_share: &GlobalSenderEcdhShare) -> Result<Self> {
-        if !global_share.is_input_hash_applied() {
-            return Err(Error::GenericError(
-                "Input hash must be applied before creating a shared secret".to_owned(),
-            ));
-        }
-        Ok(Self(*global_share.as_ecdh_shared_secret()))
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn new_from_global_share<C: secp256k1::Signing + secp256k1::Verification>(
+        secp: &Secp256k1<C>,
+        global_share: &GlobalSenderEcdhShare,
+        inputs: &TransactionInputs,
+    ) -> Result<Self> {
+        let eligible_pubkeys = inputs.eligible_pubkeys()?;
+        global_share.verify_dleq_proof(secp, NonEmptyArray::new(&eligible_pubkeys)?)?;
+        let input_hash =
+            calculate_input_hash(inputs.min_outpoint(), inputs.eligible_pubkeys_sum()?);
+        let tweaked_share = global_share
+            .as_ecdh_shared_secret()
+            .mul_tweak(secp, &input_hash)?;
+        Ok(Self {
+            ecdh_shared_secret: tweaked_share,
+            recipient_scan_key: *global_share.recipient_scan_key(),
+        })
     }
 
     /// Create a shared secret by summing hashed partial ECDH shares (multi-signer sender path).
-    pub fn new_from_partial_shares(partial_shares: &[PartialSenderEcdhShare]) -> Result<Self> {
-        let global_share = GlobalSenderEcdhShare::from_partial_shares(NonEmptyArray(partial_shares))?;
-        Self::new_from_global_share(&global_share)
+    ///
+    /// Every SP-eligible input in the transaction (i.e. every vin where the script type is
+    /// eligible and a pubkey was extracted) must have a corresponding partial share. Missing
+    /// or extra shares are rejected so the `input_hash` is computed over the same pubkey set
+    /// as the receiver uses.
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn new_from_partial_shares<C: secp256k1::Signing + secp256k1::Verification>(
+        secp: &Secp256k1<C>,
+        partial_shares: NonEmptyArray<PartialSenderEcdhShare>,
+        inputs: &TransactionInputs,
+    ) -> Result<Self> {
+        let eligible_vins = inputs.eligible_vins();
+
+        // Phase 1: collect partial vin set, ensuring no duplicates and consistent scan key.
+        let recipient_scan_key = partial_shares.as_inner()[0].recipient_scan_key();
+        let mut partial_vins: HashSet<usize> =
+            HashSet::with_capacity(partial_shares.as_inner().len());
+        for share in partial_shares.as_inner().iter() {
+            if *share.recipient_scan_key() != *recipient_scan_key {
+                return Err(Error::GenericError(format!(
+                    "Multiple recipient scan keys found: {} and {}",
+                    share.recipient_scan_key(),
+                    recipient_scan_key
+                )));
+            }
+            if !partial_vins.insert(share.input_vin()) {
+                return Err(Error::GenericError(format!(
+                    "Input vin {} already seen",
+                    share.input_vin()
+                )));
+            }
+        }
+
+        // Phase 2: coverage check — partial set must exactly match eligible set.
+        if partial_vins != eligible_vins {
+            let mut missing: Vec<usize> =
+                eligible_vins.difference(&partial_vins).copied().collect();
+            missing.sort_unstable();
+            let mut unexpected: Vec<usize> =
+                partial_vins.difference(&eligible_vins).copied().collect();
+            unexpected.sort_unstable();
+            return Err(Error::GenericError(format!(
+                "Partial share coverage mismatch. \
+                 Missing shares for eligible vins: {:?}. \
+                 Shares for non-eligible vins: {:?}",
+                missing, unexpected
+            )));
+        }
+
+        // Phase 3: verify DLEQ proofs and collect shares.
+        let mut shares_to_sum: Vec<&PublicKey> =
+            Vec::with_capacity(partial_shares.as_inner().len());
+        for share in partial_shares.as_inner().iter() {
+            let vin = share.input_vin();
+            let pubkey = inputs
+                .input_pubkey(vin)
+                .expect("partial vin is eligible and has pubkey");
+            share.verify_dleq_proof(secp, pubkey)?;
+            shares_to_sum.push(share.as_ecdh_shared_secret());
+        }
+
+        let input_hash =
+            calculate_input_hash(inputs.min_outpoint(), inputs.eligible_pubkeys_sum()?);
+        let tweaked_share =
+            PublicKey::combine_keys(&shares_to_sum)?.mul_tweak(secp, &input_hash)?;
+
+        Ok(Self {
+            ecdh_shared_secret: tweaked_share,
+            recipient_scan_key: *recipient_scan_key,
+        })
     }
 
     /// Calculate the shared secret of a transaction as a receiver.
@@ -229,22 +329,37 @@ impl TransactionSharedSecret {
     /// # Returns
     ///
     /// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
-    pub fn new_from_public_tweak_data(tweak_data: &PublicTweakData, recipient_scan_key: &SecretKey) -> Result<Self> {
-        Ok(Self(ecdh_multiply(tweak_data.as_inner(), recipient_scan_key)?))
+    #[cfg(feature = "receiving")]
+    pub fn new_from_public_tweak_data<C: secp256k1::Signing>(
+        secp: &Secp256k1<C>,
+        tweak_data: &PublicTweakData,
+        recipient_scan_key: &SecretKey,
+    ) -> Result<Self> {
+        Ok(Self {
+            ecdh_shared_secret: ecdh_multiply(tweak_data.as_inner(), recipient_scan_key)?,
+            recipient_scan_key: PublicKey::from_secret_key(&secp, recipient_scan_key),
+        })
     }
 
-    pub fn as_inner(&self) -> &PublicKey {
-        &self.0
+    pub fn as_ecdh_shared_secret(&self) -> &PublicKey {
+        &self.ecdh_shared_secret
     }
 
-    pub fn into_inner(self) -> PublicKey {
-        self.0
+    pub fn into_ecdh_shared_secret(self) -> PublicKey {
+        self.ecdh_shared_secret
+    }
+
+    pub fn as_recipient_scan_key(&self) -> &PublicKey {
+        &self.recipient_scan_key
     }
 }
 
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub(crate) fn calculate_t_n(ecdh_shared_secret: &TransactionSharedSecret, k: u32) -> Result<SecretKey> {
-    let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret, k).to_byte_array();
+pub(crate) fn calculate_t_n(
+    ecdh_shared_secret: &TransactionSharedSecret,
+    k: u32,
+) -> Result<SecretKey> {
+    let hash = calculate_shared_secret_hash(ecdh_shared_secret, k);
     let sk = SecretKey::from_slice(&hash)?;
 
     Ok(sk)

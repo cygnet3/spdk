@@ -59,15 +59,20 @@ impl LabelHash {
 impl SharedSecretHash {
     pub(crate) fn from_ecdh_and_k(ecdh: &TransactionSharedSecret, k: u32) -> SharedSecretHash {
         let mut eng = SharedSecretHash::engine();
-        eng.input(&ecdh.as_inner().serialize());
+        eng.input(&ecdh.as_ecdh_shared_secret().serialize());
         eng.input(&k.to_be_bytes());
         SharedSecretHash::from_engine(eng)
     }
 }
 
-pub(crate) fn calculate_input_hash(
-    smaller_outpoint: &OutPoint,
-    A_sum: PublicKey,
-) -> Scalar {
+pub(crate) fn calculate_input_hash(smaller_outpoint: &OutPoint, A_sum: PublicKey) -> Scalar {
     InputsHash::from_outpoint_and_A_sum(&smaller_outpoint, A_sum).to_scalar()
+}
+
+pub(crate) fn calculate_label_hash(b_scan: SecretKey, m: u32) -> Scalar {
+    LabelHash::from_b_scan_and_m(b_scan, m).to_scalar()
+}
+
+pub(crate) fn calculate_shared_secret_hash(ecdh: &TransactionSharedSecret, k: u32) -> [u8; 32] {
+    SharedSecretHash::from_ecdh_and_k(ecdh, k).to_byte_array()
 }
