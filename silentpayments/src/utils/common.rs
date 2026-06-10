@@ -20,6 +20,8 @@ use serde::Deserializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+pub const SILENT_PAYMENT_ADDRESS_BYTE_LEN: usize = 67;
+
 /// Struct representing an OutPoint type.
 ///
 /// This can be constructed from a rust-bitcoin outpoint:
@@ -248,6 +250,24 @@ impl SilentPaymentAddress {
     /// Get the version byte.
     pub fn get_version(&self) -> u8 {
         self.version.into()
+    }
+
+    pub fn to_byte_array(&self) -> [u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN] {
+        let mut bytes = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
+        bytes[0] = self.version.into();
+        bytes[1..34].copy_from_slice(&self.scan_pubkey.serialize());
+        bytes[34..67].copy_from_slice(&self.m_pubkey.serialize());
+        bytes
+    }
+
+    pub fn try_from_byte_array(
+        bytes: &[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN],
+        network: Network,
+    ) -> Result<Self> {
+        let version: SpVersion = bytes[0].try_into()?;
+        let scan_pubkey = PublicKey::from_slice(&bytes[1..34])?;
+        let m_pubkey = PublicKey::from_slice(&bytes[34..])?;
+        Ok(Self::new(scan_pubkey, m_pubkey, network, version))
     }
 }
 
