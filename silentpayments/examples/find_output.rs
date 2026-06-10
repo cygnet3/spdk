@@ -10,8 +10,8 @@ use bitcoin_hashes::hex::FromHex;
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::secp256k1::{Secp256k1, SecretKey, XOnlyPublicKey};
 use silentpayments::utils::receiving::{get_pubkey_from_input, PublicTweakData};
-use silentpayments::{Network as SpNetwork, NonEmptyArray, SpVersion, TransactionSharedSecret};
 use silentpayments::utils::OutPoint;
+use silentpayments::{Network as SpNetwork, SpVersion, TransactionInputs, TransactionSharedSecret};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
@@ -46,33 +46,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         SpNetwork::Testnet,
     )?;
 
-    let outpoints: Vec<OutPoint> = tx
-        .input
-        .iter()
-        .map(|i| {
-            let prevout = i.previous_output;
-            OutPoint::from_txid_and_vout(prevout.txid.to_string(), prevout.vout).unwrap()
-        })
-        .collect();
-
-    let mut script_pubkeys = Vec::new();
+    let mut inputs = TransactionInputs::new();
     for (i, input) in tx.input.iter().enumerate() {
+        let prevout = &input.previous_output;
+        let outpoint =
+            OutPoint::from_txid_and_vout(prevout.txid.to_string(), prevout.vout).unwrap();
         let spk = ScriptBuf::from_hex(spks.get(i).unwrap())?;
         let pubkey = get_pubkey_from_input(
             input.script_sig.as_bytes(),
             &input.witness.to_vec(),
             spk.as_bytes(),
         )?;
-        script_pubkeys.push((spk.to_bytes(), pubkey));
+        inputs.push(outpoint, spk.to_bytes(), pubkey);
     }
 
-    let tweak_data = PublicTweakData::new(
-        &secp,
-        NonEmptyArray::new(&outpoints)?,
-        NonEmptyArray::new(&script_pubkeys)?,
-    )?;
+    let tweak_data = PublicTweakData::new(&secp, &inputs)?;
     let ecdh_shared_secret =
-        TransactionSharedSecret::new_from_public_tweak_data(&tweak_data, &scan_sk)?;
+        TransactionSharedSecret::new_from_public_tweak_data(&secp, &tweak_data, &scan_sk)?;
 
     let pubkeys_to_check: Vec<_> = tx
         .output

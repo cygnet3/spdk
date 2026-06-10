@@ -22,8 +22,10 @@ use silentpayments::secp256k1::{
 };
 use silentpayments::utils::receiving::is_p2tr;
 use silentpayments::utils::sending::{GlobalSenderEcdhShare, NormalizedSecretKey};
-use silentpayments::{InputsHash, NonEmptyArray, TransactionSharedSecret, utils as sp_utils};
 use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
+use silentpayments::{
+    NonEmptyArray, TransactionInputs, TransactionSharedSecret, utils as sp_utils,
+};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
@@ -257,6 +259,7 @@ impl SpClient {
     pub fn finalize_transaction(
         &self,
         mut unsigned_transaction: SilentPaymentUnsignedTransaction,
+        aux_rand: &[u8; 32],
     ) -> Result<SilentPaymentUnsignedTransaction> {
         let tx_ins: Vec<TxIn> = unsigned_transaction
             .selected_utxos
@@ -278,10 +281,8 @@ impl SpClient {
             })
             .collect();
 
-        let shared_secrets = self.shared_secrets_by_scan_key(
-            &unsigned_transaction.selected_utxos,
-            &sp_addresses,
-        )?;
+        let shared_secrets =
+            self.shared_secrets_by_scan_key(&unsigned_transaction.selected_utxos, &sp_addresses, aux_rand)?;
 
         let sp_address2xonlypubkeys =
             silentpayments::sending::generate_recipient_pubkeys(&sp_addresses, &shared_secrets)
@@ -447,7 +448,8 @@ impl SpClient {
         if !is_p2tr(spk) {
             return Err(Error::msg("Expected P2TR script pubkey"));
         }
-        let xonly = XOnlyPublicKey::from_slice(&spk[2..34]).map_err(|e| Error::msg(e.to_string()))?;
+        let xonly =
+            XOnlyPublicKey::from_slice(&spk[2..34]).map_err(|e| Error::msg(e.to_string()))?;
         Ok(PublicKey::from_x_only_public_key(xonly, Parity::Even))
     }
 
@@ -455,6 +457,7 @@ impl SpClient {
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
         sp_addresses: &[SilentPaymentAddress],
+        aux_rand: &[u8; 32],
     ) -> Result<HashMap<PublicKey, TransactionSharedSecret>> {
         if sp_addresses.is_empty() {
             return Ok(HashMap::new());
@@ -463,29 +466,21 @@ impl SpClient {
         let secp = SpSecp256k1::new();
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints: Vec<sp_utils::OutPoint> = selected_utxos
-            .iter()
-            .map(|(outpoint, _)| {
+        let mut inputs = TransactionInputs::new();
+        for (outpoint, output) in selected_utxos {
+            let outpoint =
                 sp_utils::OutPoint::from_txid_and_vout(outpoint.txid.to_string(), outpoint.vout)
-                    .map_err(|e| Error::msg(e.to_string()))
-            })
-            .collect::<Result<_>>()?;
-
-        let script_pubkeys: Vec<(Vec<u8>, Option<PublicKey>)> = selected_utxos
-            .iter()
-            .map(|(_, output)| {
-                let spk_bytes = output.script_pubkey.to_bytes();
-                let pubkey = Self::p2tr_output_pubkey(&output.script_pubkey)?;
-                Ok((spk_bytes, Some(pubkey)))
-            })
-            .collect::<Result<_>>()?;
+                    .map_err(|e| Error::msg(e.to_string()))?;
+            let pubkey = Self::p2tr_output_pubkey(&output.script_pubkey)?;
+            inputs.push(outpoint, output.script_pubkey.to_bytes(), Some(pubkey));
+        }
 
         let input_privkeys: Vec<NormalizedSecretKey> = selected_utxos
             .iter()
             .map(|(_, output)| {
                 let sk = b_spend.add_tweak(&output.tweak)?;
-                let sp_sk =
-                    SpSecretKey::from_slice(&sk.secret_bytes()).map_err(|e| Error::msg(e.to_string()))?;
+                let sp_sk = SpSecretKey::from_slice(&sk.secret_bytes())
+                    .map_err(|e| Error::msg(e.to_string()))?;
                 Ok(NormalizedSecretKey::new(&secp, sp_sk, true))
             })
             .collect::<Result<_>>()?;
@@ -497,21 +492,16 @@ impl SpClient {
             if shared_secrets.contains_key(&scan_key) {
                 continue;
             }
-            let mut global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+            let global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+                &secp,
                 scan_key,
                 NonEmptyArray::new(&input_privkeys).map_err(|e| Error::msg(e.to_string()))?,
+                &aux_rand,
             )
             .map_err(|e| Error::msg(e.to_string()))?;
-            let input_hash = InputsHash::new(
-                NonEmptyArray::new(&outpoints).map_err(|e| Error::msg(e.to_string()))?,
-                NonEmptyArray::new(&script_pubkeys).map_err(|e| Error::msg(e.to_string()))?,
-            )
-            .map_err(|e| Error::msg(e.to_string()))?;
-            global_share
-                .apply_input_hash(&secp, input_hash)
-                .map_err(|e| Error::msg(e.to_string()))?;
-            let shared_secret = TransactionSharedSecret::new_from_global_share(&global_share)
-                .map_err(|e| Error::msg(e.to_string()))?;
+            let shared_secret =
+                TransactionSharedSecret::new_from_global_share(&secp, &global_share, &inputs)
+                    .map_err(|e| Error::msg(e.to_string()))?;
             shared_secrets.insert(scan_key, shared_secret);
         }
 

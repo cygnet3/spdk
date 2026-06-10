@@ -4,13 +4,19 @@ mod common;
 mod tests {
     use secp256k1::{Scalar, Secp256k1, SecretKey};
     use silentpayments::{
-        InputsHash, Network, NonEmptyArray, TransactionSharedSecret, SilentPaymentAddress, receiving::Label, utils::{
-            OutPoint, receiving::{
-                PublicTweakData, get_pubkey_from_input, is_p2tr
-            }, sending::{GlobalSenderEcdhShare, NormalizedSecretKey}
-        }
+        receiving::Label,
+        utils::{
+            receiving::{get_pubkey_from_input, is_p2tr, PublicTweakData},
+            sending::{GlobalSenderEcdhShare, NormalizedSecretKey},
+            OutPoint,
+        },
+        Network, NonEmptyArray, SilentPaymentAddress, TransactionInputs, TransactionSharedSecret,
     };
-    use std::{collections::{HashMap, HashSet}, io::Cursor, str::FromStr};
+    use std::{
+        collections::{HashMap, HashSet},
+        io::Cursor,
+        str::FromStr,
+    };
 
     use silentpayments::receiving::Receiver;
 
@@ -44,19 +50,16 @@ mod tests {
         for sendingtest in test_case.sending {
             let given = sendingtest.given;
             let expected = sendingtest.expected;
-            let outpoints: Vec<OutPoint> = given
-                .vin
-                .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
-                .collect();
             let mut input_priv_keys = Vec::new();
-            let mut script_pubkeys = Vec::new();
+            let mut inputs = TransactionInputs::new();
             for input in &given.vin {
                 let script_sig = hex::decode(&input.scriptSig).unwrap();
                 let txinwitness_bytes = hex::decode(&input.txinwitness).unwrap();
                 let mut cursor = Cursor::new(&txinwitness_bytes);
                 let txinwitness = deser_string_vector(&mut cursor).unwrap();
                 let script_pub_key = hex::decode(&input.prevout.scriptPubKey.hex).unwrap();
+                let outpoint =
+                    OutPoint::from_txid_and_vout(input.txid.clone(), input.vout).unwrap();
 
                 // We don't really test the sending case here since we have access to the script sig and witness
                 // which will not be the case most of the time.
@@ -66,11 +69,11 @@ mod tests {
                             SecretKey::from_str(&input.private_key).unwrap(),
                             is_p2tr(&script_pub_key),
                         ));
-                        script_pubkeys.push((script_pub_key, Some(pubkey)));
-                        }
+                        inputs.push(outpoint, script_pub_key, Some(pubkey));
+                    }
                     Ok(None) => {
-                        script_pubkeys.push((script_pub_key, None));
-                    },
+                        inputs.push(outpoint, script_pub_key, None);
+                    }
                     Err(e) => panic!("Problem parsing the input: {:?}", e),
                 }
             }
@@ -86,28 +89,25 @@ mod tests {
                 .map(|(key, is_taproot)| NormalizedSecretKey::new(&secp, key, is_taproot))
                 .collect();
 
+            let aux_rand = [0u8; 32];
+
             let mut shared_secrets = HashMap::new();
             for address in &silent_addresses {
                 let recipient_scan_key = address.get_scan_key();
                 if shared_secrets.contains_key(&recipient_scan_key) {
                     continue;
                 }
-                let mut global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+                let global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+                    &secp,
                     recipient_scan_key,
                     NonEmptyArray::new(&input_priv_keys_normalized_data).unwrap(),
+                    &aux_rand,
                 )
                 .unwrap();
-                let input_hash = InputsHash::new(
-                    NonEmptyArray::new(&outpoints).unwrap(),
-                    NonEmptyArray::new(&script_pubkeys).unwrap(),
-                )
-                .unwrap();
-                global_share
-                    .apply_input_hash(&secp, input_hash)
-                    .unwrap();
                 shared_secrets.insert(
                     recipient_scan_key,
-                    TransactionSharedSecret::new_from_global_share(&global_share).unwrap(),
+                    TransactionSharedSecret::new_from_global_share(&secp, &global_share, &inputs)
+                        .unwrap(),
                 );
             }
             let outputs = generate_recipient_pubkeys(&silent_addresses, &shared_secrets).unwrap();
@@ -145,26 +145,27 @@ mod tests {
 
             let outputs_to_check = decode_outputs_to_check(&given.outputs);
 
-            let outpoints: Vec<OutPoint> = given
-                .vin
-                .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
-                .collect();
-            let mut script_pubkeys = Vec::new();
+            let mut inputs = TransactionInputs::new();
             for input in given.vin {
                 let script_sig = hex::decode(&input.scriptSig).unwrap();
                 let txinwitness_bytes = hex::decode(&input.txinwitness).unwrap();
                 let mut cursor = Cursor::new(&txinwitness_bytes);
                 let txinwitness = deser_string_vector(&mut cursor).unwrap();
                 let script_pub_key = hex::decode(&input.prevout.scriptPubKey.hex).unwrap();
+                let outpoint =
+                    OutPoint::from_txid_and_vout(input.txid.clone(), input.vout).unwrap();
 
                 match get_pubkey_from_input(&script_sig, &txinwitness, &script_pub_key) {
-                    Ok(Some(pubkey)) => script_pubkeys.push((script_pub_key, Some(pubkey))),
-                    Ok(None) => script_pubkeys.push((script_pub_key, None)),
+                    Ok(Some(pubkey)) => {
+                        inputs.push(outpoint, script_pub_key, Some(pubkey));
+                    }
+                    Ok(None) => {
+                        inputs.push(outpoint, script_pub_key, None);
+                    }
                     Err(e) => panic!("Problem parsing the input: {:?}", e),
                 }
             }
-            if script_pubkeys.iter().all(|(_, pk)| pk.is_none()) {
+            if inputs.input_pubkeys().iter().all(|pk| pk.is_none()) {
                 continue;
             }
 
@@ -195,14 +196,13 @@ mod tests {
             // to the expected addresses
             assert_eq!(set1, set2);
 
-            let tweak_data = PublicTweakData::new(
+            let tweak_data = PublicTweakData::new(&secp, &inputs).unwrap();
+            let ecdh_shared_secret = TransactionSharedSecret::new_from_public_tweak_data(
                 &secp,
-                NonEmptyArray::new(&outpoints).unwrap(),
-                NonEmptyArray::new(&script_pubkeys).unwrap(),
+                &tweak_data,
+                &b_scan,
             )
             .unwrap();
-            let ecdh_shared_secret =
-                TransactionSharedSecret::new_from_public_tweak_data(&tweak_data, &b_scan).unwrap();
 
             let scanned_outputs_received = sp_receiver
                 .scan_transaction(&ecdh_shared_secret, &outputs_to_check)

@@ -5,13 +5,15 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{Network as SpNetwork, TransactionSharedSecret, SpVersion, utils::receiving::PublicTweakData};
+use silentpayments::bitcoin_hashes::Hash;
+use silentpayments::{
+    Network as SpNetwork, SpVersion, TransactionSharedSecret, utils::receiving::PublicTweakData,
+};
 use silentpayments::{
     SilentPaymentAddress,
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
 };
-use silentpayments::bitcoin_hashes::Hash;
 
 use anyhow::{Error, Result};
 
@@ -86,6 +88,7 @@ impl SpClient {
         use rayon::prelude::*;
 
         let b_scan = &self.get_scan_key();
+        let secp = Secp256k1::new();
 
         // parallel iterator using rayon
         #[cfg(feature = "rayon")]
@@ -98,8 +101,11 @@ impl SpClient {
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
                 let public_tweak = PublicTweakData::new_unchecked(tweak);
-                let secret =
-                    TransactionSharedSecret::new_from_public_tweak_data(&public_tweak, &b_scan)?;
+                let secret = TransactionSharedSecret::new_from_public_tweak_data(
+                    &secp,
+                    &public_tweak,
+                    &b_scan,
+                )?;
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
                 Ok((secret, spks.into_values()))
