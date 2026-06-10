@@ -1,18 +1,68 @@
 //! Receiving utility functions.
 use crate::{
-    Error, InputsHash, Result,
     utils::{
-        common::{eligible_input_pubkey_refs, NonEmptyArray, OutPoint},
+        common::TransactionInputs,
+        hash::calculate_input_hash,
         script::{is_p2pkh, is_p2sh, is_p2wpkh},
     },
+    Error, Result,
 };
 
 pub use crate::utils::script::{is_eligible, is_p2tr};
 use bitcoin_hashes::{hash160, Hash};
+use secp256k1::PublicKey;
 use secp256k1::{Parity::Even, Secp256k1, Verification, XOnlyPublicKey};
-use secp256k1::{PublicKey};
 
 use super::{COMPRESSED_PUBKEY_SIZE, NUMS_H};
+
+/// Returns the last data push in a push-only script, or `None` if malformed.
+fn last_push(script: &[u8]) -> Option<&[u8]> {
+    let mut i = 0;
+    let mut last: Option<&[u8]> = None;
+    while i < script.len() {
+        let op = script[i];
+        i += 1;
+        let (extra_len_bytes, data_len): (usize, usize) = match op {
+            0x01..=0x4b => (0, op as usize),
+            0x4c => (1, *script.get(i)? as usize),
+            0x4d => {
+                let lo = *script.get(i)? as usize;
+                let hi = *script.get(i + 1)? as usize;
+                (2, lo | (hi << 8))
+            }
+            0x4e => {
+                let b0 = *script.get(i)? as usize;
+                let b1 = *script.get(i + 1)? as usize;
+                let b2 = *script.get(i + 2)? as usize;
+                let b3 = *script.get(i + 3)? as usize;
+                (4, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+            }
+            _ => return None,
+        };
+        i += extra_len_bytes;
+        last = Some(script.get(i..i + data_len)?);
+        i += data_len;
+    }
+    last
+}
+
+/// Parse a compressed witness pubkey and verify it matches the expected hash160.
+fn witness_compressed_pubkey(
+    witness_last: &[u8],
+    expected_hash: &[u8],
+) -> Result<Option<PublicKey>> {
+    if witness_last.len() != COMPRESSED_PUBKEY_SIZE {
+        return Ok(None);
+    }
+    let pubkey = match PublicKey::from_slice(witness_last) {
+        Ok(pk) => pk,
+        Err(_) => return Ok(None),
+    };
+    if hash160::Hash::hash(witness_last).to_byte_array() != expected_hash {
+        return Ok(None);
+    }
+    Ok(Some(pubkey))
+}
 
 /// Public tweak data for a transaction: `input_hash * sum(eligible input pubkeys)`.
 ///
@@ -30,32 +80,25 @@ impl PublicTweakData {
 
     /// Calculate the tweak data of a transaction: `input_hash * sum(eligible input pubkeys)`.
     ///
-    /// Uses the same inputs as [`InputsHash::new`]. Combine with
+    /// Uses the same input data as [`TransactionSharedSecret::new_from_global_share`]. Combine with
     /// [`TransactionSharedSecret::new_from_public_tweak_data`](crate::TransactionSharedSecret::new_from_public_tweak_data)
     /// to obtain the shared secret used by [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
     ///
     /// # Arguments
     ///
-    /// * `outpoints` - outpoints of all inputs spent by the transaction.
-    /// * `script_pubkeys` - For each outpoint, the prevout script pubkey and its extracted pubkey
-    ///   if the input is silent-payment eligible. Pass `None` when no pubkey could be extracted.
+    /// * `inputs` - Parallel outpoints, script pubkeys and extracted pubkeys for every vin.
     ///
     /// # Errors
     ///
     /// This function will error if:
     ///
-    /// * `outpoints` and `script_pubkeys` differ in length or are empty.
+    /// * `inputs` is empty.
     /// * No eligible input pubkeys could be extracted.
     /// * Elliptic curve computation results in an invalid public key.
-    pub fn new<C: Verification>(
-        secp: &Secp256k1<C>,
-        outpoints: NonEmptyArray<OutPoint>,
-        script_pubkeys: NonEmptyArray<(Vec<u8>, Option<PublicKey>)>,
-    ) -> Result<Self> {
-        let eligible_pubkeys = eligible_input_pubkey_refs(script_pubkeys.as_inner())?;
-        let summed_pubkeys = PublicKey::combine_keys(&eligible_pubkeys)?;
-        let input_hash = InputsHash::new(outpoints, script_pubkeys)?;
-        Ok(Self(summed_pubkeys.mul_tweak(secp, input_hash.as_inner())?))
+    pub fn new<C: Verification>(secp: &Secp256k1<C>, inputs: &TransactionInputs) -> Result<Self> {
+        let summed_pubkeys = inputs.eligible_pubkeys_sum()?;
+        let input_hash = calculate_input_hash(inputs.min_outpoint(), summed_pubkeys);
+        Ok(Self(summed_pubkeys.mul_tweak(secp, &input_hash)?))
     }
 
     pub fn as_inner(&self) -> &PublicKey {
@@ -114,25 +157,15 @@ pub fn get_pubkey_from_input(
     } else if is_p2sh(script_pub_key) {
         match (txinwitness.is_empty(), script_sig.is_empty()) {
             (false, false) => {
-                let redeem_script = &script_sig[1..];
+                let Some(redeem_script) = last_push(script_sig) else {
+                    return Ok(None);
+                };
+                if hash160::Hash::hash(redeem_script).to_byte_array() != script_pub_key[2..22] {
+                    return Ok(None);
+                }
                 if is_p2wpkh(redeem_script) {
                     if let Some(value) = txinwitness.last() {
-                        match (
-                            PublicKey::from_slice(value),
-                            value.len() == COMPRESSED_PUBKEY_SIZE,
-                        ) {
-                            (Ok(pubkey), true) => {
-                                return Ok(Some(pubkey));
-                            }
-                            (_, false) => {
-                                return Ok(None);
-                            }
-                            // Not sure how we could get an error here, so just return none for now
-                            // if the pubkey cant be parsed
-                            (Err(_), _) => {
-                                return Ok(None);
-                            }
-                        }
+                        return witness_compressed_pubkey(value, &redeem_script[2..22]);
                     }
                 }
             }
@@ -147,22 +180,7 @@ pub fn get_pubkey_from_input(
         match (txinwitness.is_empty(), script_sig.is_empty()) {
             (false, true) => {
                 if let Some(value) = txinwitness.last() {
-                    match (
-                        PublicKey::from_slice(value),
-                        value.len() == COMPRESSED_PUBKEY_SIZE,
-                    ) {
-                        (Ok(pubkey), true) => {
-                            return Ok(Some(pubkey));
-                        }
-                        (_, false) => {
-                            return Ok(None);
-                        }
-                        // Not sure how we could get an error here, so just return none for now
-                        // if the pubkey cant be parsed
-                        (Err(_), _) => {
-                            return Ok(None);
-                        }
-                    }
+                    return witness_compressed_pubkey(value, &script_pub_key[2..22]);
                 } else {
                     return Err(Error::InvalidVin("Empty witness".to_owned()));
                 }
@@ -188,10 +206,14 @@ pub fn get_pubkey_from_input(
                     None => return Err(Error::InvalidVin("Empty or invalid witness".to_owned())),
                 };
 
-                // Check for script path
                 let stack_size = txinwitness.len();
-                if stack_size > annex && txinwitness[stack_size - annex - 1][1..33] == NUMS_H {
-                    return Ok(None);
+                let effective_stack = stack_size - annex;
+                // Script path: control block is the last effective witness item.
+                if effective_stack >= 2 {
+                    let control_block = &txinwitness[stack_size - annex - 1];
+                    if control_block.len() >= 33 && control_block[1..33] == NUMS_H {
+                        return Ok(None);
+                    }
                 }
 
                 // Return the pubkey from the script pubkey
