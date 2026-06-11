@@ -100,3 +100,72 @@ where
 
     Network::from_core_arg(&buf).map_err(serde::de::Error::custom)
 }
+
+impl InfoResponse {
+    /// Validates whether the server supports the requested parameters.
+    ///
+    /// Returns:
+    /// - `Ok(use_tweaks_endpoint)` - true means use tweaks(), false means use tweak_index()
+    /// - `Err(String)` if the request cannot be satisfied
+    pub fn validate_and_resolve_endpoint(
+        &self,
+        dust_limit: Amount,
+        with_cutthrough: bool,
+    ) -> Result<bool, String> {
+        let has_dust_limit = dust_limit > Amount::ZERO;
+
+        match (with_cutthrough, has_dust_limit) {
+            // Request: cutthrough with dust filtering
+            (true, true) => {
+                if self.tweaks_cut_through_with_dust_filter {
+                    Ok(true)
+                } else if self.tweaks_full_with_dust_filter {
+                    Ok(false)
+                } else {
+                    Err(
+                        "Server does not support dust filtering; cannot satisfy request with dust_limit"
+                            .to_string(),
+                    )
+                }
+            }
+
+            // Request: cutthrough without dust filtering
+            (true, false) => {
+                // Can use tweaks endpoint without dust limit
+                if self.tweaks_only
+                    || self.tweaks_full_basic
+                    || self.tweaks_cut_through_with_dust_filter
+                {
+                    Ok(true)
+                } else {
+                    Err("Server does not support tweaks endpoint".to_string())
+                }
+            }
+
+            // Request: full index with dust filtering
+            (false, true) => {
+                if self.tweaks_full_with_dust_filter {
+                    Ok(false)
+                } else if self.tweaks_cut_through_with_dust_filter {
+                    Ok(true)
+                } else {
+                    Err(
+                        "Server does not support dust filtering; cannot satisfy request with dust_limit"
+                            .to_string(),
+                    )
+                }
+            }
+
+            // Request: full index without dust filtering
+            (false, false) => {
+                if self.tweaks_full_basic {
+                    Ok(false)
+                } else if self.tweaks_cut_through_with_dust_filter || self.tweaks_only {
+                    Ok(true)
+                } else {
+                    Err("Server does not support any tweak endpoints".to_string())
+                }
+            }
+        }
+    }
+}

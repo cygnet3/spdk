@@ -3,9 +3,8 @@ use std::{ops::RangeInclusive, pin::Pin};
 use anyhow::Result;
 use async_trait::async_trait;
 use bitcoin::{Amount, absolute::Height};
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, StreamExt, future::Either, stream};
 
-use itertools::Either;
 use spdk_core::chain::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
 use crate::BlindbitClient;
@@ -37,38 +36,60 @@ impl ChainBackend for BlindbitBackend {
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
         let client = self.client.clone();
+        let client_for_info = self.client.clone();
 
         // convert range to u32 since Height does not implement Step
         let range = range.start().to_consensus_u32()..=range.end().to_consensus_u32();
 
         let range = match reverse {
-            false => Either::Left(range),
-            true => Either::Right(range.rev()),
+            false => itertools::Either::Left(range),
+            true => itertools::Either::Right(range.rev()),
         };
 
-        let res = stream::iter(range)
-            .map(move |n| {
-                let client = client.clone();
+        let res = stream::once(async move {
+            client_for_info
+                .info()
+                .await?
+                .validate_and_resolve_endpoint(dust_limit, with_cutthrough)
+                .map_err(|e| anyhow::anyhow!(e))
+        })
+        .flat_map(move |use_tweaks| {
+            let client = client.clone();
+            let heights = range.clone();
 
-                async move {
-                    let blkheight = Height::from_consensus(n)?;
-                    let tweaks = match with_cutthrough {
-                        true => client.tweaks(blkheight, dust_limit).await?,
-                        false => client.tweak_index(blkheight, dust_limit).await?,
-                    };
-                    let new_utxo_filter = client.filter_new_utxos(blkheight).await?;
-                    let spent_filter = client.filter_spent(blkheight).await?;
-                    let blkhash = new_utxo_filter.block_hash;
-                    Ok(BlockData {
-                        blkheight,
-                        blkhash,
-                        tweaks,
-                        new_utxo_filter: new_utxo_filter.into(),
-                        spent_filter: spent_filter.into(),
-                    })
-                }
-            })
-            .buffered(CONCURRENT_FILTER_REQUESTS);
+            // Resolve the Result once here rather than re-checking it per block.
+            let use_tweaks: bool = match use_tweaks {
+                Ok(v) => v,
+                Err(e) => return Either::Left(stream::once(async move { Err(e) })),
+            };
+
+            let inner = stream::iter(heights)
+                .map(move |n| {
+                    let client = client.clone();
+
+                    async move {
+                        let blkheight = Height::from_consensus(n)?;
+                        let tweaks = match use_tweaks {
+                            true => client.tweaks(blkheight, dust_limit).await?,
+                            false => client.tweak_index(blkheight, dust_limit).await?,
+                        };
+                        let new_utxo_filter = client.filter_new_utxos(blkheight).await?;
+                        let spent_filter = client.filter_spent(blkheight).await?;
+                        let blkhash = new_utxo_filter.block_hash;
+
+                        Ok(BlockData {
+                            blkheight,
+                            blkhash,
+                            tweaks,
+                            new_utxo_filter: new_utxo_filter.into(),
+                            spent_filter: spent_filter.into(),
+                        })
+                    }
+                })
+                .buffered(CONCURRENT_FILTER_REQUESTS);
+
+            Either::Right(inner)
+        });
 
         Box::pin(res)
     }
