@@ -256,21 +256,21 @@ impl TransactionSharedSecret {
     ))]
     pub fn new_from_partial_shares<C: secp256k1::Signing + secp256k1::Verification>(
         secp: &Secp256k1<C>,
+        recipient_scan_key: PublicKey,
         partial_shares: NonEmptyArray<PartialSenderEcdhShare>,
         inputs: &TransactionInputs,
     ) -> Result<Self> {
         let eligible_vins = inputs.eligible_vins();
 
         // Phase 1: collect partial vin set, ensuring no duplicates and consistent scan key.
-        let recipient_scan_key = partial_shares.as_inner()[0].recipient_scan_key();
         let mut partial_vins: HashSet<usize> =
             HashSet::with_capacity(partial_shares.as_inner().len());
         for share in partial_shares.as_inner().iter() {
-            if *share.recipient_scan_key() != *recipient_scan_key {
+            if *share.recipient_scan_key() != recipient_scan_key {
                 return Err(Error::GenericError(format!(
-                    "Multiple recipient scan keys found: {} and {}",
+                    "Unexpected recipient scan key for share vin {}: {}",
+                    share.input_vin(),
                     share.recipient_scan_key(),
-                    recipient_scan_key
                 )));
             }
             if !partial_vins.insert(share.input_vin()) {
@@ -316,7 +316,7 @@ impl TransactionSharedSecret {
 
         Ok(Self {
             ecdh_shared_secret: tweaked_share,
-            recipient_scan_key: *recipient_scan_key,
+            recipient_scan_key: recipient_scan_key,
         })
     }
 
