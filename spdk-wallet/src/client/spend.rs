@@ -281,11 +281,20 @@ impl SpClient {
             })
             .collect();
 
-        let shared_secrets =
-            self.shared_secrets_by_scan_key(&unsigned_transaction.selected_utxos, &sp_addresses, aux_rand)?;
+        let shared_secrets = self.shared_secrets_by_scan_key(
+            &unsigned_transaction.selected_utxos,
+            &sp_addresses,
+            aux_rand,
+        )?;
+
+        let secp = SpSecp256k1::new();
+        let sp_address_bytes: Vec<_> = sp_addresses
+            .iter()
+            .map(|address| address.to_byte_array())
+            .collect();
 
         let sp_address2xonlypubkeys =
-            silentpayments::sending::generate_recipient_pubkeys(&sp_addresses, &shared_secrets)
+            silentpayments::sending::generate_recipient_pubkeys(&secp, &sp_address_bytes, &shared_secrets)
                 .map_err(|e| Error::msg(e.to_string()))?;
 
         let tx_outs = unsigned_transaction
@@ -295,7 +304,7 @@ impl SpClient {
                 RecipientAddress::SpAddress(s) => {
                     // We now need to fill the sp outputs with actual spk
                     let pubkeys = sp_address2xonlypubkeys
-                        .get(s)
+                        .get(&s.to_byte_array())
                         .ok_or(Error::msg("Unknown sp address"))?;
 
                     // we currently only allow having 1 output per silent payment address
