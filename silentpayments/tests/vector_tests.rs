@@ -110,7 +110,12 @@ mod tests {
                         .unwrap(),
                 );
             }
-            let outputs = generate_recipient_pubkeys(&silent_addresses, &shared_secrets).unwrap();
+            let recipient_bytes: Vec<_> = silent_addresses
+                .iter()
+                .map(|address| address.to_byte_array())
+                .collect();
+            let outputs =
+                generate_recipient_pubkeys(&secp, &recipient_bytes, &shared_secrets).unwrap();
 
             for output_pubkeys in &outputs {
                 for pubkey in output_pubkeys.1 {
@@ -197,12 +202,9 @@ mod tests {
             assert_eq!(set1, set2);
 
             let tweak_data = PublicTweakData::new(&secp, &inputs).unwrap();
-            let ecdh_shared_secret = TransactionSharedSecret::new_from_public_tweak_data(
-                &secp,
-                &tweak_data,
-                &b_scan,
-            )
-            .unwrap();
+            let ecdh_shared_secret =
+                TransactionSharedSecret::new_from_public_tweak_data(&secp, &tweak_data, &b_scan)
+                    .unwrap();
 
             let scanned_outputs_received = sp_receiver
                 .scan_transaction(&ecdh_shared_secret, &outputs_to_check)

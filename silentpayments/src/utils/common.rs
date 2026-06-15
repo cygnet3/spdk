@@ -6,19 +6,17 @@ use core::fmt;
 ))]
 use std::collections::HashSet;
 
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::hash::calculate_shared_secret_hash;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::Result;
 #[cfg(all(
     feature = "sending",
     any(feature = "dleq-standalone", feature = "dleq-native")
 ))]
 use crate::utils::hash::calculate_input_hash;
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::script::is_eligible;
+use crate::utils::hash::calculate_shared_secret_hash;
 #[cfg(feature = "receiving")]
 use crate::utils::receiving::PublicTweakData;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::utils::script::is_eligible;
 #[cfg(all(
     feature = "sending",
     any(feature = "dleq-standalone", feature = "dleq-native")
@@ -26,6 +24,8 @@ use crate::utils::receiving::PublicTweakData;
 use crate::utils::sending::{GlobalSenderEcdhShare, PartialSenderEcdhShare};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Error;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::Result;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
 #[cfg(any(feature = "sending", feature = "receiving"))]
@@ -110,6 +110,13 @@ impl TransactionInputs {
             input_pubkeys: Vec::new(),
         }
     }
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            outpoints: Vec::with_capacity(capacity),
+            script_pubkeys: Vec::with_capacity(capacity),
+            input_pubkeys: Vec::with_capacity(capacity),
+        }
+    }
 
     /// Append one transaction input.
     pub fn push(
@@ -168,7 +175,7 @@ impl TransactionInputs {
         feature = "sending",
         any(feature = "dleq-standalone", feature = "dleq-native")
     ))]
-    pub(crate) fn eligible_vins(&self) -> HashSet<usize> {
+    pub fn eligible_vins(&self) -> HashSet<usize> {
         self.script_pubkeys
             .iter()
             .zip(&self.input_pubkeys)

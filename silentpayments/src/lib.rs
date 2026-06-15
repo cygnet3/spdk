@@ -72,6 +72,7 @@ pub use rust_dleq::DleqProof;
 pub use utils::common::Network;
 pub use utils::common::SilentPaymentAddress;
 pub use utils::common::SpVersion;
+pub use utils::common::SILENT_PAYMENT_ADDRESS_BYTE_LEN;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::{NonEmptyArray, TransactionInputs, TransactionSharedSecret};
 

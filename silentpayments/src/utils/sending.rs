@@ -86,6 +86,20 @@ impl PartialSenderEcdhShare {
         })
     }
 
+    pub fn new_unchecked(
+        recipient_scan_key: PublicKey,
+        input_vin: usize,
+        ecdh_shared_secret: PublicKey,
+        dleq_proof: DleqProof,
+    ) -> Self {
+        Self {
+            recipient_scan_key,
+            input_vin,
+            ecdh_shared_secret,
+            dleq_proof,
+        }
+    }
+
     pub fn recipient_scan_key(&self) -> &PublicKey {
         &self.recipient_scan_key
     }
@@ -148,6 +162,18 @@ impl GlobalSenderEcdhShare {
             ecdh_shared_secret: shared_secret,
             dleq_proof: proof,
         })
+    }
+
+    pub fn new_unchecked(
+        recipient_scan_key: PublicKey,
+        ecdh_shared_secret: PublicKey,
+        dleq_proof: DleqProof,
+    ) -> Self {
+        Self {
+            recipient_scan_key,
+            ecdh_shared_secret,
+            dleq_proof,
+        }
     }
 
     /// Verify the DLEQ proof against the sum of eligible input public keys.
