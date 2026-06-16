@@ -66,7 +66,7 @@ impl PartialSenderEcdhShare {
         secp: &Secp256k1<C>,
         recipient_scan_key: PublicKey,
         input_vin: usize,
-        private_key: NormalizedSecretKey,
+        private_key: &NormalizedSecretKey,
         aux_rand: &[u8; 32],
     ) -> Result<Self> {
         let shared_secret = ecdh_multiply(&recipient_scan_key, private_key.as_inner())?;
