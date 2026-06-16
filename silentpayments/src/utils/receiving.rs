@@ -1,70 +1,109 @@
 //! Receiving utility functions.
 use crate::{
     utils::{
-        common::{NonEmptyArray, OutPoint, SharedSecret},
-        OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_PUSHBYTES_20,
-        OP_PUSHBYTES_32,
+        common::TransactionInputs,
+        hash::calculate_input_hash,
+        script::{is_p2pkh, is_p2sh, is_p2wpkh},
     },
     Error, Result,
 };
+
+pub use crate::utils::script::{is_eligible, is_p2tr};
 use bitcoin_hashes::{hash160, Hash};
-use secp256k1::{ecdh::shared_secret_point, Parity::Even, XOnlyPublicKey};
-use secp256k1::{PublicKey, SecretKey};
+use secp256k1::PublicKey;
+use secp256k1::{Parity::Even, Secp256k1, Verification, XOnlyPublicKey};
 
-use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
+use super::{COMPRESSED_PUBKEY_SIZE, NUMS_H};
 
-/// Calculate the tweak data of a transaction.
-///
-/// This is useful in combination with the [calculate_ecdh_shared_secret] function, but can also be used
-/// by indexing servers that don't have access to the recipient scan key.
-///
-/// # Arguments
-///
-/// * `input_pub_keys` - The list of public keys that are used as input for this transaction. Only the public keys for inputs that are silent payment eligible should be given.
-/// * `outpoints_data` - All prevout outpoints used as input for this transaction. Note that the txid is given in String format, which is displayed in reverse order from the inner byte array.
-///
-/// # Returns
-///
-/// This function returns the tweak data for this transaction. The tweak data is an intermediary result that can be used to calculate the final shared secret.
-///
-/// # Errors
-///
-/// This function will error if:
-///
-/// * The input public keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
-/// * Elliptic curve computation results in an invalid public key.
-pub fn calculate_tweak_data(
-    input_pub_keys: &[&PublicKey],
-    outpoints_data: &[OutPoint],
-) -> Result<PublicKey> {
-    let secp = secp256k1::Secp256k1::verification_only();
-    let A_sum = PublicKey::combine_keys(input_pub_keys)?;
-
-    let outpoints = NonEmptyArray::new(outpoints_data)?;
-    let input_hash = calculate_input_hash(outpoints, A_sum);
-
-    Ok(A_sum.mul_tweak(&secp, &input_hash)?)
+/// Returns the last data push in a push-only script, or `None` if malformed.
+fn last_push(script: &[u8]) -> Option<&[u8]> {
+    let mut i = 0;
+    let mut last: Option<&[u8]> = None;
+    while i < script.len() {
+        let op = script[i];
+        i += 1;
+        let (extra_len_bytes, data_len): (usize, usize) = match op {
+            0x01..=0x4b => (0, op as usize),
+            0x4c => (1, *script.get(i)? as usize),
+            0x4d => {
+                let lo = *script.get(i)? as usize;
+                let hi = *script.get(i + 1)? as usize;
+                (2, lo | (hi << 8))
+            }
+            0x4e => {
+                let b0 = *script.get(i)? as usize;
+                let b1 = *script.get(i + 1)? as usize;
+                let b2 = *script.get(i + 2)? as usize;
+                let b3 = *script.get(i + 3)? as usize;
+                (4, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+            }
+            _ => return None,
+        };
+        i += extra_len_bytes;
+        last = Some(script.get(i..i + data_len)?);
+        i += data_len;
+    }
+    last
 }
 
-/// Calculate the shared secret of a transaction.
-///
-/// # Arguments
-///
-/// * `tweak_data` - The tweak data of the transaction, see `calculate_tweak_data`.
-/// * `b_scan` - The scan private key used by the wallet.
-///
-/// # Returns
-///
-/// This function returns the shared secret of this transaction. This shared secret can be used to scan the transaction of outputs that are for the current user. See [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
-pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) -> SharedSecret {
-    let mut ss_bytes = [0u8; 65];
-    ss_bytes[0] = 0x04;
+/// Parse a compressed witness pubkey and verify it matches the expected hash160.
+fn witness_compressed_pubkey(
+    witness_last: &[u8],
+    expected_hash: &[u8],
+) -> Result<Option<PublicKey>> {
+    if witness_last.len() != COMPRESSED_PUBKEY_SIZE {
+        return Ok(None);
+    }
+    let pubkey = match PublicKey::from_slice(witness_last) {
+        Ok(pk) => pk,
+        Err(_) => return Ok(None),
+    };
+    if hash160::Hash::hash(witness_last).to_byte_array() != expected_hash {
+        return Ok(None);
+    }
+    Ok(Some(pubkey))
+}
 
-    // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(tweak_data, b_scan));
+/// Public tweak data for a transaction: `input_hash * sum(eligible input pubkeys)`.
+///
+/// Indexing servers can publish this value so recipients can derive a
+/// [`TransactionSharedSecret`](crate::TransactionSharedSecret) locally without revealing their scan private key.
+pub struct PublicTweakData(PublicKey);
 
-    SharedSecret(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
+impl PublicTweakData {
+    /// Construct tweak data from a value obtained from a trusted external source.
+    ///
+    /// Prefer [`Self::new`] when computing from chain data directly.
+    pub fn new_unchecked(tweak_data: PublicKey) -> Self {
+        Self(tweak_data)
+    }
+
+    /// Calculate the tweak data of a transaction: `input_hash * sum(eligible input pubkeys)`.
+    ///
+    /// Uses the same input data as [`TransactionSharedSecret::new_from_global_share`]. Combine with
+    /// [`TransactionSharedSecret::new_from_public_tweak_data`](crate::TransactionSharedSecret::new_from_public_tweak_data)
+    /// to obtain the shared secret used by [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - Parallel outpoints, script pubkeys and extracted pubkeys for every vin.
+    ///
+    /// # Errors
+    ///
+    /// This function will error if:
+    ///
+    /// * `inputs` is empty.
+    /// * No eligible input pubkeys could be extracted.
+    /// * Elliptic curve computation results in an invalid public key.
+    pub fn new<C: Verification>(secp: &Secp256k1<C>, inputs: &TransactionInputs) -> Result<Self> {
+        let summed_pubkeys = inputs.eligible_pubkeys_sum()?;
+        let input_hash = calculate_input_hash(inputs.min_outpoint(), summed_pubkeys);
+        Ok(Self(summed_pubkeys.mul_tweak(secp, &input_hash)?))
+    }
+
+    pub fn as_inner(&self) -> &PublicKey {
+        &self.0
+    }
 }
 
 /// Get the public keys from a set of input data.
@@ -118,25 +157,15 @@ pub fn get_pubkey_from_input(
     } else if is_p2sh(script_pub_key) {
         match (txinwitness.is_empty(), script_sig.is_empty()) {
             (false, false) => {
-                let redeem_script = &script_sig[1..];
+                let Some(redeem_script) = last_push(script_sig) else {
+                    return Ok(None);
+                };
+                if hash160::Hash::hash(redeem_script).to_byte_array() != script_pub_key[2..22] {
+                    return Ok(None);
+                }
                 if is_p2wpkh(redeem_script) {
                     if let Some(value) = txinwitness.last() {
-                        match (
-                            PublicKey::from_slice(value),
-                            value.len() == COMPRESSED_PUBKEY_SIZE,
-                        ) {
-                            (Ok(pubkey), true) => {
-                                return Ok(Some(pubkey));
-                            }
-                            (_, false) => {
-                                return Ok(None);
-                            }
-                            // Not sure how we could get an error here, so just return none for now
-                            // if the pubkey cant be parsed
-                            (Err(_), _) => {
-                                return Ok(None);
-                            }
-                        }
+                        return witness_compressed_pubkey(value, &redeem_script[2..22]);
                     }
                 }
             }
@@ -151,22 +180,7 @@ pub fn get_pubkey_from_input(
         match (txinwitness.is_empty(), script_sig.is_empty()) {
             (false, true) => {
                 if let Some(value) = txinwitness.last() {
-                    match (
-                        PublicKey::from_slice(value),
-                        value.len() == COMPRESSED_PUBKEY_SIZE,
-                    ) {
-                        (Ok(pubkey), true) => {
-                            return Ok(Some(pubkey));
-                        }
-                        (_, false) => {
-                            return Ok(None);
-                        }
-                        // Not sure how we could get an error here, so just return none for now
-                        // if the pubkey cant be parsed
-                        (Err(_), _) => {
-                            return Ok(None);
-                        }
-                    }
+                    return witness_compressed_pubkey(value, &script_pub_key[2..22]);
                 } else {
                     return Err(Error::InvalidVin("Empty witness".to_owned()));
                 }
@@ -192,10 +206,14 @@ pub fn get_pubkey_from_input(
                     None => return Err(Error::InvalidVin("Empty or invalid witness".to_owned())),
                 };
 
-                // Check for script path
                 let stack_size = txinwitness.len();
-                if stack_size > annex && txinwitness[stack_size - annex - 1][1..33] == NUMS_H {
-                    return Ok(None);
+                let effective_stack = stack_size - annex;
+                // Script path: control block is the last effective witness item.
+                if effective_stack >= 2 {
+                    let control_block = &txinwitness[stack_size - annex - 1];
+                    if control_block.len() >= 33 && control_block[1..33] == NUMS_H {
+                        return Ok(None);
+                    }
                 }
 
                 // Return the pubkey from the script pubkey
@@ -218,22 +236,4 @@ pub fn get_pubkey_from_input(
         }
     }
     Ok(None)
-}
-
-// script templates for inputs allowed in BIP352 shared secret derivation
-/// Check if a script_pub_key is taproot.
-pub fn is_p2tr(spk: &[u8]) -> bool {
-    matches!(spk, [OP_1, OP_PUSHBYTES_32, ..] if spk.len() == 34)
-}
-
-fn is_p2wpkh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_0, OP_PUSHBYTES_20, ..] if spk.len() == 22)
-}
-
-fn is_p2sh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUAL] if spk.len() == 23)
-}
-
-fn is_p2pkh(spk: &[u8]) -> bool {
-    matches!(spk, [OP_DUP, OP_HASH160, OP_PUSHBYTES_20, .., OP_EQUALVERIFY, OP_CHECKSIG] if spk.len() == 25)
 }

@@ -1,17 +1,18 @@
-use std::{collections::HashMap, io::Write};
+use std::collections::HashMap;
 
 use bitcoin::{
     Network,
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{Network as SpNetwork, SharedSecret, SpVersion};
+use silentpayments::{
+    Network as SpNetwork, TransactionSharedSecret,
+    utils::receiving::PublicTweakData,
+};
 use silentpayments::{
     SilentPaymentAddress,
-    bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
 };
-use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 
@@ -39,7 +40,7 @@ impl SpClient {
         };
 
         let sp_receiver = Receiver::new(
-            SpVersion::ZERO,
+            silentpayments::SpVersion::ZERO,
             scan_pubkey,
             (&spend_key).into(),
             change_label,
@@ -80,12 +81,13 @@ impl SpClient {
     pub fn get_script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
-    ) -> Result<HashMap<[u8; 34], SharedSecret>> {
+    ) -> Result<HashMap<[u8; 34], TransactionSharedSecret>> {
         // if using rayon feature, import the preludes
         #[cfg(feature = "rayon")]
         use rayon::prelude::*;
 
         let b_scan = &self.get_scan_key();
+        let secp = Secp256k1::new();
 
         // parallel iterator using rayon
         #[cfg(feature = "rayon")]
@@ -97,7 +99,12 @@ impl SpClient {
 
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
-                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
+                let public_tweak = PublicTweakData::new_unchecked(tweak);
+                let secret = TransactionSharedSecret::new_from_public_tweak_data(
+                    &secp,
+                    &public_tweak,
+                    b_scan,
+                )?;
                 let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
 
                 Ok((secret, spks.into_values()))
@@ -111,23 +118,5 @@ impl SpClient {
             }
         }
         Ok(res)
-    }
-
-    pub fn get_client_fingerprint(&self) -> Result<[u8; 8]> {
-        let sp_address: SilentPaymentAddress = self.get_receiving_address();
-        let scan_pk = sp_address.get_scan_key();
-        let spend_pk = sp_address.get_spend_key();
-
-        // take a fingerprint of the wallet by hashing its keys
-        let mut engine = sha256::HashEngine::default();
-        engine.write_all(&scan_pk.serialize())?;
-        engine.write_all(&spend_pk.serialize())?;
-        let hash = sha256::Hash::from_engine(engine);
-
-        // take first 8 bytes as fingerprint
-        let mut wallet_fingerprint = [0u8; 8];
-        wallet_fingerprint.copy_from_slice(&hash.to_byte_array()[..8]);
-
-        Ok(wallet_fingerprint)
     }
 }
