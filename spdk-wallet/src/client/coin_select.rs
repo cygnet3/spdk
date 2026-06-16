@@ -6,7 +6,7 @@ use bitcoin::{Amount, OutPoint, TxOut};
 /// Upper bound on branch-and-bound iterations (see `bdk_coin_select` README).
 const BNB_MAX_ROUNDS: usize = 10_000;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strategy {
     Changeless,
     LowestFee,
@@ -100,12 +100,109 @@ pub fn select_all_utxos_for_fee_rate(
     })
 }
 
+struct SelectionContext<'a> {
+    available_utxos: &'a [(OutPoint, TxOut)],
+    candidates: &'a [Candidate],
+    target: Target,
+    change_policy: ChangePolicy,
+    fee_rate: FeeRate,
+    n_change_outputs: usize,
+}
+
+fn finalize_selection(
+    ctx: &SelectionContext<'_>,
+    coin_selector: &CoinSelector<'_>,
+    strategy: Strategy,
+) -> Result<InputSelection> {
+    let selected_utxos = coin_selector
+        .selected_indices()
+        .iter()
+        .map(|i| ctx.available_utxos[*i].0)
+        .collect();
+
+    let change = coin_selector.drain(ctx.target, ctx.change_policy);
+    let change_value = if change.is_some() { change.value } else { 0 };
+    let n_change_outputs = if change_value == 0 {
+        0
+    } else {
+        ctx.n_change_outputs
+    };
+
+    let fee_value = coin_selector.fee(ctx.target.outputs.value_sum, change_value);
+    if fee_value < 0 {
+        return Err(anyhow::Error::msg("Not enough funds available"));
+    }
+
+    let actual_fee_rate = coin_selector
+        .implied_feerate(ctx.target.outputs, change)
+        .ok_or_else(|| anyhow::Error::msg("cannot compute effective feerate for selection"))?;
+
+    Ok(InputSelection {
+        selected_utxos,
+        change: Amount::from_sat(change_value),
+        n_change_outputs,
+        fee: Amount::from_sat(fee_value as u64),
+        actual_fee_rate,
+        strategy,
+    })
+}
+
+fn try_changeless_selection(ctx: &SelectionContext<'_>) -> Result<InputSelection> {
+    let mut coin_selector = CoinSelector::new(ctx.candidates);
+    coin_selector.run_bnb(
+        Changeless {
+            target: ctx.target,
+            change_policy: ctx.change_policy,
+        },
+        BNB_MAX_ROUNDS,
+    )?;
+    finalize_selection(ctx, &coin_selector, Strategy::Changeless)
+}
+
+fn try_lowest_fee_selection(ctx: &SelectionContext<'_>) -> Result<InputSelection> {
+    let mut coin_selector = CoinSelector::new(ctx.candidates);
+    coin_selector.run_bnb(
+        LowestFee {
+            target: ctx.target,
+            long_term_feerate: ctx.fee_rate,
+            change_policy: ctx.change_policy,
+        },
+        BNB_MAX_ROUNDS,
+    )?;
+    finalize_selection(ctx, &coin_selector, Strategy::LowestFee)
+}
+
+fn try_greedy_selection(ctx: &SelectionContext<'_>) -> Result<InputSelection> {
+    let mut coin_selector = CoinSelector::new(ctx.candidates);
+    coin_selector
+        .select_until_target_met(ctx.target)
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+    finalize_selection(ctx, &coin_selector, Strategy::Greedy)
+}
+
+fn run_all_strategies(ctx: &SelectionContext<'_>) -> Vec<InputSelection> {
+    let runners = [
+        try_changeless_selection as fn(&SelectionContext<'_>) -> Result<InputSelection>,
+        try_lowest_fee_selection,
+        try_greedy_selection,
+    ];
+
+    runners
+        .iter()
+        .filter_map(|run| run(ctx).ok())
+        .collect()
+}
+
+/// Run each coin-selection strategy independently on a fresh [`CoinSelector`] clone.
+///
+/// Returns every strategy that found a valid selection (up to 3). Errors only when all
+/// strategies fail.
 pub fn pick_utxos_for_fee_rate(
     available_utxos: Vec<(OutPoint, TxOut)>,
     tx_outs: Vec<TxOut>,
-    mut n_change_outputs: usize,
+    n_change_outputs: usize,
     fee_rate: FeeRate,
-) -> Result<InputSelection> {
+) -> Result<Vec<InputSelection>> {
     // as a silent payment wallet, we only spend taproot outputs
     let candidates: Vec<Candidate> = available_utxos
         .iter()
@@ -118,14 +215,14 @@ pub fn pick_utxos_for_fee_rate(
         })
         .collect();
 
-    let mut coin_selector = CoinSelector::new(&candidates);
-
-    let change_policy =
-        ChangePolicy::min_value(DrainWeights {
-        output_weight: (TXOUT_BASE_WEIGHT + TR_SPK_WEIGHT) * n_change_outputs as u64,
-        spend_weight: TR_KEYSPEND_TXIN_WEIGHT * n_change_outputs as u64,
-        n_outputs: n_change_outputs,
-        }, TR_DUST_RELAY_MIN_VALUE * 2);
+    let change_policy = ChangePolicy::min_value(
+        DrainWeights {
+            output_weight: (TXOUT_BASE_WEIGHT + TR_SPK_WEIGHT) * n_change_outputs as u64,
+            spend_weight: TR_KEYSPEND_TXIN_WEIGHT * n_change_outputs as u64,
+            n_outputs: n_change_outputs,
+        },
+        TR_DUST_RELAY_MIN_VALUE * 2,
+    );
 
     let target = Target {
         fee: TargetFee::from_feerate(fee_rate),
@@ -136,59 +233,21 @@ pub fn pick_utxos_for_fee_rate(
         ),
     };
 
-    let strategy: Strategy;
-
-    let changeless = Changeless {
+    let ctx = SelectionContext {
+        available_utxos: &available_utxos,
+        candidates: &candidates,
         target,
         change_policy,
+        fee_rate,
+        n_change_outputs,
     };
-    if let Ok(_score) = coin_selector.run_bnb(changeless, BNB_MAX_ROUNDS) {
-        strategy = Strategy::Changeless;
-    } else {
-        let lowest_fee = LowestFee {
-            target,
-            long_term_feerate: fee_rate,
-            change_policy,
-        };
-        if coin_selector.run_bnb(lowest_fee, BNB_MAX_ROUNDS).is_err() {
-            coin_selector
-                .select_until_target_met(target)
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
-            strategy = Strategy::Greedy;
-        } else {
-            strategy = Strategy::LowestFee;
-        }
-    }
 
-    // get the utxos that have been chosen by the coin selector
-    let selected_indices = coin_selector.selected_indices();
-    let mut selected_utxos = vec![];
-    for i in selected_indices {
-        let (outpoint, _) = &available_utxos[*i];
-        selected_utxos.push(*outpoint);
-    }
-
-    // if there is change, add a return address to the list of recipients
-    let change = coin_selector.drain(target, change_policy);
-    let change_value = if change.is_some() { change.value } else { 0 };
-    if change_value == 0 { n_change_outputs = 0 };
-    let fee_value = coin_selector.fee(target.outputs.value_sum, change_value);
-    if fee_value < 0 {
+    let selections = run_all_strategies(&ctx);
+    if selections.is_empty() {
         return Err(anyhow::Error::msg("Not enough funds available"));
     }
 
-    let actual_fee_rate = coin_selector
-        .implied_feerate(target.outputs, change)
-        .ok_or_else(|| anyhow::Error::msg("cannot compute effective feerate for selection"))?;
-
-    Ok(InputSelection {
-        selected_utxos,
-        change: Amount::from_sat(change_value),
-        n_change_outputs,
-        fee: Amount::from_sat(fee_value as u64),
-        actual_fee_rate,
-        strategy,
-    })
+    Ok(selections)
 }
 
 #[cfg(test)]
@@ -268,6 +327,16 @@ mod tests {
         );
     }
 
+    fn selection_by_strategy<'a>(
+        selections: &'a [InputSelection],
+        strategy: Strategy,
+    ) -> &'a InputSelection {
+        selections
+            .iter()
+            .find(|selection| selection.strategy == strategy)
+            .unwrap_or_else(|| panic!("missing {:?} selection", strategy))
+    }
+
     #[test]
     fn select_all_utxos_uses_every_input() {
         let utxos = vec![utxo(100_000, 0), utxo(200_000, 1)];
@@ -317,13 +386,14 @@ mod tests {
         let small = utxo(100_000, 1);
         let payment = payment_output(50_000);
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             vec![large.clone(), small],
             vec![payment],
             test_change_outputs(),
             test_fee_rate(),
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert_eq!(selection.selected_utxos, vec![large.0]);
         assert!(selection.fee > Amount::ZERO);
@@ -335,13 +405,14 @@ mod tests {
         let b = utxo(30_000, 1);
         let payment = payment_output(50_000);
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             vec![a.clone(), b.clone()],
             vec![payment],
             test_change_outputs(),
             test_fee_rate(),
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert_eq!(selection.selected_utxos.len(), 2);
         assert!(selection.selected_utxos.contains(&a.0));
@@ -357,9 +428,10 @@ mod tests {
         let utxos = vec![utxo(500_000, 0)];
         let payment = payment_output(50_000);
 
-        let selection =
+        let selections =
             pick_utxos_for_fee_rate(utxos, vec![payment], test_change_outputs(), test_fee_rate())
                 .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         let min_change = TR_DUST_RELAY_MIN_VALUE * 2;
         assert!(
@@ -391,9 +463,10 @@ mod tests {
         let payment = payment_output(payment_sat);
         let pool = vec![utxo(primary_sat, 0), utxo(second_sat, 1)];
 
-        let low_sel =
+        let low_sels =
             pick_utxos_for_fee_rate(pool.clone(), vec![payment.clone()], test_change_outputs(), low)
                 .expect("low fee");
+        let low_sel = selection_by_strategy(&low_sels, Strategy::Changeless);
         assert_eq!(low_sel.change, Amount::ZERO);
         assert_eq!(low_sel.selected_utxos, vec![utxo(primary_sat, 0).0]);
         assert_selection_balances(&pool, &low_sel, payment_sat);
@@ -409,9 +482,10 @@ mod tests {
             "primary input alone must not fund the payment at 5 sat/vB",
         );
 
-        let high_sel =
+        let high_sels =
             pick_utxos_for_fee_rate(pool.clone(), vec![payment], test_change_outputs(), high)
                 .expect("high fee");
+        let high_sel = selection_by_strategy(&high_sels, Strategy::LowestFee);
         assert_eq!(high_sel.selected_utxos.len(), 2);
         assert!(high_sel.selected_utxos.contains(&utxo(primary_sat, 0).0));
         assert!(high_sel.selected_utxos.contains(&utxo(second_sat, 1).0));
@@ -432,20 +506,24 @@ mod tests {
                     fee_rate,
                 )
                 .ok()
-                .is_some_and(|selection| {
-                    selection.change == Amount::ZERO
-                        && selection.selected_utxos == vec![utxo(value_sat, 0).0]
+                .is_some_and(|selections| {
+                    selections.iter().any(|selection| {
+                        selection.strategy == Strategy::Changeless
+                            && selection.change == Amount::ZERO
+                            && selection.selected_utxos == vec![utxo(value_sat, 0).0]
+                    })
                 })
             })
             .expect("a changeless single-input fixture must exist");
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             vec![utxo(exact_sat, 0), utxo(1_000_000, 1)],
             vec![payment_output(payment_sat)],
             test_change_outputs(),
             fee_rate,
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::Changeless);
 
         assert_eq!(selection.change, Amount::ZERO);
         assert_eq!(selection.selected_utxos, vec![utxo(exact_sat, 0).0]);
@@ -469,13 +547,14 @@ mod tests {
         utxos.push(whale.clone());
         let payment = payment_output(100_000);
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             utxos.clone(),
             vec![payment],
             test_change_outputs(),
             test_fee_rate(),
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert_eq!(selection.selected_utxos, vec![whale.0]);
         assert!(selection.selected_utxos.len() < utxos.len());
@@ -487,13 +566,14 @@ mod tests {
         let utxos = many_utxos(200, 10_000);
         let payment = payment_output(150_000);
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             utxos.clone(),
             vec![payment],
             test_change_outputs(),
             test_fee_rate(),
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert!(!selection.selected_utxos.is_empty());
         assert!(selection.selected_utxos.len() <= utxos.len());
@@ -509,13 +589,14 @@ mod tests {
         let utxos = many_utxos(300, 50_000);
         let payment = payment_output(25_000);
 
-        let selection = pick_utxos_for_fee_rate(
+        let selections = pick_utxos_for_fee_rate(
             utxos.clone(),
             vec![payment],
             test_change_outputs(),
             test_fee_rate(),
         )
         .expect("selection");
+        let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert!(selection.selected_utxos.len() < utxos.len());
         assert_selection_balances(&utxos, &selection, 25_000);
@@ -538,15 +619,17 @@ mod tests {
         let utxos = vec![utxo(500_000, 0)];
         let payment = payment_output(payment_sat);
 
-        let one_change = pick_utxos_for_fee_rate(
+        let one_change_sels = pick_utxos_for_fee_rate(
             utxos.clone(),
             vec![payment.clone()],
             1,
             test_fee_rate(),
         )
         .expect("selection with one change output");
-        let two_change = pick_utxos_for_fee_rate(utxos.clone(), vec![payment], 2, test_fee_rate())
+        let two_change_sels = pick_utxos_for_fee_rate(utxos.clone(), vec![payment], 2, test_fee_rate())
             .expect("selection with two change outputs");
+        let one_change = selection_by_strategy(&one_change_sels, Strategy::LowestFee);
+        let two_change = selection_by_strategy(&two_change_sels, Strategy::LowestFee);
 
         assert_eq!(one_change.selected_utxos, two_change.selected_utxos);
         assert!(two_change.fee >= one_change.fee);
@@ -573,24 +656,56 @@ mod tests {
             })
             .expect("fixture where two change outputs are affordable");
 
-        let one_change = pick_utxos_for_fee_rate(
+        let one_change_sels = pick_utxos_for_fee_rate(
             vec![utxo(min_for_one_change, 0)],
             vec![payment.clone()],
             1,
             fee_rate,
         )
         .expect("one change output should succeed");
-        assert_selection_balances(&vec![utxo(min_for_one_change, 0)], &one_change, payment_sat);
+        let one_change = selection_by_strategy(&one_change_sels, Strategy::LowestFee);
+        assert_selection_balances(&vec![utxo(min_for_one_change, 0)], one_change, payment_sat);
 
-        let two_change = pick_utxos_for_fee_rate(
+        let two_change_sels = pick_utxos_for_fee_rate(
             vec![utxo(min_for_two_change, 0)],
             vec![payment],
             2,
             fee_rate,
         )
         .expect("two change outputs should succeed");
-        assert_selection_balances(&vec![utxo(min_for_two_change, 0)], &two_change, payment_sat);
+        let two_change = selection_by_strategy(&two_change_sels, Strategy::LowestFee);
+        assert_selection_balances(&vec![utxo(min_for_two_change, 0)], two_change, payment_sat);
         assert!(min_for_two_change >= min_for_one_change);
+    }
+
+    #[test]
+    fn pick_utxos_returns_one_selection_per_successful_strategy() {
+        let utxos = vec![utxo(500_000, 0), utxo(100_000, 1)];
+        let payment = payment_output(50_000);
+
+        let selections = pick_utxos_for_fee_rate(
+            utxos.clone(),
+            vec![payment],
+            test_change_outputs(),
+            test_fee_rate(),
+        )
+        .expect("selection");
+
+        assert!(selections.len() >= 2);
+        assert!(
+            selections
+                .iter()
+                .any(|selection| selection.strategy == Strategy::LowestFee)
+        );
+        assert!(
+            selections
+                .iter()
+                .any(|selection| selection.strategy == Strategy::Greedy)
+        );
+
+        for selection in &selections {
+            assert_selection_balances(&utxos, selection, 50_000);
+        }
     }
 
     #[test]
