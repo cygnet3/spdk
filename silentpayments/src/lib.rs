@@ -18,5 +18,7 @@ pub use utils::common::SilentPaymentCode;
 pub use utils::common::{Network, SilentPaymentKeyMaterial, SpVersion};
 
 pub use crate::error::Error;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub use utils::common::TransactionInputs;
 
 pub type Result<T> = std::result::Result<T, Error>;
