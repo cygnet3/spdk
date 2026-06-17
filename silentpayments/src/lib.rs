@@ -58,5 +58,7 @@ pub use utils::common::SilentPaymentAddress;
 #[cfg(feature = "encode")]
 pub use utils::common::SilentPaymentAddressDisplay;
 pub use utils::common::SpVersion;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub use utils::common::TransactionInputs;
 
 pub type Result<T> = std::result::Result<T, Error>;
