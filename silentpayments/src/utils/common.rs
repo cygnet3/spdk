@@ -153,6 +153,69 @@ impl TryFrom<u8> for SpVersion {
     }
 }
 
+/// A wrapper around a byte array that represents a valid silent payment address without network.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct SilentPaymentAddressRaw([u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]);
+
+impl SilentPaymentAddressRaw {
+    pub fn new(version: SpVersion, scan_pubkey: PublicKey, m_pubkey: PublicKey) -> Self {
+        let mut bytes = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
+        bytes[0] = version.into();
+        bytes[1..34].copy_from_slice(&scan_pubkey.serialize());
+        bytes[34..67].copy_from_slice(&m_pubkey.serialize());
+        Self(bytes)
+    }
+
+    pub fn new_from_address(address: &SilentPaymentAddress) -> Self {
+        Self::try_from_byte_array(&address.to_byte_array())
+            .expect("We did the same check than SilentPaymentAddress")
+    }
+
+    pub fn to_address_for_network(&self, network: Network) -> SilentPaymentAddress {
+        SilentPaymentAddress::try_from_byte_array(&self.0, network)
+            .expect("We did the same check than SilentPaymentAddress")
+    }
+
+    pub fn as_inner(&self) -> &[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN] {
+        &self.0
+    }
+
+    pub fn to_inner(&self) -> [u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN] {
+        self.0
+    }
+
+    pub fn try_from_byte_array(bytes: &[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]) -> Result<Self> {
+        let version: SpVersion = bytes[0].try_into()?;
+        let scan_pubkey = PublicKey::from_slice(&bytes[1..34])?;
+        let m_pubkey = PublicKey::from_slice(&bytes[34..])?;
+        Ok(Self::new(version, scan_pubkey, m_pubkey))
+    }
+
+    pub fn get_version(&self) -> SpVersion {
+        self.0[0]
+            .try_into()
+            .expect("We did the same check than SilentPaymentAddress")
+    }
+
+    pub fn get_scan_pubkey(&self) -> PublicKey {
+        PublicKey::from_slice(&self.0[1..34])
+            .expect("We did the same check than SilentPaymentAddress")
+    }
+
+    pub fn get_m_pubkey(&self) -> PublicKey {
+        PublicKey::from_slice(&self.0[34..])
+            .expect("We did the same check than SilentPaymentAddress")
+    }
+
+    pub fn scan_pubkey_as_slice(&self) -> &[u8] {
+        &self.0[1..34]
+    }
+
+    pub fn m_pubkey_as_slice(&self) -> &[u8] {
+        &self.0[34..]
+    }
+}
+
 /// A silent payment address struct that can be used to deserialize a silent payment address string.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentAddress {
