@@ -54,6 +54,8 @@ pub use crate::error::Error;
 pub use utils::common::Network;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::SharedSecret;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+pub use utils::common::TransactionInputs;
 pub use utils::common::SilentPaymentAddress;
 pub use utils::common::SpVersion;
 
