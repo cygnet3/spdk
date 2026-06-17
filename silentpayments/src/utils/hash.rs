@@ -1,7 +1,6 @@
-use bitcoin_hashes::{Hash as _, HashEngine as _, sha256t_hash_newtype};
+use crate::utils::common::{OutPoint, SharedSecret};
+use bitcoin_hashes::{Hash, HashEngine, sha256t_hash_newtype};
 use secp256k1::{PublicKey, Scalar, SecretKey};
-
-use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
 
 sha256t_hash_newtype! {
     struct InputsTag = hash_str("BIP0352/Inputs");
@@ -66,9 +65,6 @@ impl SharedSecretHash {
     }
 }
 
-pub(crate) fn calculate_input_hash(
-    outpoints_data: &NonEmptyArray<OutPoint>,
-    A_sum: PublicKey,
-) -> Scalar {
-    InputsHash::from_outpoint_and_A_sum(outpoints_data.min(), A_sum).to_scalar()
+pub(crate) fn calculate_input_hash(smaller_outpoint: &OutPoint, A_sum: PublicKey) -> Scalar {
+    InputsHash::from_outpoint_and_A_sum(smaller_outpoint, A_sum).to_scalar()
 }
