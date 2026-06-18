@@ -1,5 +1,5 @@
-use crate::utils::common::{OutPoint, SharedSecret};
-use bitcoin_hashes::{Hash, HashEngine, sha256t_hash_newtype};
+use crate::utils::common::{OutPoint, TransactionSharedSecret};
+use bitcoin_hashes::{Hash as _, HashEngine as _, sha256t_hash_newtype};
 use secp256k1::{PublicKey, Scalar, SecretKey};
 
 sha256t_hash_newtype! {
@@ -11,13 +11,13 @@ sha256t_hash_newtype! {
     #[hash_newtype(forward)]
     struct InputsHash(_);
 
-    pub(crate) struct LabelTag = hash_str("BIP0352/Label");
+    struct LabelTag = hash_str("BIP0352/Label");
 
     /// BIP0352-tagged hash with tag \"Label\".
     ///
     /// This is used for computing the label tweak.
     #[hash_newtype(forward)]
-    pub(crate) struct LabelHash(_);
+    struct LabelHash(_);
 
     pub(crate) struct SharedSecretTag = hash_str("BIP0352/SharedSecret");
 
@@ -29,8 +29,8 @@ sha256t_hash_newtype! {
 }
 
 impl InputsHash {
-    fn from_outpoint_and_A_sum(smallest_outpoint: &OutPoint, A_sum: PublicKey) -> InputsHash {
-        let mut eng = InputsHash::engine();
+    fn from_outpoint_and_A_sum(smallest_outpoint: &OutPoint, A_sum: PublicKey) -> Self {
+        let mut eng = Self::engine();
         eng.input(&smallest_outpoint.0);
         eng.input(&A_sum.serialize());
         Self::from_engine(eng)
@@ -57,9 +57,9 @@ impl LabelHash {
 }
 
 impl SharedSecretHash {
-    pub(crate) fn from_ecdh_and_k(ecdh: &SharedSecret, k: u32) -> Self {
+    pub(crate) fn from_ecdh_and_k(ecdh: &TransactionSharedSecret, k: u32) -> Self {
         let mut eng = Self::engine();
-        eng.input(&ecdh.0.serialize());
+        eng.input(&ecdh.as_ecdh_shared_secret().serialize());
         eng.input(&k.to_be_bytes());
         Self::from_engine(eng)
     }
@@ -67,4 +67,12 @@ impl SharedSecretHash {
 
 pub(crate) fn calculate_input_hash(smaller_outpoint: &OutPoint, A_sum: PublicKey) -> Scalar {
     InputsHash::from_outpoint_and_A_sum(smaller_outpoint, A_sum).to_scalar()
+}
+
+pub(crate) fn calculate_label_hash(b_scan: SecretKey, m: u32) -> Scalar {
+    LabelHash::from_b_scan_and_m(b_scan, m).to_scalar()
+}
+
+pub(crate) fn calculate_shared_secret_hash(ecdh: &TransactionSharedSecret, k: u32) -> [u8; 32] {
+    SharedSecretHash::from_ecdh_and_k(ecdh, k).to_byte_array()
 }
