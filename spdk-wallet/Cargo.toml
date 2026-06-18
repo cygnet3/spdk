@@ -21,6 +21,7 @@ silentpayments.workspace = true
 log.workspace = true
 bdk_coin_select.workspace = true
 bip321.workspace = true
+rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio.workspace = true
@@ -29,7 +30,7 @@ serde_json.workspace = true
 
 
 [features]
-default = ["backend-blindbit-v1", "local-scanner"]
+default = ["backend-blindbit-v1", "local-scanner", "rayon"]
 
 [lints]
 workspace = true
