@@ -5,16 +5,15 @@ use std::time::Instant;
 
 use anyhow::Result;
 use bitcoin::absolute::Height;
+use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, Scalar, SecretKey};
 use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use futures::channel::mpsc::{Receiver, Sender, channel};
 use futures::{SinkExt as _, Stream, StreamExt as _, pin_mut};
 use log::{info, warn};
-use silentpayments::SharedSecret;
+use silentpayments::TransactionSharedSecret;
 use silentpayments::receiving::{Label, Receiver as SpReceiver};
-use silentpayments::utils::receiving::{
-    calculate_ecdh_shared_secret, generate_script_pubkey_from_output_key,
-};
+use silentpayments::utils::receiving::{PublicTweakData, generate_script_pubkey_from_output_key};
 use spdk_core::chain::{BoxedBlockData, BoxedChainBackend, UtxoData};
 use spdk_core::scanner::{DiscoveredOutput, ScanResult, Scanner};
 use tokio::task;
@@ -250,7 +249,7 @@ async fn process_block_inputs(
 async fn scan_utxos(
     backend: &BoxedChainBackend,
     blkheight: Height,
-    secrets_map: HashMap<XOnlyPublicKey, SharedSecret>,
+    secrets_map: HashMap<XOnlyPublicKey, TransactionSharedSecret>,
     sp_receiver: &SpReceiver,
 ) -> Result<Vec<(Option<Label>, UtxoData, Scalar)>> {
     let utxos = backend.utxos(blkheight).await?;
@@ -301,7 +300,7 @@ pub fn output_key_to_secret_map(
     b_scan: &SecretKey,
     sp_receiver: &SpReceiver,
     tweak_data_vec: Vec<PublicKey>,
-) -> Result<HashMap<XOnlyPublicKey, SharedSecret>> {
+) -> Result<HashMap<XOnlyPublicKey, TransactionSharedSecret>> {
     // if using rayon feature, import the preludes
     #[cfg(feature = "rayon")]
     use rayon::prelude::*;
@@ -314,9 +313,13 @@ pub fn output_key_to_secret_map(
     #[cfg(not(feature = "rayon"))]
     let tweak_data_iterator = tweak_data_vec.into_iter();
 
+    let secp = &Secp256k1::new();
+
     let items: Result<Vec<_>> = tweak_data_iterator
         .map(|tweak| {
-            let secret = calculate_ecdh_shared_secret(&tweak, b_scan);
+            let tweak_data = PublicTweakData::new_unchecked(tweak);
+            let secret =
+                TransactionSharedSecret::new_from_public_tweak_data(secp, &tweak_data, b_scan)?;
             let output_keys = sp_receiver.generate_output_keys_from_shared_secret(&secret)?;
 
             Ok((secret, output_keys.into_values()))
