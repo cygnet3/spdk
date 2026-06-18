@@ -1,15 +1,14 @@
 //! Receiving utility functions.
 use bitcoin_hashes::{Hash as _, hash160};
 use secp256k1::Parity::Even;
-use secp256k1::ecdh::shared_secret_point;
-use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
+use secp256k1::{PublicKey, Secp256k1, Verification, XOnlyPublicKey};
 
 use super::hash::calculate_input_hash;
 use super::{
     COMPRESSED_PUBKEY_SIZE, NUMS_H, OP_PUSHBYTES_1, OP_PUSHBYTES_75, OP_PUSHDATA1, OP_PUSHDATA2,
     OP_PUSHDATA4, TAPROOT_ANNEX_PREFIX,
 };
-use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
+use crate::utils::common::TransactionInputs;
 pub use crate::utils::script::{is_eligible, is_p2tr};
 use crate::utils::script::{is_p2pkh, is_p2sh, is_p2wpkh};
 use crate::utils::{OP_1, OP_PUSHBYTES_32};
@@ -62,61 +61,46 @@ fn witness_compressed_pubkey(witness_last: &[u8], expected_hash: &[u8]) -> Optio
 
 /// Public tweak data for a transaction: `input_hash * sum(eligible input pubkeys)`.
 ///
-/// This is useful in combination with the [`calculate_ecdh_shared_secret`] function, but can also
-/// be used by indexing servers that don't have access to the recipient scan key.
-///
-/// # Arguments
-///
-/// * `input_pub_keys` - The list of public keys that are used as input for this transaction. Only
-///   the public keys for inputs that are silent payment eligible should be given.
-/// * `outpoints_data` - All prevout outpoints used as input for this transaction. Note that the
-///   txid is given in String format, which is displayed in reverse order from the inner byte array.
-///
-/// # Returns
-///
-/// This function returns the tweak data for this transaction. The tweak data is an intermediary
-/// result that can be used to calculate the final shared secret.
-///
-/// # Errors
-///
-/// This function will error if:
-///
-/// * The input public keys array is of length zero, or the summing results in an invalid key.
-/// * The `outpoints_data` is of length zero, or invalid.
-/// * Elliptic curve computation results in an invalid public key.
-pub fn calculate_tweak_data(
-    input_pub_keys: &[&PublicKey],
-    outpoints_data: &[OutPoint],
-) -> Result<PublicKey> {
-    let secp = secp256k1::Secp256k1::verification_only();
-    let A_sum = PublicKey::combine_keys(input_pub_keys)?;
+/// Indexing servers can publish this value so recipients can derive a
+/// [`TransactionSharedSecret`](crate::TransactionSharedSecret) locally without revealing their scan
+/// private key.
+pub struct PublicTweakData(PublicKey);
 
-    let outpoints = NonEmptyArray::new(outpoints_data)?;
-    let input_hash = calculate_input_hash(outpoints.min(), A_sum);
+#[expect(clippy::missing_const_for_fn)]
+impl PublicTweakData {
+    /// Construct tweak data from a value obtained from a trusted external source.
+    ///
+    /// Prefer [`Self::new`] when computing from chain data directly.
+    pub fn new_unchecked(tweak_data: PublicKey) -> Self {
+        Self(tweak_data)
+    }
 
-    Ok(A_sum.mul_tweak(&secp, &input_hash)?)
-}
+    /// Calculate the tweak data of a transaction: `input_hash * sum(eligible input pubkeys)`.
+    ///
+    /// Uses the same eligible-input rules as sender-side shared secret derivation. Combine with
+    /// [`TransactionSharedSecret::new_from_public_tweak_data`](crate::TransactionSharedSecret::new_from_public_tweak_data)
+    /// to obtain the shared secret used by [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - Parallel outpoints, script pubkeys and extracted pubkeys for every vin.
+    ///
+    /// # Errors
+    ///
+    /// This function will error if:
+    ///
+    /// * `inputs` is empty.
+    /// * No eligible input pubkeys could be extracted.
+    /// * Elliptic curve computation results in an invalid public key.
+    pub fn new<C: Verification>(secp: &Secp256k1<C>, inputs: &TransactionInputs) -> Result<Self> {
+        let summed_pubkeys = inputs.eligible_pubkeys_sum()?;
+        let input_hash = calculate_input_hash(inputs.min_outpoint(), summed_pubkeys);
+        Ok(Self(summed_pubkeys.mul_tweak(secp, &input_hash)?))
+    }
 
-/// Calculate the shared secret of a transaction.
-///
-/// # Arguments
-///
-/// * `tweak_data` - The tweak data of the transaction, see `calculate_tweak_data`.
-/// * `b_scan` - The scan private key used by the wallet.
-///
-/// # Returns
-///
-/// This function returns the shared secret of this transaction. This shared secret can be used to
-/// scan the transaction of outputs that are for the current user. See
-/// [`Receiver::scan_transaction`](crate::receiving::Receiver::scan_transaction).
-pub fn calculate_ecdh_shared_secret(tweak_data: &PublicKey, b_scan: &SecretKey) -> SharedSecret {
-    let mut ss_bytes = [0u8; 65];
-    ss_bytes[0] = 0x04;
-
-    // Using `shared_secret_point` to ensure the multiplication is constant time
-    ss_bytes[1..].copy_from_slice(&shared_secret_point(tweak_data, b_scan));
-
-    SharedSecret(PublicKey::from_slice(&ss_bytes).expect("guaranteed to be a point on the curve"))
+    pub fn as_inner(&self) -> &PublicKey {
+        &self.0
+    }
 }
 
 /// Get the public keys from a set of input data.
