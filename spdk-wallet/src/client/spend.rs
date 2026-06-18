@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use anyhow::{Error, Result};
@@ -17,8 +18,11 @@ use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
 use silentpayments::Network as SpNetwork;
-use silentpayments::utils::sending::PartialSecret;
-use silentpayments::{SilentPaymentAddressRaw, utils as sp_utils};
+use silentpayments::utils::sending::{GlobalSenderEcdhShare, NormalizedSecretKey};
+use silentpayments::{
+    NonEmptyArray, SilentPaymentAddressRaw, TransactionInputs, TransactionSharedSecret,
+    utils as sp_utils,
+};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
@@ -142,12 +146,13 @@ impl SpClient {
             });
         };
 
-        let partial_secret = self.get_partial_secret_for_selected_utxos(&selected_utxos)?;
+        let shared_secrets =
+            self.build_shared_secrets_for_sp_transaction(&selected_utxos, &recipients)?;
 
         Ok(SilentPaymentUnsignedTransaction {
             selected_utxos,
             recipients,
-            partial_secret,
+            shared_secrets,
             unsigned_tx: None,
             network,
         })
@@ -240,12 +245,13 @@ impl SpClient {
             amount: Amount::from_sat(change.value),
         }];
 
-        let partial_secret = self.get_partial_secret_for_selected_utxos(&available_utxos)?;
+        let shared_secrets =
+            self.build_shared_secrets_for_sp_transaction(&available_utxos, &recipients)?;
 
         Ok(SilentPaymentUnsignedTransaction {
             selected_utxos: available_utxos,
             recipients,
-            partial_secret,
+            shared_secrets,
             unsigned_tx: None,
             network,
         })
@@ -277,9 +283,12 @@ impl SpClient {
             })
             .collect();
 
+        let secp = Secp256k1::new();
+
         let sp_address2xonlypubkeys = silentpayments::sending::generate_recipient_pubkeys(
-            sp_addresses,
-            unsigned_transaction.partial_secret,
+            &secp,
+            &sp_addresses,
+            &unsigned_transaction.shared_secrets,
         )?;
 
         let tx_outs = unsigned_transaction
@@ -437,29 +446,74 @@ impl SpClient {
         Ok(signed)
     }
 
-    pub fn get_partial_secret_for_selected_utxos(
+    fn taproot_input_pubkey(
+        script_pubkey: &ScriptBuf,
+    ) -> Result<silentpayments::secp256k1::PublicKey> {
+        use silentpayments::secp256k1::{Parity, PublicKey, XOnlyPublicKey};
+        let xonly = XOnlyPublicKey::from_slice(&script_pubkey.as_bytes()[2..])?;
+        Ok(PublicKey::from_x_only_public_key(xonly, Parity::Even))
+    }
+
+    fn sp_recipient_scan_keys(
+        recipients: &[Recipient],
+    ) -> Vec<silentpayments::secp256k1::PublicKey> {
+        let mut keys = Vec::new();
+        for recipient in recipients {
+            if let RecipientAddress::SpAddress(address) = &recipient.address {
+                let scan_key = address.get_scan_key();
+                if !keys.iter().any(|k| k == &scan_key) {
+                    keys.push(scan_key);
+                }
+            }
+        }
+        keys
+    }
+
+    fn build_shared_secrets_for_sp_transaction(
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
-    ) -> Result<PartialSecret> {
+        recipients: &[Recipient],
+    ) -> Result<HashMap<silentpayments::secp256k1::PublicKey, TransactionSharedSecret>> {
+        let recipient_scan_keys = Self::sp_recipient_scan_keys(recipients);
+        if recipient_scan_keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let secp = Secp256k1::new();
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints = selected_utxos
-            .iter()
-            .map(|(outpoint, _)| {
-                Ok(sp_utils::OutPoint::from_txid_and_vout(
-                    outpoint.txid.to_string(),
-                    outpoint.vout,
-                )?)
-            })
-            .collect::<Result<Vec<sp_utils::OutPoint>>>()?;
-        let input_privkeys = selected_utxos
-            .iter()
-            .map(|(_, output)| Ok((b_spend.add_tweak(&output.tweak)?, true)))
-            .collect::<Result<Vec<_>>>()?;
+        let mut inputs = TransactionInputs::new();
+        let mut normalized_keys = Vec::with_capacity(selected_utxos.len());
+        for (outpoint, output) in selected_utxos {
+            let sp_outpoint =
+                sp_utils::OutPoint::from_txid_and_vout(outpoint.txid.to_string(), outpoint.vout)?;
+            let pubkey = Self::taproot_input_pubkey(&output.script_pubkey)?;
+            inputs.push(
+                sp_outpoint,
+                output.script_pubkey.as_bytes().to_vec(),
+                Some(pubkey),
+            );
+            let sk = b_spend.add_tweak(&output.tweak)?;
+            normalized_keys.push(NormalizedSecretKey::new(&secp, sk, true));
+        }
 
-        let partial_secret =
-            sp_utils::sending::calculate_partial_secret(&input_privkeys, &outpoints)?;
+        let mut aux_rand = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut aux_rand);
 
-        Ok(partial_secret)
+        let mut shared_secrets = HashMap::new();
+        for recipient_scan_key in recipient_scan_keys {
+            let global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+                &secp,
+                recipient_scan_key,
+                NonEmptyArray::new(&normalized_keys).expect("non-empty inputs"),
+                &aux_rand,
+            )?;
+            shared_secrets.insert(
+                recipient_scan_key,
+                TransactionSharedSecret::new_from_global_share(&secp, &global_share, &inputs)?,
+            );
+        }
+
+        Ok(shared_secrets)
     }
 }

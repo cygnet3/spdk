@@ -19,6 +19,7 @@ silentpayments.workspace = true
 rayon = { workspace = true, optional = true }
 log.workspace = true
 bdk_coin_select.workspace = true
+rand = { version = "0.8", default-features = false, features = ["getrandom"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
