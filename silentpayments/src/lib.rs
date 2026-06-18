@@ -71,6 +71,7 @@ pub use crate::error::Error;
 pub use rust_dleq::DleqProof;
 pub use utils::common::Network;
 pub use utils::common::SilentPaymentAddress;
+pub use utils::common::SilentPaymentAddressRaw;
 pub use utils::common::SpVersion;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::{NonEmptyArray, TransactionInputs, TransactionSharedSecret};

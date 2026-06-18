@@ -10,7 +10,8 @@ mod tests {
             sending::calculate_partial_secret,
             OutPoint,
         },
-        Network, SilentPaymentAddress, TransactionInputs, TransactionSharedSecret,
+        Network, SilentPaymentAddress, SilentPaymentAddressRaw, TransactionInputs,
+        TransactionSharedSecret,
     };
     use std::{collections::HashSet, io::Cursor, str::FromStr};
 
@@ -74,7 +75,11 @@ mod tests {
 
             // we drop the amounts from the test here, since we don't work with amounts
             // the wallet should make sure the amount sent are correct
-            let silent_addresses = decode_recipients(&given.recipients);
+            let silent_addresses: Vec<SilentPaymentAddressRaw> =
+                decode_recipients(&given.recipients)
+                    .into_iter()
+                    .map(|addr| SilentPaymentAddressRaw::new_from_address(&addr))
+                    .collect();
 
             let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
             let outputs = generate_recipient_pubkeys(silent_addresses, partial_secret).unwrap();

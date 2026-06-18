@@ -16,9 +16,9 @@ use bitcoin::transaction::Version;
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
-use silentpayments::utils as sp_utils;
+use silentpayments::Network as SpNetwork;
 use silentpayments::utils::sending::PartialSecret;
-use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
+use silentpayments::{SilentPaymentAddressRaw, utils as sp_utils};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
@@ -266,11 +266,13 @@ impl SpClient {
             })
             .collect();
 
-        let sp_addresses: Vec<SilentPaymentAddress> = unsigned_transaction
+        let sp_addresses: Vec<SilentPaymentAddressRaw> = unsigned_transaction
             .recipients
             .iter()
             .filter_map(|r| match &r.address {
-                RecipientAddress::SpAddress(sp_address) => Some(sp_address.to_owned()),
+                RecipientAddress::SpAddress(sp_address) => {
+                    Some(SilentPaymentAddressRaw::new_from_address(sp_address))
+                }
                 _ => None,
             })
             .collect();
@@ -287,7 +289,7 @@ impl SpClient {
                 RecipientAddress::SpAddress(s) => {
                     // We now need to fill the sp outputs with actual spk
                     let pubkeys = sp_address2xonlypubkeys
-                        .get(s)
+                        .get(&SilentPaymentAddressRaw::new_from_address(s))
                         .ok_or(Error::msg("Unknown sp address"))?;
 
                     // we currently only allow having 1 output per silent payment address
