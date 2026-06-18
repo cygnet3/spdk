@@ -1,12 +1,27 @@
 #[cfg(feature = "encode")]
 use core::fmt;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use std::collections::HashSet;
 
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use crate::utils::hash::calculate_input_hash;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::calculate_shared_secret_hash;
 #[cfg(feature = "receiving")]
 use crate::utils::receiving::PublicTweakData;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::script::is_eligible;
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+use crate::utils::sending::{GlobalSenderEcdhShare, PartialSenderEcdhShare};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::Error;
 #[cfg(any(feature = "sending", feature = "receiving", feature = "encode"))]
@@ -154,6 +169,19 @@ impl TransactionInputs {
         Ok(eligible)
     }
 
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn eligible_vins(&self) -> HashSet<usize> {
+        self.script_pubkeys
+            .iter()
+            .zip(&self.input_pubkeys)
+            .enumerate()
+            .filter_map(|(vin, (spk, pk))| (pk.is_some() && is_eligible(spk)).then_some(vin))
+            .collect()
+    }
+
     pub(crate) fn eligible_pubkeys_sum(&self) -> Result<PublicKey> {
         let eligible_pubkeys = self.eligible_pubkeys()?;
         Ok(PublicKey::combine_keys(&eligible_pubkeys)?)
@@ -207,6 +235,102 @@ impl TransactionSharedSecret {
             ecdh_shared_secret,
             recipient_scan_key,
         }
+    }
+
+    /// Create a shared secret from a finalized global ECDH share (sender path).
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn new_from_global_share<C: secp256k1::Signing + secp256k1::Verification>(
+        secp: &Secp256k1<C>,
+        global_share: &GlobalSenderEcdhShare,
+        inputs: &TransactionInputs,
+    ) -> Result<Self> {
+        let eligible_pubkeys = inputs.eligible_pubkeys()?;
+        global_share.verify_dleq_proof(secp, NonEmptyArray::new(&eligible_pubkeys)?)?;
+        let input_hash =
+            calculate_input_hash(inputs.min_outpoint(), inputs.eligible_pubkeys_sum()?);
+        let tweaked_share = global_share
+            .as_ecdh_shared_secret()
+            .mul_tweak(secp, &input_hash)?;
+        Ok(Self {
+            ecdh_shared_secret: tweaked_share,
+            recipient_scan_key: *global_share.recipient_scan_key(),
+        })
+    }
+
+    /// Create a shared secret by summing hashed partial ECDH shares (multi-signer sender path).
+    ///
+    /// Every SP-eligible input in the transaction (i.e. every vin where the script type is
+    /// eligible and a pubkey was extracted) must have a corresponding partial share. Missing
+    /// or extra shares are rejected so the `input_hash` is computed over the same pubkey set
+    /// as the receiver uses.
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn new_from_partial_shares<C: secp256k1::Signing + secp256k1::Verification>(
+        secp: &Secp256k1<C>,
+        recipient_scan_key: PublicKey,
+        partial_shares: NonEmptyArray<PartialSenderEcdhShare>,
+        inputs: &TransactionInputs,
+    ) -> Result<Self> {
+        let eligible_vins = inputs.eligible_vins();
+
+        let mut partial_vins: HashSet<usize> =
+            HashSet::with_capacity(partial_shares.as_inner().len());
+        for share in partial_shares.as_inner().iter() {
+            if *share.recipient_scan_key() != recipient_scan_key {
+                return Err(Error::GenericError(format!(
+                    "Unexpected recipient scan key for share vin {}: {}",
+                    share.input_vin(),
+                    share.recipient_scan_key(),
+                )));
+            }
+            if !partial_vins.insert(share.input_vin()) {
+                return Err(Error::GenericError(format!(
+                    "Input vin {} already seen",
+                    share.input_vin()
+                )));
+            }
+        }
+
+        if partial_vins != eligible_vins {
+            let mut missing: Vec<usize> =
+                eligible_vins.difference(&partial_vins).copied().collect();
+            missing.sort_unstable();
+            let mut unexpected: Vec<usize> =
+                partial_vins.difference(&eligible_vins).copied().collect();
+            unexpected.sort_unstable();
+            return Err(Error::GenericError(format!(
+                "Partial share coverage mismatch. \
+                 Missing shares for eligible vins: {:?}. \
+                 Shares for non-eligible vins: {:?}",
+                missing, unexpected
+            )));
+        }
+
+        let mut shares_to_sum: Vec<&PublicKey> =
+            Vec::with_capacity(partial_shares.as_inner().len());
+        for share in partial_shares.as_inner().iter() {
+            let vin = share.input_vin();
+            let pubkey = inputs
+                .input_pubkey(vin)
+                .expect("partial vin is eligible and has pubkey");
+            share.verify_dleq_proof(secp, pubkey)?;
+            shares_to_sum.push(share.as_ecdh_shared_secret());
+        }
+
+        let input_hash =
+            calculate_input_hash(inputs.min_outpoint(), inputs.eligible_pubkeys_sum()?);
+        let tweaked_share =
+            PublicKey::combine_keys(&shares_to_sum)?.mul_tweak(secp, &input_hash)?;
+
+        Ok(Self {
+            ecdh_shared_secret: tweaked_share,
+            recipient_scan_key,
+        })
     }
 
     /// Calculate the shared secret of a transaction as a receiver.
@@ -503,7 +627,7 @@ impl From<SilentPaymentAddress> for String {
     }
 }
 
-pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
+pub struct NonEmptyArray<'a, T>(&'a [T]);
 
 impl<'a, T> NonEmptyArray<'a, T> {
     pub fn new(arr: &'a [T]) -> crate::Result<Self> {
