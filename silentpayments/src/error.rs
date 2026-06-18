@@ -64,3 +64,13 @@ impl From<std::io::Error> for Error {
         Self::IOError(e)
     }
 }
+
+#[cfg(all(
+    feature = "sending",
+    any(feature = "dleq-standalone", feature = "dleq-native")
+))]
+impl From<rust_dleq::DleqError> for Error {
+    fn from(e: rust_dleq::DleqError) -> Self {
+        Self::GenericError(e.to_string())
+    }
+}
