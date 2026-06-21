@@ -4,7 +4,7 @@ use core::fmt;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
 use crate::Error;
-#[cfg(any(feature = "sending", feature = "receiving"))]
+#[cfg(any(feature = "sending", feature = "receiving", feature = "encode"))]
 use crate::Result;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct OutPoint(pub(crate) [u8; 36]);
 
+#[cfg(any(feature = "sending", feature = "receiving"))]
 impl OutPoint {
     /// Parse outpoin from a [String] txid and [u32] vout.
     /// This may fail if the txid is not a valid 32 byte hex string.
