@@ -12,7 +12,10 @@ use bitcoin_hashes::{hash160, Hash};
 use secp256k1::{ecdh::shared_secret_point, Parity::Even, XOnlyPublicKey};
 use secp256k1::{PublicKey, SecretKey};
 
-use super::{hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H};
+use super::{
+    hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H, OP_PUSHBYTES_1, OP_PUSHBYTES_75,
+    OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4, TAPROOT_ANNEX_PREFIX,
+};
 
 /// Returns the last data push in a push-only script, or `None` if malformed.
 fn last_push(script: &[u8]) -> Option<&[u8]> {
@@ -22,14 +25,14 @@ fn last_push(script: &[u8]) -> Option<&[u8]> {
         let op = script[i];
         i += 1;
         let (extra_len_bytes, data_len): (usize, usize) = match op {
-            0x01..=0x4b => (0, op as usize),
-            0x4c => (1, *script.get(i)? as usize),
-            0x4d => {
+            OP_PUSHBYTES_1..=OP_PUSHBYTES_75 => (0, op as usize),
+            OP_PUSHDATA1 => (1, *script.get(i)? as usize),
+            OP_PUSHDATA2 => {
                 let lo = *script.get(i)? as usize;
                 let hi = *script.get(i + 1)? as usize;
                 (2, lo | (hi << 8))
             }
-            0x4e => {
+            OP_PUSHDATA4 => {
                 let b0 = *script.get(i)? as usize;
                 let b1 = *script.get(i + 1)? as usize;
                 let b2 = *script.get(i + 2)? as usize;
@@ -212,7 +215,7 @@ pub fn get_pubkey_from_input(
             (false, true) => {
                 // check for the optional annex
                 let annex = match txinwitness.last().and_then(|value| value.first()) {
-                    Some(&0x50) => 1,
+                    Some(&TAPROOT_ANNEX_PREFIX) => 1,
                     Some(_) => 0,
                     None => return Err(Error::InvalidVin("Empty or invalid witness".to_owned())),
                 };

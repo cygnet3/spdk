@@ -19,6 +19,7 @@ use crate::{
     utils::{
         common::{calculate_P_n, calculate_t_n, SharedSecret},
         hash::LabelHash,
+        OP_1, OP_PUSHBYTES_32,
     },
     Error, Network, Result, SilentPaymentAddress, SpVersion,
 };
@@ -446,8 +447,8 @@ impl Receiver {
         let mut res = HashMap::new();
 
         let mut spk = [0u8; 34];
-        // hardcoded opcode values for OP_PUSHNUM_1 and OP_PUSHBYTES_32
-        spk[..2].copy_from_slice(&[0x51, 0x20]);
+        // OP_PUSHNUM_1 OP_PUSHBYTES_32 taproot output key
+        spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
         spk[2..].copy_from_slice(&output_key_bytes);
 
         res.insert(None, spk);
@@ -458,7 +459,7 @@ impl Receiver {
             let output_key_bytes = P_m0.x_only_public_key().0.serialize();
 
             let mut spk = [0u8; 34];
-            spk[..2].copy_from_slice(&[0x51, 0x20]);
+            spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
             spk[2..].copy_from_slice(&output_key_bytes);
 
             res.insert(Some(label.clone()), spk);
