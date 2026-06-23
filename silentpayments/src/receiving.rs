@@ -6,10 +6,13 @@
 //!
 //! After creating a [`Receiver`] object, you can call [`scan_transaction`](Receiver::scan_transaction),
 //! to scan a specific transaction for outputs belonging to this receiver.
-//! For this, you need to have calculated the `ecdh_shared_secret` beforehand.
-//! To do so, you can use [`calculate_ecdh_shared_secret`](`crate::utils::receiving::calculate_ecdh_shared_secret`) from the `utils` module.
 //!
-//! For a concrete example, have a look at the [test vectors](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs).
+//! This requires a [`TransactionSharedSecret`] for the transaction. Compute it from
+//! [`PublicTweakData`](crate::utils::receiving::PublicTweakData) and the scan private key via
+//! [`TransactionSharedSecret::new_from_public_tweak_data`].
+//!
+//! For a concrete example, see the [test vectors](https://github.com/cygnet3/spdk/blob/master/silentpayments/tests/vector_tests.rs)
+//! or the `find_output` example.
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -17,8 +20,9 @@ use std::{
 
 use crate::{
     utils::{
-        common::{calculate_P_n, calculate_t_n, SharedSecret},
-        hash::LabelHash,
+        common::{calculate_P_n, calculate_t_n, TransactionSharedSecret},
+        hash::calculate_label_hash,
+        OP_1, OP_PUSHBYTES_32,
     },
     Error, Network, Result, SilentPaymentAddress, SpVersion,
 };
@@ -38,7 +42,7 @@ pub struct Label {
 impl Label {
     pub fn new(b_scan: SecretKey, m: u32) -> Label {
         Label {
-            s: LabelHash::from_b_scan_and_m(b_scan, m).to_scalar(),
+            s: calculate_label_hash(b_scan, m),
         }
     }
 
@@ -377,7 +381,7 @@ impl Receiver {
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
     pub fn scan_transaction(
         &self,
-        ecdh_shared_secret: &SharedSecret,
+        ecdh_shared_secret: &TransactionSharedSecret,
         pubkeys_to_check: &[XOnlyPublicKey],
     ) -> Result<HashMap<Option<Label>, HashMap<XOnlyPublicKey, Scalar>>> {
         let secp = secp256k1::Secp256k1::new();
@@ -437,7 +441,7 @@ impl Receiver {
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
     pub fn get_spks_from_shared_secret(
         &self,
-        ecdh_shared_secret: &SharedSecret,
+        ecdh_shared_secret: &TransactionSharedSecret,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
         let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
         let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;
@@ -446,8 +450,8 @@ impl Receiver {
         let mut res = HashMap::new();
 
         let mut spk = [0u8; 34];
-        // hardcoded opcode values for OP_PUSHNUM_1 and OP_PUSHBYTES_32
-        spk[..2].copy_from_slice(&[0x51, 0x20]);
+        // OP_PUSHNUM_1 OP_PUSHBYTES_32 taproot output key
+        spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
         spk[2..].copy_from_slice(&output_key_bytes);
 
         res.insert(None, spk);
@@ -458,7 +462,7 @@ impl Receiver {
             let output_key_bytes = P_m0.x_only_public_key().0.serialize();
 
             let mut spk = [0u8; 34];
-            spk[..2].copy_from_slice(&[0x51, 0x20]);
+            spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
             spk[2..].copy_from_slice(&output_key_bytes);
 
             res.insert(Some(label.clone()), spk);
