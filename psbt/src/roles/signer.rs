@@ -166,23 +166,12 @@ impl SignerPsbtExt for Psbt {
         let scan_keys = collect_scan_keys(&sp_addresses_bytes)?;
         let mut scan_key_to_shared_secret: HashMap<PublicKey, TransactionSharedSecret> =
             HashMap::with_capacity(scan_keys.len());
-        // First, are we dealing with a single signer or a multi signer?
-        // Check for global shares
-        let is_global = !self.global.sp_ecdh_shares.is_empty();
-        let is_partial = !self
+        let has_global = !self.global.sp_ecdh_shares.is_empty();
+        let has_partial = self
             .inputs
             .iter()
-            .any(|input| {
-                let Ok(funding_utxo) = input.funding_utxo() else {
-                    return false;
-                };
-                is_eligible(funding_utxo.script_pubkey.as_bytes()) && input.sp_ecdh_shares.is_empty()
-            });
-        if is_global && is_partial {
-            return Err(Error::InvalidPsbtState(
-                "Mixed global and partial shares".to_string(),
-            ));
-        } else if !is_global && !is_partial {
+            .any(|input| !input.sp_ecdh_shares.is_empty());
+        if !has_global && !has_partial {
             return Err(Error::InvalidPsbtState("No shares found".to_string()));
         }
         let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count);
@@ -200,9 +189,8 @@ impl SignerPsbtExt for Psbt {
             transaction_inputs.push(outpoint, spk.to_bytes(), pubkey);
         }
         let eligible_vins = transaction_inputs.eligible_vins();
-        if is_global {
-            // Single signer
-            for (scan_key, shared_secret) in self.global.sp_ecdh_shares.iter() {
+        for scan_key in scan_keys.iter() {
+            if let Some(shared_secret) = self.global.sp_ecdh_shares.get(scan_key) {
                 // We must have a dleq proof
                 let dleq_proof = self.global.sp_dleq_proofs.get(scan_key).ok_or_else(|| {
                     Error::InvalidPsbtState(format!(
@@ -221,10 +209,7 @@ impl SignerPsbtExt for Psbt {
                 )
                 .map_err(|e| Error::Other(e.to_string()))?;
                 scan_key_to_shared_secret.insert(scan_key.0, shared_secret);
-            }
-        } else {
-            // Multi signer
-            for scan_key in scan_keys.iter() {
+            } else {
                 let mut partial_shares = Vec::with_capacity(self.global.input_count);
                 for (vin, input) in self.inputs.iter().enumerate() {
                     if !eligible_vins.contains(&vin) {
