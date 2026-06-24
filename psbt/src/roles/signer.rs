@@ -365,7 +365,14 @@ fn sp_info_to_key_material(sp_info: &[u8]) -> Result<SilentPaymentKeyMaterial> {
 fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<SilentPaymentKeyMaterial>>> {
     let mut res: Vec<Option<SilentPaymentKeyMaterial>> =
         Vec::with_capacity(psbt.global.output_count);
-    for (i, output) in psbt.outputs.iter().enumerate() {
+    let mut sorted_outputs: Vec<_> = psbt.outputs.iter().enumerate().collect();
+    sorted_outputs.sort_by(|(index_a, output_a), (index_b, output_b)| {
+        output_a
+            .sp_v0_info
+            .cmp(&output_b.sp_v0_info)
+            .then(index_a.cmp(index_b))
+    });
+    for (i, output) in sorted_outputs {
         let Some(sp_info) = output.sp_v0_info.as_ref() else {
             res.push(None);
             continue;
