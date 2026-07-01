@@ -1,8 +1,8 @@
 use std::fmt;
 
+use bip21::Param;
 use bip21::de::{DeserializationError, DeserializationState, DeserializeParams, ParamKind};
 use bip21::ser::SerializeParams;
-use bip21::Param;
 use silentpayments::{Network, SilentPaymentAddress};
 
 /// Error returned when parsing silent payment extras fields of a BIP 321 URI.
@@ -12,9 +12,7 @@ pub enum SpExtrasError {
     Address(silentpayments::Error),
     DuplicateParameter { key: String },
     InvalidParameterKey { key: String },
-    NetworkMismatch {
-        network: Network,
-    },
+    NetworkMismatch { network: Network },
 }
 
 impl fmt::Display for SpExtrasError {
@@ -37,10 +35,9 @@ impl fmt::Display for SpExtrasError {
                     f,
                     "Testnet silent payment address must use the tsp parameter"
                 ),
-                Network::Regtest => write!(
-                    f,
-                    "regtest addresses are not supported in BIP 321 URIs"
-                ),
+                Network::Regtest => {
+                    write!(f, "regtest addresses are not supported in BIP 321 URIs")
+                }
             },
         }
     }
@@ -56,8 +53,12 @@ impl std::error::Error for SpExtrasError {
     }
 }
 
+fn canonical_param_key(key: &str) -> &str {
+    key.strip_prefix("req-").unwrap_or(key)
+}
+
 fn expected_network_for_key(key: &str) -> Option<Network> {
-    match key {
+    match canonical_param_key(key) {
         "sp" => Some(Network::Mainnet),
         "tsp" => Some(Network::Testnet),
         _ => None,
@@ -72,7 +73,8 @@ fn classify_sp_param_key(key: &str) -> Option<Result<Network, SpExtrasError>> {
     match expected_network_for_key(key) {
         Some(network) => Some(Ok(network)),
         None => {
-            if key.eq_ignore_ascii_case("sp") || key.eq_ignore_ascii_case("tsp") {
+            let canonical = canonical_param_key(key);
+            if canonical.eq_ignore_ascii_case("sp") || canonical.eq_ignore_ascii_case("tsp") {
                 Some(Err(SpExtrasError::InvalidParameterKey {
                     key: key.to_owned(),
                 }))
@@ -100,6 +102,7 @@ fn slot_for_expected_network<'a>(
 /// addresses, following the address format's human-readable part as the parameter key.
 ///
 /// A URI may contain at most one `sp` and one `tsp` parameter. Parameter keys must be lowercase.
+/// The `req-` prefix is accepted as an alias (`req-sp`, `req-tsp`).
 #[derive(Debug, Default, Clone)]
 pub struct SpExtras {
     pub sp: Option<SilentPaymentAddress>,
@@ -127,7 +130,7 @@ impl<'de> DeserializationState<'de> for SpExtras {
                 let slot = slot_for_expected_network(self, expected_network);
                 if slot.is_some() {
                     return Err(SpExtrasError::DuplicateParameter {
-                        key: key.to_owned(),
+                        key: canonical_param_key(key).to_owned(),
                     });
                 }
                 let s = String::try_from(value).map_err(SpExtrasError::Utf8)?;
@@ -203,8 +206,8 @@ pub type SpUri<'a> = bip21::Uri<'a, bitcoin::address::NetworkUnchecked, SpExtras
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bip21::de::Error as Bip21Error;
+    use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use silentpayments::SpVersion;
 
     use super::{Network, SilentPaymentAddress, SpExtrasError, SpUri};
@@ -250,12 +253,50 @@ mod tests {
     }
 
     #[test]
+    fn parse_req_sp_parameter() {
+        let sp = make_sp_address(Network::Mainnet).to_string();
+        let uri = format!("bitcoin:?req-sp={sp}");
+        let parsed = SpUri::try_from(uri.as_str()).unwrap();
+        assert_eq!(
+            parsed.extras.sp.as_ref().unwrap().get_network(),
+            Network::Mainnet
+        );
+        assert!(parsed.extras.tsp.is_none());
+    }
+
+    #[test]
+    fn parse_req_tsp_parameter() {
+        let tsp = make_sp_address(Network::Testnet).to_string();
+        let uri = format!("bitcoin:?req-tsp={tsp}");
+        let parsed = SpUri::try_from(uri.as_str()).unwrap();
+        assert_eq!(
+            parsed.extras.tsp.as_ref().unwrap().get_network(),
+            Network::Testnet
+        );
+        assert!(parsed.extras.sp.is_none());
+    }
+
+    #[test]
     fn reject_uppercase_sp_parameter_key() {
         let sp = make_sp_address(Network::Mainnet).to_string();
         let uri = format!("bitcoin:?SP={sp}");
         assert!(matches!(
             SpUri::try_from(uri.as_str()),
-            Err(Bip21Error::Extras(SpExtrasError::InvalidParameterKey { .. }))
+            Err(Bip21Error::Extras(
+                SpExtrasError::InvalidParameterKey { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn reject_uppercase_req_sp_parameter_key() {
+        let sp = make_sp_address(Network::Mainnet).to_string();
+        let uri = format!("bitcoin:?req-SP={sp}");
+        assert!(matches!(
+            SpUri::try_from(uri.as_str()),
+            Err(Bip21Error::Extras(
+                SpExtrasError::InvalidParameterKey { .. }
+            ))
         ));
     }
 
@@ -293,6 +334,16 @@ mod tests {
     fn reject_duplicate_tsp_parameters() {
         let tsp = make_sp_address(Network::Testnet).to_string();
         let uri = format!("bitcoin:?tsp={tsp}&tsp={tsp}");
+        assert!(matches!(
+            SpUri::try_from(uri.as_str()),
+            Err(Bip21Error::Extras(SpExtrasError::DuplicateParameter { .. }))
+        ));
+    }
+
+    #[test]
+    fn reject_sp_and_req_sp_parameters() {
+        let sp = make_sp_address(Network::Mainnet).to_string();
+        let uri = format!("bitcoin:?sp={sp}&req-sp={sp}");
         assert!(matches!(
             SpUri::try_from(uri.as_str()),
             Err(Bip21Error::Extras(SpExtrasError::DuplicateParameter { .. }))
