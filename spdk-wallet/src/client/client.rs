@@ -115,8 +115,8 @@ impl SpClient {
 
     pub fn get_client_fingerprint(&self) -> Result<[u8; 8]> {
         let sp_address: SilentPaymentAddress = self.get_receiving_address();
-        let scan_pk = sp_address.get_scan_key();
-        let spend_pk = sp_address.get_spend_key();
+        let scan_pk = sp_address.scan_key();
+        let spend_pk = sp_address.spend_key();
 
         // take a fingerprint of the wallet by hashing its keys
         let mut engine = sha256::HashEngine::default();
