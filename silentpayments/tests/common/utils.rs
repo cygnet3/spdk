@@ -3,7 +3,7 @@ use std::{fs::File, io::Read, str::FromStr};
 use bitcoin_hashes::Hash;
 use secp256k1::{Message, Scalar, SecretKey, XOnlyPublicKey};
 use serde_json::from_str;
-use silentpayments::SilentPaymentAddress;
+use silentpayments::{SilentPaymentAddress, SilentPaymentAddressRaw};
 
 use super::structs::{OutputWithSignature, TestData};
 
@@ -63,10 +63,13 @@ pub fn decode_outputs_to_check(outputs: &[String]) -> Vec<XOnlyPublicKey> {
         .collect()
 }
 
-pub fn decode_recipients(recipients: &[String]) -> Vec<SilentPaymentAddress> {
+pub fn decode_recipients(recipients: &[String]) -> Vec<SilentPaymentAddressRaw> {
     recipients
         .iter()
-        .map(|sp_addr_str| sp_addr_str.as_str().try_into().unwrap())
+        .map(|sp_addr_str| {
+            let address: SilentPaymentAddress = sp_addr_str.as_str().try_into().unwrap();
+            address.into()
+        })
         .collect()
 }
 

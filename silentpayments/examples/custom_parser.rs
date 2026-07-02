@@ -37,10 +37,10 @@ fn main() {
     );
 
     println!("Successfully created SilentPaymentAddress without encode feature!");
-    println!("Network: {:?}", address.get_network());
-    println!("Version: {}", address.get_version());
-    println!("Scan key: {:?}", address.get_scan_key());
-    println!("Spend key: {:?}", address.get_spend_key());
+    println!("Network: {:?}", address.network());
+    println!("Version: {}", u8::from(address.version()));
+    println!("Scan key: {:?}", address.scan_key());
+    println!("Spend key: {:?}", address.spend_key());
 
     println!("\n✅ This example compiled and ran with ZERO features enabled!");
     println!("   Only dependencies: secp256k1, rand, rand_core, secp256k1-sys");
