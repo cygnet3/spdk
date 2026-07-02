@@ -13,6 +13,7 @@ anyhow = "1.0"
 bech32 = "0.9"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
+bip21 = { git = "https://github.com/Sosthene00/bip21.git", branch = "silentpayments" }
 bitcoin = { version = "0.32.8", features = ["serde", "rand", "base64"] }
 bitcoin_hashes = "0.13.0"
 rayon = "1.10.0"
