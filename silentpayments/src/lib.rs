@@ -55,6 +55,7 @@ pub use utils::common::Network;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::SharedSecret;
 pub use utils::common::SilentPaymentAddress;
+pub use utils::common::SilentPaymentAddressRaw;
 pub use utils::common::SpVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;

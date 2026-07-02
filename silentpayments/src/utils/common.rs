@@ -4,12 +4,13 @@ use core::fmt;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use crate::utils::hash::SharedSecretHash;
 use crate::Error;
-#[cfg(any(feature = "sending", feature = "receiving"))]
+#[cfg(any(feature = "sending", feature = "receiving", feature = "encode"))]
 use crate::Result;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use bitcoin_hashes::Hash;
+use secp256k1::constants::PUBLIC_KEY_SIZE;
 use secp256k1::PublicKey;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
@@ -19,6 +20,8 @@ use serde::ser::Serializer;
 use serde::Deserializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+pub const SILENT_PAYMENT_ADDRESS_BYTE_LEN: usize = 67;
 
 /// Struct representing an OutPoint type.
 ///
@@ -36,6 +39,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct OutPoint(pub(crate) [u8; 36]);
 
+#[cfg(any(feature = "sending", feature = "receiving"))]
 impl OutPoint {
     /// Parse outpoin from a [String] txid and [u32] vout.
     /// This may fail if the txid is not a valid 32 byte hex string.
@@ -145,18 +149,87 @@ impl TryFrom<u8> for SpVersion {
         match value {
             0 => Ok(Self::ZERO),
             _ => Err(Error::GenericError(
-                "Unknwon silent payment version".to_string(),
+                "Unknown silent payment version".to_string(),
             )),
         }
     }
 }
 
-/// A silent payment address struct that can be used to deserialize a silent payment address string.
+/// Core silent payment address data (version + pubkeys), without network.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct SilentPaymentAddressRaw {
+    version: SpVersion,
+    scan_key: PublicKey,
+    spend_key: PublicKey,
+}
+
+impl SilentPaymentAddressRaw {
+    pub fn new(version: SpVersion, scan_key: PublicKey, spend_key: PublicKey) -> Self {
+        Self {
+            version,
+            scan_key,
+            spend_key,
+        }
+    }
+
+    pub fn new_v0(scan_key: PublicKey, spend_key: PublicKey) -> Self {
+        Self::new(SpVersion::ZERO, scan_key, spend_key)
+    }
+
+    pub fn to_address_for_network(&self, network: Network) -> SilentPaymentAddress {
+        SilentPaymentAddress::from_raw(*self, network)
+    }
+
+    pub fn try_from_byte_array(bytes: &[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]) -> Result<Self> {
+        let version: SpVersion = bytes[0].try_into()?;
+        let scan_key = PublicKey::from_slice(&bytes[1..34])?;
+        let spend_key = PublicKey::from_slice(&bytes[34..])?;
+        Ok(Self::new(version, scan_key, spend_key))
+    }
+
+    pub fn try_from_byte_array_v0(bytes: &[u8; PUBLIC_KEY_SIZE * 2]) -> Result<Self> {
+        let scan_key = PublicKey::from_slice(&bytes[..PUBLIC_KEY_SIZE])?;
+        let spend_key = PublicKey::from_slice(&bytes[PUBLIC_KEY_SIZE..])?;
+        Ok(Self::new(SpVersion::ZERO, scan_key, spend_key))
+    }
+
+    pub fn to_byte_array(&self) -> [u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN] {
+        let mut bytes = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
+        bytes[0] = self.version.into();
+        bytes[1..34].copy_from_slice(&self.scan_key.serialize());
+        bytes[34..67].copy_from_slice(&self.spend_key.serialize());
+        bytes
+    }
+
+    pub fn version(&self) -> SpVersion {
+        self.version
+    }
+
+    pub fn scan_key(&self) -> PublicKey {
+        self.scan_key
+    }
+
+    pub fn spend_key(&self) -> PublicKey {
+        self.spend_key
+    }
+}
+
+impl From<SilentPaymentAddress> for SilentPaymentAddressRaw {
+    fn from(value: SilentPaymentAddress) -> Self {
+        value.raw
+    }
+}
+
+impl From<&SilentPaymentAddress> for SilentPaymentAddressRaw {
+    fn from(value: &SilentPaymentAddress) -> Self {
+        value.raw
+    }
+}
+
+/// A silent payment address with network, serializable as a bech32m string.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentAddress {
-    version: SpVersion,
-    scan_pubkey: PublicKey,
-    m_pubkey: PublicKey,
+    raw: SilentPaymentAddressRaw,
     network: Network,
 }
 
@@ -184,11 +257,18 @@ impl<'de> Deserialize<'de> for SilentPaymentAddress {
 }
 
 impl SilentPaymentAddress {
+    pub fn from_raw(raw: SilentPaymentAddressRaw, network: Network) -> Self {
+        Self { raw, network }
+    }
+
     /// Construct a `SilentPaymentAddress` from its component parts.
     ///
-    /// This constructor is always available, even without the `encode` feature.
-    /// If you have your own bech32 parser, you can use it to extract the components
-    /// and then construct the address using this method.
+    /// This wraps a [`SilentPaymentAddressRaw`] with a [`Network`]. It is always
+    /// available, even without the `encode` feature. If you already have a
+    /// [`SilentPaymentAddressRaw`], prefer [`Self::from_raw`].
+    ///
+    /// If you have your own bech32 parser, parse the payload and network HRP,
+    /// then build the address with this method or with `from_raw`.
     ///
     /// # Bech32 Format (for external parsers)
     ///
@@ -197,57 +277,63 @@ impl SilentPaymentAddress {
     ///   - Mainnet: `"sp"`
     ///   - Testnet/Signet: `"tsp"`
     ///   - Regtest: `"sprt"`
-    /// - **Data**: version (1 byte) + scan_pubkey (33 bytes) + spend_pubkey (33 bytes)
+    /// - **Data**: version (1 byte) + scan key (33 bytes) + spend key (33 bytes)
     ///
     /// # Example
     ///
     /// ```ignore
     /// use secp256k1::PublicKey;
-    /// use silentpayments::{SilentPaymentAddress, Network};
+    /// use silentpayments::{Network, SilentPaymentAddress, SpVersion};
     ///
     /// // After parsing bech32 yourself and extracting the pubkeys:
-    /// let scan_pubkey = PublicKey::from_slice(&scan_bytes)?;
-    /// let spend_pubkey = PublicKey::from_slice(&spend_bytes)?;
+    /// let scan_key = PublicKey::from_slice(&scan_bytes)?;
+    /// let spend_key = PublicKey::from_slice(&spend_bytes)?;
     ///
     /// let address = SilentPaymentAddress::new(
-    ///     scan_pubkey,
-    ///     spend_pubkey,
+    ///     scan_key,
+    ///     spend_key,
     ///     Network::Mainnet,
-    ///     0  // version
-    /// )?;
+    ///     SpVersion::ZERO,
+    /// );
+    ///
+    /// // To use the sending API, strip the network:
+    /// let raw: silentpayments::SilentPaymentAddressRaw = address.into();
     /// ```
     pub fn new(
-        scan_pubkey: PublicKey,
-        m_pubkey: PublicKey,
+        scan_key: PublicKey,
+        spend_key: PublicKey,
         network: Network,
         version: SpVersion,
     ) -> Self {
-        SilentPaymentAddress {
-            scan_pubkey,
-            m_pubkey,
+        Self::from_raw(
+            SilentPaymentAddressRaw::new(version, scan_key, spend_key),
             network,
-            version,
-        }
+        )
     }
 
-    /// Get the scan public key.
-    pub fn get_scan_key(&self) -> PublicKey {
-        self.scan_pubkey
+    /// Calls new() with version set at SpVersion::ZERO
+    pub fn new_v0(scan_key: PublicKey, spend_key: PublicKey, network: Network) -> Self {
+        Self::new(scan_key, spend_key, network, SpVersion::ZERO)
     }
 
-    /// Get the spend public key.
-    pub fn get_spend_key(&self) -> PublicKey {
-        self.m_pubkey
+    pub fn scan_key(&self) -> PublicKey {
+        self.raw.scan_key()
     }
 
-    /// Get the network.
-    pub fn get_network(&self) -> Network {
+    pub fn spend_key(&self) -> PublicKey {
+        self.raw.spend_key()
+    }
+
+    pub fn network(&self) -> Network {
         self.network
     }
 
-    /// Get the version byte.
-    pub fn get_version(&self) -> u8 {
-        self.version.into()
+    pub fn version(&self) -> SpVersion {
+        self.raw.version()
+    }
+
+    pub fn to_byte_array(&self) -> [u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN] {
+        self.raw.to_byte_array()
     }
 }
 
@@ -285,14 +371,12 @@ impl TryFrom<&str> for SilentPaymentAddress {
 
         let data = Vec::<u8>::from_base32(&data[1..])?;
 
-        let scan_pubkey = PublicKey::from_slice(&data[..33])?;
-        let m_pubkey = PublicKey::from_slice(&data[33..])?;
+        let scan_key = PublicKey::from_slice(&data[..33])?;
+        let spend_key = PublicKey::from_slice(&data[33..])?;
 
-        Ok(SilentPaymentAddress::new(
-            scan_pubkey,
-            m_pubkey,
+        Ok(SilentPaymentAddress::from_raw(
+            SilentPaymentAddressRaw::new(version, scan_key, spend_key),
             network,
-            version,
         ))
     }
 }
@@ -315,16 +399,16 @@ impl From<SilentPaymentAddress> for String {
             Network::Mainnet => "sp",
         };
 
-        let version = bech32::u5::try_from_u8(val.version.into()).unwrap();
+        let version = bech32::u5::try_from_u8(val.version().into()).expect("Always 0");
 
-        let B_scan_bytes = val.scan_pubkey.serialize();
-        let B_m_bytes = val.m_pubkey.serialize();
+        let B_scan_bytes = val.scan_key().serialize();
+        let B_m_bytes = val.spend_key().serialize();
 
         let mut data = [B_scan_bytes, B_m_bytes].concat().to_base32();
 
         data.insert(0, version);
 
-        bech32::encode(hrp, data, bech32::Variant::Bech32m).unwrap()
+        bech32::encode(hrp, data, bech32::Variant::Bech32m).expect("We know our hrps")
     }
 }
 
