@@ -416,9 +416,10 @@ pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
 
 impl<'a, T> NonEmptyArray<'a, T> {
     pub fn new(arr: &'a [T]) -> crate::Result<Self> {
-        match !arr.is_empty() {
-            true => Ok(Self(arr)),
-            false => Err(crate::Error::EmptyArray),
+        if !arr.is_empty() {
+            Ok(Self(arr))
+        } else {
+            Err(crate::Error::EmptyArray)
         }
     }
 
