@@ -6,7 +6,7 @@
 //! - Updater
 //! - Signer
 //! - SP Output Finalizer (`finalize_sp_outputs`) — BIP-352 output script derivation
-//! - Input Witness Finalizer (`finalize_input_witnesses`) — BIP-174 input finalization
+//! - Input Witness Finalizer (`InputWitnessFinalizerPsbtExt::finalize`) — delegates to rust-psbt's `Finalizer`
 //! - Extractor
 //!
 //! ## TODO: Future Enhancements

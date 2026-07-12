@@ -1,28 +1,24 @@
+//! PSBT Input Witness Finalizer Role
+//!
+//! BIP-174 input finalization. Thin spdk facade over rust-psbt's `Finalizer`,
+//! which builds `final_script_witness`/`final_script_sig` from the signature
+//! fields and runs an interpreter check.
+
 use crate::core::{Error, Psbt, Result};
-use bitcoin::{ScriptBuf, Witness};
+use psbt_v2::v2::Finalizer;
+use secp256k1::Secp256k1;
 
 pub trait InputWitnessFinalizerPsbtExt {
-    fn finalize(&mut self) -> Result<()>;
+    /// Finalize all inputs, returning the finalized PSBT.
+    fn finalize(self) -> Result<Psbt>;
 }
 
 impl InputWitnessFinalizerPsbtExt for Psbt {
-    fn finalize(&mut self) -> Result<()> {
-        for (i, input) in self.inputs.iter_mut().enumerate() {
-            if let Some(sig) = input.tap_key_sig {
-                let mut witness = Witness::new();
-                witness.push(sig.to_vec());
-                input.final_script_sig = Some(ScriptBuf::new());
-                input.final_script_witness = Some(witness);
-                input.tap_key_sig = None;
-                input.sighash_type = None;
-            } else {
-                // We can't finalize a partially signed transaction
-                return Err(Error::InvalidPsbtState(format!(
-                    "Missing signature on input {}",
-                    i
-                )));
-            }
-        }
-        Ok(())
+    fn finalize(self) -> Result<Psbt> {
+        let secp = Secp256k1::verification_only();
+        Finalizer::new(self)
+            .map_err(|e| Error::InvalidPsbtState(e.to_string()))?
+            .finalize(&secp)
+            .map_err(|e| Error::Other(e.to_string()))
     }
 }
