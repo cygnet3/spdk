@@ -90,8 +90,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = SpClient::new(scan_sk, SpendKey::Secret(spend_sk), NETWORK)?;
 
+    let sp_network = match NETWORK {
+        Network::Bitcoin => silentpayments::Network::Mainnet,
+        Network::Testnet | Network::Signet => silentpayments::Network::Testnet,
+        Network::Regtest => silentpayments::Network::Regtest,
+        _ => unreachable!(),
+    };
+
     println!("Receiving address for this key pair + network:");
-    println!("{}", client.get_receiving_address());
+    println!(
+        "{}",
+        client
+            .get_receiving_address()
+            .to_display_for_network(sp_network)
+    );
 
     let mut scanner = SpScanner::new(
         client,

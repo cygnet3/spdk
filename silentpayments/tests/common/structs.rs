@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use serde::Deserialize;
-use silentpayments::SilentPaymentAddress;
+use silentpayments::SilentPaymentAddressDisplay;
 
 #[derive(Debug, Deserialize)]
 pub struct TestData {
@@ -50,7 +50,7 @@ pub struct ReceivingDataGiven {
 
 #[derive(Debug, Deserialize)]
 pub struct ReceivingDataExpected {
-    pub addresses: Vec<SilentPaymentAddress>,
+    pub addresses: Vec<SilentPaymentAddressDisplay>,
     pub outputs: Vec<OutputWithSignature>,
 }
 

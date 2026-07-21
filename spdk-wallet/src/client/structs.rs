@@ -7,7 +7,7 @@ use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
-use silentpayments::SilentPaymentAddress;
+use silentpayments::SilentPaymentAddressDisplay;
 use silentpayments::utils::sending::PartialSecret;
 
 use spdk_core::updater::DiscoveredOutput;
@@ -19,14 +19,14 @@ pub use bdk_coin_select::FeeRate;
 #[serde(untagged)]
 pub enum RecipientAddress {
     LegacyAddress(Address<NetworkUnchecked>),
-    SpAddress(SilentPaymentAddress),
+    SpAddress(SilentPaymentAddressDisplay),
     Data(Vec<u8>), // OpReturn output
 }
 
 impl TryFrom<String> for RecipientAddress {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if let Ok(sp_address) = SilentPaymentAddress::try_from(value.as_str()) {
+        if let Ok(sp_address) = SilentPaymentAddressDisplay::try_from(value.as_str()) {
             Ok(Self::SpAddress(sp_address))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))

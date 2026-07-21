@@ -1,7 +1,7 @@
 use std::fmt;
 
 use bip321::{Bip321Error, ExtensionHandler, FieldWithAttributes};
-use silentpayments::{Network, SilentPaymentAddress};
+use silentpayments::{Network, SilentPaymentAddressDisplay};
 
 /// Error returned when validating silent payment fields of a BIP 321 URI.
 #[derive(Debug)]
@@ -102,13 +102,13 @@ impl ExtensionHandler for SpUriExtension {
 fn parse_slot(
     fields: &[FieldWithAttributes<String>],
     expected: Network,
-) -> Result<Vec<SilentPaymentAddress>, SpUriParseError> {
+) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
     fields
         .iter()
         .map(|field| {
-            let addr = SilentPaymentAddress::try_from(field.inner().as_str())
+            let addr = SilentPaymentAddressDisplay::try_from(field.inner().as_str())
                 .map_err(SpUriParseError::Address)?;
-            let got = addr.get_network();
+            let got = addr.network();
             let ok = match expected {
                 Network::Mainnet => got == Network::Mainnet,
                 _ => got != Network::Mainnet,
@@ -127,7 +127,7 @@ fn parse_slot(
 /// every entry is parsed. Each address must be mainnet.
 pub fn parse_sp(
     fields: &[FieldWithAttributes<String>],
-) -> Result<Vec<SilentPaymentAddress>, SpUriParseError> {
+) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
     parse_slot(fields, Network::Mainnet)
 }
 
@@ -138,7 +138,7 @@ pub fn parse_sp(
 /// regtest), matching bip321's `tb` rule.
 pub fn parse_tsp(
     fields: &[FieldWithAttributes<String>],
-) -> Result<Vec<SilentPaymentAddress>, SpUriParseError> {
+) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
     parse_slot(fields, Network::Testnet)
 }
 
@@ -151,10 +151,10 @@ mod tests {
     use silentpayments::SpVersion;
 
     use super::{
-        Network, SilentPaymentAddress, SpUriExtension, SpUriParseError, parse_sp, parse_tsp,
+        Network, SilentPaymentAddressDisplay, SpUriExtension, SpUriParseError, parse_sp, parse_tsp,
     };
 
-    fn make_sp_address(network: Network) -> SilentPaymentAddress {
+    fn make_sp_address(network: Network) -> SilentPaymentAddressDisplay {
         let secp = Secp256k1::new();
         let (scan_bytes, spend_bytes) = match network {
             Network::Mainnet => ([0x03; 32], [0x04; 32]),
@@ -167,7 +167,7 @@ mod tests {
         let spend = SecretKey::from_slice(&spend_bytes)
             .unwrap()
             .public_key(&secp);
-        SilentPaymentAddress::new(scan, spend, network, SpVersion::ZERO)
+        SilentPaymentAddressDisplay::new(scan, spend, network, SpVersion::ZERO)
     }
 
     fn parse(s: &str) -> Bip321Uri<SpUriExtension> {
@@ -180,7 +180,7 @@ mod tests {
         let uri = parse(&format!("bitcoin:?sp={sp}"));
         let addrs = parse_sp(uri.sp()).unwrap();
         assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].get_network(), Network::Mainnet);
+        assert_eq!(addrs[0].network(), Network::Mainnet);
         assert!(uri.extensions().tsp().is_empty());
     }
 
@@ -190,7 +190,7 @@ mod tests {
         let uri = parse(&format!("bitcoin:?tsp={tsp}"));
         let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
         assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].get_network(), Network::Testnet);
+        assert_eq!(addrs[0].network(), Network::Testnet);
         assert!(uri.sp().is_empty());
     }
 
@@ -200,7 +200,7 @@ mod tests {
         let uri = parse(&format!("bitcoin:?tsp={regtest}"));
         let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
         assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].get_network(), Network::Regtest);
+        assert_eq!(addrs[0].network(), Network::Regtest);
         assert!(uri.sp().is_empty());
     }
 
@@ -261,8 +261,8 @@ mod tests {
         let uri = parse(&format!("bitcoin:?tsp={tsp}&tsp={regtest}"));
         let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
         assert_eq!(addrs.len(), 2);
-        assert_eq!(addrs[0].get_network(), Network::Testnet);
-        assert_eq!(addrs[1].get_network(), Network::Regtest);
+        assert_eq!(addrs[0].network(), Network::Testnet);
+        assert_eq!(addrs[1].network(), Network::Regtest);
     }
 
     #[test]

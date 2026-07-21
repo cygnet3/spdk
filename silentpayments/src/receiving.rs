@@ -467,7 +467,7 @@ impl Receiver {
     }
 
     fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentAddress {
-        SilentPaymentAddress::new(self.scan_pubkey, m_pubkey, self.network, self.version)
+        SilentPaymentAddress::new(self.version, self.scan_pubkey, m_pubkey)
     }
 }
 
