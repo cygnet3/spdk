@@ -146,7 +146,7 @@ impl TryFrom<u8> for SpVersion {
         match value {
             0 => Ok(Self::ZERO),
             _ => Err(Error::GenericError(
-                "Unknwon silent payment version".to_string(),
+                "Unknown silent payment version".to_string(),
             )),
         }
     }
@@ -316,7 +316,8 @@ impl From<SilentPaymentAddress> for String {
             Network::Mainnet => "sp",
         };
 
-        let version = bech32::u5::try_from_u8(val.version.into()).unwrap();
+        let version = bech32::u5::try_from_u8(val.version.into())
+            .expect("SpVersion guarantees this conversion");
 
         let B_scan_bytes = val.scan_pubkey.serialize();
         let B_m_bytes = val.m_pubkey.serialize();
@@ -325,7 +326,7 @@ impl From<SilentPaymentAddress> for String {
 
         data.insert(0, version);
 
-        bech32::encode(hrp, data, bech32::Variant::Bech32m).unwrap()
+        bech32::encode(hrp, data, bech32::Variant::Bech32m).expect("We know our hrps")
     }
 }
 
@@ -333,9 +334,10 @@ pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
 
 impl<'a, T> NonEmptyArray<'a, T> {
     pub fn new(arr: &'a [T]) -> crate::Result<Self> {
-        match !arr.is_empty() {
-            true => Ok(Self(arr)),
-            false => Err(crate::Error::EmptyArray),
+        if !arr.is_empty() {
+            Ok(Self(arr))
+        } else {
+            Err(crate::Error::EmptyArray)
         }
     }
 
