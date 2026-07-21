@@ -232,23 +232,23 @@ impl SilentPaymentAddress {
     }
 
     /// Get the scan public key.
-    pub fn get_scan_key(&self) -> PublicKey {
+    pub fn scan_key(&self) -> PublicKey {
         self.scan_pubkey
     }
 
     /// Get the spend public key.
-    pub fn get_spend_key(&self) -> PublicKey {
+    pub fn spend_key(&self) -> PublicKey {
         self.m_pubkey
     }
 
     /// Get the network.
-    pub fn get_network(&self) -> Network {
+    pub fn network(&self) -> Network {
         self.network
     }
 
-    /// Get the version byte.
-    pub fn get_version(&self) -> u8 {
-        self.version.into()
+    /// Get the version.
+    pub fn version(&self) -> SpVersion {
+        self.version
     }
 }
 
