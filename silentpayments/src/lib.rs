@@ -6,7 +6,7 @@
 //! This library offers granular feature flags to minimize dependencies:
 //!
 //! - **default**: Enables `encode`, `sending`, and `receiving` features
-//! - **encode**: Enables string encoding/decoding for `SilentPaymentAddress` (requires `bech32`)
+//! - **encode**: Enables string encoding/decoding for `SilentPaymentAddressDisplay` (requires `bech32`)
 //! - **serde**: Enables serde serialization/deserialization for types
 //! - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex`, and `encode`)
 //! - **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`, `bimap`, `serde`, and `encode`)
@@ -24,10 +24,10 @@
 //! This will only pull in `secp256k1` as a dependency, giving you access to the core types
 //! without any encoding, serialization, or protocol functionality.
 //!
-//! **Note**: Even without the `encode` feature, you can still construct a `SilentPaymentAddress`
-//! from its components using `SilentPaymentAddress::new()`. This allows you to use your own
-//! bech32 parser (if your application already has one) and avoid duplicate dependencies.
-//! See the `SilentPaymentAddress::new()` documentation for the bech32 format specification.
+//! **Note**: Without the `encode` feature, construct a [`SilentPaymentAddress`] from
+//! parsed pubkeys using [`SilentPaymentAddress::new`]. With `encode`, use
+//! [`SilentPaymentAddressDisplay`] for bech32m strings (see [`SilentPaymentAddressDisplay::new`]
+//! for the on-wire format if you parse bech32 yourself).
 //!
 //! ## Examples
 //!
@@ -55,6 +55,8 @@ pub use utils::common::Network;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::SharedSecret;
 pub use utils::common::SilentPaymentAddress;
+#[cfg(feature = "encode")]
+pub use utils::common::SilentPaymentAddressDisplay;
 pub use utils::common::SpVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;

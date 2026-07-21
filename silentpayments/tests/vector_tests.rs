@@ -161,12 +161,15 @@ mod tests {
                 receiving_addresses.remove(&sp_receiver.get_change_address());
             }
 
-            let set1: HashSet<_> = receiving_addresses.iter().collect();
-            let set2: HashSet<_> = expected.addresses.iter().collect();
+            let expected_addresses: HashSet<SilentPaymentAddress> = expected
+                .addresses
+                .iter()
+                .map(SilentPaymentAddress::from)
+                .collect();
 
             // check that the receiving addresses generated are equal
             // to the expected addresses
-            assert_eq!(set1, set2);
+            assert_eq!(receiving_addresses, expected_addresses);
 
             let tweak_data = calculate_tweak_data(&input_pub_keys, &outpoints).unwrap();
             let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);

@@ -45,7 +45,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     // Print the receiving address to the console
-    println!("Receiving address: {}", receiver.get_receiving_address());
+    println!(
+        "Receiving address: {}",
+        receiver
+            .get_receiving_address()
+            .to_display_for_network(receiver.network)
+    );
 
     Ok(())
 }
