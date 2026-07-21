@@ -64,7 +64,7 @@ impl SpClient {
                     })
                 }
                 RecipientAddress::SpAddress(sp_address) => {
-                    if sp_address.get_network() != address_sp_network {
+                    if sp_address.network() != address_sp_network {
                         return Err(Error::msg(format!(
                             "Wrong network for address {}",
                             sp_address
@@ -181,7 +181,7 @@ impl SpClient {
                 script_pubkey: address.clone().require_network(network)?.script_pubkey(),
             }),
             RecipientAddress::SpAddress(sp_address) => {
-                if sp_address.get_network() != address_sp_network {
+                if sp_address.network() != address_sp_network {
                     return Err(Error::msg(format!(
                         "Wrong network for address {}",
                         sp_address
