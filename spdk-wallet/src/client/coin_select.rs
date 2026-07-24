@@ -103,7 +103,8 @@ pub fn select_all_utxos_for_fee_rate(
         n_outputs,
     };
 
-    let change_policy = ChangePolicy::min_value(drain_output, 0);
+    let change_policy =
+        ChangePolicy::min_value(drain_output, TR_DUST_RELAY_MIN_VALUE);
 
     let target = Target {
         fee: TargetFee::from_feerate(fee_rate),
