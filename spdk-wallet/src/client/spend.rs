@@ -393,10 +393,6 @@ impl SpClient {
         let sighash_type = bitcoin::TapSighashType::Default; // We impose Default for now
 
         for (i, input) in to_sign.input.iter().enumerate() {
-            let tap_leaf_hash: Option<TapLeafHash> = None;
-
-            let msg = Self::taproot_sighash(sighash_type, &prevouts, i, &mut cache, tap_leaf_hash)?;
-
             let selected = unsigned_tx
                 .selected_utxos
                 .iter()
@@ -405,10 +401,15 @@ impl SpClient {
                     Error::msg(format!("prevout for input {} not in selected utxos", i))
                 })?;
 
-            // Only SP-owned inputs carry a tweak this wallet can sign with.
+            // Only SP-owned inputs carry a tweak this wallet can sign with;
+            // skip external inputs before doing any sighash work.
             let SpendingData::SilentPayment(owned_output) = &selected.spending_data else {
                 continue;
             };
+
+            let tap_leaf_hash: Option<TapLeafHash> = None;
+
+            let msg = Self::taproot_sighash(sighash_type, &prevouts, i, &mut cache, tap_leaf_hash)?;
 
             let sk = b_spend.add_tweak(&owned_output.tweak)?;
 
