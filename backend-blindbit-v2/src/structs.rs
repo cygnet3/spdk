@@ -1,6 +1,7 @@
 #![allow(unused)]
 use bitcoin::{
-    BlockHash, Txid, XOnlyPublicKey, absolute::Height, hashes::Hash, secp256k1::PublicKey,
+    BlockHash, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height, hashes::Hash,
+    secp256k1::PublicKey,
 };
 
 use crate::oracle_grpc;
@@ -27,8 +28,14 @@ impl From<oracle_grpc::BlockScanDataShortResponse> for BlockScanData {
 }
 
 impl ShortenedXOnlyPubkey {
-    pub fn matches(&self, other: XOnlyPublicKey) -> bool {
-        self.0 == other.serialize()[..8]
+    pub fn matches_script(&self, script: &ScriptBuf) -> bool {
+        let key = XOnlyPublicKey::from_slice(&script.as_bytes()[2..]).unwrap();
+
+        self.matches(key)
+    }
+
+    pub fn matches(&self, key: XOnlyPublicKey) -> bool {
+        self.0 == key.serialize()[..8]
     }
 
     pub fn from_vec(vec: Vec<u8>) -> Vec<Self> {

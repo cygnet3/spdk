@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     let with_cutthrough = false;
 
     let mut block_data_stream = client
-        .get_block_data_for_range(start..=end, false, dust_limit, with_cutthrough)
+        .get_block_data_for_range(start..=end, dust_limit, with_cutthrough)
         .await;
 
     while let Some(block_data) = block_data_stream.next().await {

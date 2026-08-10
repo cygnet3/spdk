@@ -23,7 +23,6 @@ impl BlindbitClient {
     pub async fn get_block_data_for_range(
         &self,
         range: RangeInclusive<Height>,
-        _reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = anyhow::Result<BlockScanData>> + Send>> {
@@ -45,11 +44,7 @@ impl BlindbitClient {
             .unwrap()
             .into_inner();
 
-        let mapped = stream.map(|response| {
-            let block_data: BlockScanData = response.unwrap().into();
-
-            Ok(block_data)
-        });
+        let mapped = stream.map(|response| Ok(response.unwrap().into()));
 
         Box::pin(mapped)
     }
