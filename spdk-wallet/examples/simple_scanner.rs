@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let end = Height::from_consensus(SCAN_END_HEIGHT)?;
 
     scanner
-        .scan_blocks(start..=end, false, DUST_LIMIT, WITH_CUTTHROUGH)
+        .scan_blocks(start..=end, DUST_LIMIT, WITH_CUTTHROUGH)
         .await?;
 
     // print all received updates

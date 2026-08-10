@@ -18,4 +18,3 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 hex.workspace = true
-itertools.workspace = true

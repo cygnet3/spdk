@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use bitcoin::{Amount, absolute::Height};
 use futures::{Stream, StreamExt, stream};
 
-use itertools::Either;
 use spdk_core::chain::{BlockData, ChainBackend, SpentIndexData, UtxoData};
 
 use crate::BlindbitClient;
@@ -32,7 +31,6 @@ impl ChainBackend for BlindbitBackend {
     fn get_block_data_for_range(
         &self,
         range: RangeInclusive<Height>,
-        reverse: bool,
         dust_limit: Amount,
         with_cutthrough: bool,
     ) -> Pin<Box<dyn Stream<Item = Result<BlockData>> + Send>> {
@@ -40,11 +38,6 @@ impl ChainBackend for BlindbitBackend {
 
         // convert range to u32 since Height does not implement Step
         let range = range.start().to_consensus_u32()..=range.end().to_consensus_u32();
-
-        let range = match reverse {
-            false => Either::Left(range),
-            true => Either::Right(range.rev()),
-        };
 
         let res = stream::iter(range)
             .map(move |n| {
