@@ -5,7 +5,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex, FromHex};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
+use bitcoin::{Address, Amount, Network, OutPoint, Transaction, TxOut};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentAddressDisplay;
 use silentpayments::utils::sending::PartialSecret;
@@ -56,10 +56,39 @@ pub struct Recipient {
     pub amount: Amount,            // must be 0 if address is Data.
 }
 
+/// Spending metadata for a selected input.
+///
+/// `SilentPayment` carries the tweak needed to derive the signing key.
+/// `Legacy` is any non-SP prevout (owned or external); this wallet cannot
+/// derive an SP tweak for it.
+#[derive(Debug, Clone)]
+pub enum SpendingData {
+    SilentPayment(DiscoveredOutput),
+    Legacy(TxOut),
+}
+
+impl SpendingData {
+    pub fn txout(&self) -> TxOut {
+        match self {
+            Self::SilentPayment(o) => TxOut {
+                value: o.value,
+                script_pubkey: o.script_pubkey.clone(),
+            },
+            Self::Legacy(txout) => txout.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectedUtxo {
+    pub outpoint: OutPoint,
+    pub spending_data: SpendingData,
+}
+
 #[derive(Debug, Clone)]
 // this will be replaced by a proper psbt as soon as sp support is standardised
 pub struct SilentPaymentUnsignedTransaction {
-    pub selected_utxos: Vec<(OutPoint, DiscoveredOutput)>,
+    pub selected_utxos: Vec<SelectedUtxo>,
     pub recipients: Vec<Recipient>,
     pub partial_secret: PartialSecret,
     pub unsigned_tx: Option<Transaction>,
