@@ -18,10 +18,12 @@ use silentpayments::{Network as SpNetwork, SilentPaymentAddress};
 use spdk_core::constants::DATA_CARRIER_SIZE;
 use spdk_core::updater::DiscoveredOutput;
 
-use super::coin_select::{pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate};
+use super::coin_select::{
+    UtxoCandidate, pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate,
+};
 use super::{
     FeeRate, InputSelection, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
-    SpClient, Strategy, UtxoCandidate,
+    SpClient, Strategy,
 };
 
 fn sp_network_from_network(network: Network) -> SpNetwork {
