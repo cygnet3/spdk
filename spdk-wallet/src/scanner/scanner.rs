@@ -134,11 +134,20 @@ impl<'a> SpScanner<'a> {
             .process_block_outputs(block_identifier.block_height, comp_index)
             .await?;
 
+        if !outs.is_empty() {
+            info!("outs: {:?}", outs);
+        }
+
         // after processing outputs, we add the found outputs to our list
         self.owned_scripts
             .extend(outs.values().map(|x| x.script_pubkey.clone()));
 
-        let _ = self.process_block_inputs(spent_spks).await?;
+        let ins = self.process_block_inputs(spent_spks).await?;
+
+        if !ins.is_empty() {
+            info!("ins: {:?}", outs);
+        }
+
         let ins = HashSet::new();
 
         // todo: instead of working with outpoints, we now need to work with spk's
