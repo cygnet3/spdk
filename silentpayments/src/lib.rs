@@ -6,7 +6,7 @@
 //! This library offers granular feature flags to minimize dependencies:
 //!
 //! - **default**: Enables `encode`, `sending`, and `receiving` features
-//! - **encode**: Enables string encoding/decoding for `SilentPaymentAddressDisplay` (requires `bech32`)
+//! - **encode**: Adds `EncodedSilentPaymentAddress` struct, a helper struct for string encoding/decoding (requires `bech32`)
 //! - **serde**: Enables serde serialization/deserialization for types
 //! - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex`, and `encode`)
 //! - **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`, `bimap`, `serde`, and `encode`)
@@ -26,7 +26,7 @@
 //!
 //! **Note**: Without the `encode` feature, construct a [`SilentPaymentAddress`] from
 //! parsed pubkeys using [`SilentPaymentAddress::new`]. With `encode`, use
-//! [`SilentPaymentAddressDisplay`] for bech32m strings (see [`SilentPaymentAddressDisplay::new`]
+//! [`EncodedSilentPaymentAddress`] for bech32m strings (see [`EncodedSilentPaymentAddress::new`]
 //! for the on-wire format if you parse bech32 yourself).
 //!
 //! ## Examples
@@ -51,12 +51,12 @@ pub use bitcoin_hashes;
 pub use secp256k1;
 
 pub use crate::error::Error;
+#[cfg(feature = "encode")]
+pub use utils::common::EncodedSilentPaymentAddress;
 pub use utils::common::Network;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::SharedSecret;
 pub use utils::common::SilentPaymentAddress;
-#[cfg(feature = "encode")]
-pub use utils::common::SilentPaymentAddressDisplay;
 pub use utils::common::SpVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;

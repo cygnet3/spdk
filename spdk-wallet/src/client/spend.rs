@@ -18,7 +18,7 @@ use bitcoin::{
 };
 use silentpayments::utils as sp_utils;
 use silentpayments::utils::sending::PartialSecret;
-use silentpayments::{Network as SpNetwork, SilentPaymentAddress, SilentPaymentAddressDisplay};
+use silentpayments::{EncodedSilentPaymentAddress, Network as SpNetwork, SilentPaymentAddress};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
@@ -135,7 +135,7 @@ impl SpClient {
         let change = coin_selector.drain(target, change_policy);
         let change_value = if change.is_some() { change.value } else { 0 };
         if change_value > 0 {
-            let change_address = SilentPaymentAddressDisplay::from_sp_address(
+            let change_address = EncodedSilentPaymentAddress::from_sp_address(
                 self.sp_receiver.get_change_address(),
                 address_sp_network,
             );

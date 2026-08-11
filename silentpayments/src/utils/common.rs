@@ -159,7 +159,7 @@ impl TryFrom<u8> for SpVersion {
 /// (`B_spend + m·G`).
 #[cfg_attr(
     feature = "encode",
-    doc = "\n\nNetwork is only needed for bech32m strings; use [`SilentPaymentAddressDisplay`] or [`SilentPaymentAddress::to_display_for_network`] when encoding or showing an address."
+    doc = "\n\nNetwork is only needed for bech32m strings; use [`EncodedSilentPaymentAddress`] or [`SilentPaymentAddress::to_display_for_network`] when encoding or showing an address."
 )]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentAddress {
@@ -188,9 +188,9 @@ impl SilentPaymentAddress {
     }
 
     #[cfg(feature = "encode")]
-    /// Attach a [`Network`] for string encoding via [`SilentPaymentAddressDisplay`].
-    pub fn to_display_for_network(&self, network: Network) -> SilentPaymentAddressDisplay {
-        SilentPaymentAddressDisplay::from_sp_address(*self, network)
+    /// Attach a [`Network`] for string encoding via [`EncodedSilentPaymentAddress`].
+    pub fn to_display_for_network(&self, network: Network) -> EncodedSilentPaymentAddress {
+        EncodedSilentPaymentAddress::from_sp_address(*self, network)
     }
 
     pub fn try_from_byte_array_v0(bytes: &[u8; PUBLIC_KEY_SIZE * 2]) -> Result<Self> {
@@ -216,15 +216,15 @@ impl SilentPaymentAddress {
 }
 
 #[cfg(feature = "encode")]
-impl From<SilentPaymentAddressDisplay> for SilentPaymentAddress {
-    fn from(value: SilentPaymentAddressDisplay) -> Self {
+impl From<EncodedSilentPaymentAddress> for SilentPaymentAddress {
+    fn from(value: EncodedSilentPaymentAddress) -> Self {
         value.sp_address
     }
 }
 
 #[cfg(feature = "encode")]
-impl From<&SilentPaymentAddressDisplay> for SilentPaymentAddress {
-    fn from(value: &SilentPaymentAddressDisplay) -> Self {
+impl From<&EncodedSilentPaymentAddress> for SilentPaymentAddress {
+    fn from(value: &EncodedSilentPaymentAddress) -> Self {
         value.sp_address
     }
 }
@@ -232,13 +232,13 @@ impl From<&SilentPaymentAddressDisplay> for SilentPaymentAddress {
 /// A silent payment address with network, serializable as a bech32m string.
 #[cfg(feature = "encode")]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct SilentPaymentAddressDisplay {
+pub struct EncodedSilentPaymentAddress {
     sp_address: SilentPaymentAddress,
     network: Network,
 }
 
 #[cfg(feature = "serde")]
-impl Serialize for SilentPaymentAddressDisplay {
+impl Serialize for EncodedSilentPaymentAddress {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -249,7 +249,7 @@ impl Serialize for SilentPaymentAddressDisplay {
 }
 
 #[cfg(feature = "serde")]
-impl<'de> Deserialize<'de> for SilentPaymentAddressDisplay {
+impl<'de> Deserialize<'de> for EncodedSilentPaymentAddress {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -261,7 +261,7 @@ impl<'de> Deserialize<'de> for SilentPaymentAddressDisplay {
 }
 
 #[cfg(feature = "encode")]
-impl SilentPaymentAddressDisplay {
+impl EncodedSilentPaymentAddress {
     /// Build a display address from an existing [`SilentPaymentAddress`] and [`Network`].
     pub fn from_sp_address(sp_address: SilentPaymentAddress, network: Network) -> Self {
         Self {
@@ -270,7 +270,7 @@ impl SilentPaymentAddressDisplay {
         }
     }
 
-    /// Construct a [`SilentPaymentAddressDisplay`] from its component parts.
+    /// Construct a [`EncodedSilentPaymentAddress`] from its component parts.
     ///
     /// Combines a [`SilentPaymentAddress`] with a [`Network`] for bech32m string
     /// encoding. If you already have a [`SilentPaymentAddress`], prefer
@@ -294,13 +294,13 @@ impl SilentPaymentAddressDisplay {
     ///
     /// ```ignore
     /// use secp256k1::PublicKey;
-    /// use silentpayments::{Network, SilentPaymentAddressDisplay, SpVersion};
+    /// use silentpayments::{Network, EncodedSilentPaymentAddress, SpVersion};
     ///
     /// // After parsing bech32 yourself and extracting the pubkeys:
     /// let scan_key = PublicKey::from_slice(&scan_bytes)?;
     /// let m_pubkey = PublicKey::from_slice(&m_pubkey_bytes)?;
     ///
-    /// let display = SilentPaymentAddressDisplay::new(
+    /// let display = EncodedSilentPaymentAddress::new(
     ///     scan_key,
     ///     m_pubkey,
     ///     Network::Mainnet,
@@ -356,14 +356,14 @@ impl SilentPaymentAddressDisplay {
 }
 
 #[cfg(feature = "encode")]
-impl fmt::Display for SilentPaymentAddressDisplay {
+impl fmt::Display for EncodedSilentPaymentAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", <Self as Into<String>>::into(*self))
     }
 }
 
 #[cfg(feature = "encode")]
-impl TryFrom<&str> for SilentPaymentAddressDisplay {
+impl TryFrom<&str> for EncodedSilentPaymentAddress {
     type Error = Error;
 
     fn try_from(addr: &str) -> Result<Self> {
@@ -400,7 +400,7 @@ impl TryFrom<&str> for SilentPaymentAddressDisplay {
 }
 
 #[cfg(feature = "encode")]
-impl TryFrom<String> for SilentPaymentAddressDisplay {
+impl TryFrom<String> for EncodedSilentPaymentAddress {
     type Error = Error;
 
     fn try_from(addr: String) -> Result<Self> {
@@ -409,8 +409,8 @@ impl TryFrom<String> for SilentPaymentAddressDisplay {
 }
 
 #[cfg(feature = "encode")]
-impl From<SilentPaymentAddressDisplay> for String {
-    fn from(val: SilentPaymentAddressDisplay) -> Self {
+impl From<EncodedSilentPaymentAddress> for String {
+    fn from(val: EncodedSilentPaymentAddress) -> Self {
         let hrp = match val.network {
             Network::Testnet => "tsp",
             Network::Regtest => "sprt",

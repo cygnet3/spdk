@@ -1,7 +1,7 @@
 use std::fmt;
 
 use bip321::{Bip321Error, ExtensionHandler, FieldWithAttributes};
-use silentpayments::{Network, SilentPaymentAddressDisplay};
+use silentpayments::{EncodedSilentPaymentAddress, Network};
 
 /// Error returned when validating silent payment fields of a BIP 321 URI.
 #[derive(Debug)]
@@ -102,11 +102,11 @@ impl ExtensionHandler for SpUriExtension {
 fn parse_slot(
     fields: &[FieldWithAttributes<String>],
     expected: Network,
-) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
+) -> Result<Vec<EncodedSilentPaymentAddress>, SpUriParseError> {
     fields
         .iter()
         .map(|field| {
-            let addr = SilentPaymentAddressDisplay::try_from(field.inner().as_str())
+            let addr = EncodedSilentPaymentAddress::try_from(field.inner().as_str())
                 .map_err(SpUriParseError::Address)?;
             let got = addr.network();
             let ok = match expected {
@@ -127,7 +127,7 @@ fn parse_slot(
 /// every entry is parsed. Each address must be mainnet.
 pub fn parse_sp(
     fields: &[FieldWithAttributes<String>],
-) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
+) -> Result<Vec<EncodedSilentPaymentAddress>, SpUriParseError> {
     parse_slot(fields, Network::Mainnet)
 }
 
@@ -138,7 +138,7 @@ pub fn parse_sp(
 /// regtest), matching bip321's `tb` rule.
 pub fn parse_tsp(
     fields: &[FieldWithAttributes<String>],
-) -> Result<Vec<SilentPaymentAddressDisplay>, SpUriParseError> {
+) -> Result<Vec<EncodedSilentPaymentAddress>, SpUriParseError> {
     parse_slot(fields, Network::Testnet)
 }
 
@@ -151,10 +151,10 @@ mod tests {
     use silentpayments::SpVersion;
 
     use super::{
-        Network, SilentPaymentAddressDisplay, SpUriExtension, SpUriParseError, parse_sp, parse_tsp,
+        EncodedSilentPaymentAddress, Network, SpUriExtension, SpUriParseError, parse_sp, parse_tsp,
     };
 
-    fn make_sp_address(network: Network) -> SilentPaymentAddressDisplay {
+    fn make_sp_address(network: Network) -> EncodedSilentPaymentAddress {
         let secp = Secp256k1::new();
         let (scan_bytes, spend_bytes) = match network {
             Network::Mainnet => ([0x03; 32], [0x04; 32]),
@@ -167,7 +167,7 @@ mod tests {
         let spend = SecretKey::from_slice(&spend_bytes)
             .unwrap()
             .public_key(&secp);
-        SilentPaymentAddressDisplay::new(scan, spend, network, SpVersion::ZERO)
+        EncodedSilentPaymentAddress::new(scan, spend, network, SpVersion::ZERO)
     }
 
     fn parse(s: &str) -> Bip321Uri<SpUriExtension> {
