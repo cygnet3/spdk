@@ -14,6 +14,21 @@ use crate::client::{Recipient, RecipientAddress};
 /// Upper bound on branch-and-bound iterations (see `bdk_coin_select` README).
 const BNB_MAX_ROUNDS: usize = 10_000;
 
+/// Maximum satisfaction weight for a native P2WPKH input (segwit, counted at 1 WU/byte).
+///
+/// Derived from `InputWeightPrediction::P2WPKH_MAX.weight().to_wu() - 4`:
+/// `InputWeightPrediction` includes the 1-byte scriptSig length varint in its `script_size`
+/// (4 WU), but `bdk_coin_select`'s `TXIN_BASE_WEIGHT` already covers that byte, so it must
+/// be subtracted. Witness: varint(2 items=1) + varint(sig_len=1) + sig(72) + varint(pubkey_len=1)
+/// + pubkey(33) = 108 WU.
+pub const P2WPKH_SATISFACTION_WEIGHT: u64 = 1 + 1 + 72 + 1 + 33; // 108 WU
+
+/// Maximum satisfaction weight for a compressed-key P2PKH input (non-segwit, at 4 WU/byte).
+///
+/// Derived from `InputWeightPrediction::P2PKH_COMPRESSED_MAX.weight().to_wu() - 4`.
+/// scriptSig content: OP_DATA(1) + sig(72) + OP_DATA(1) + pubkey(33) = 107 bytes × 4 WU = 428 WU.
+pub const P2PKH_SATISFACTION_WEIGHT: u64 = (1 + 72 + 1 + 33) * 4; // 428 WU
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strategy {
     Changeless,
@@ -37,6 +52,40 @@ fn candidate_from_utxo(candidate: &UtxoCandidate) -> Candidate {
         candidate.satisfaction_weight,
         candidate.is_segwit,
     )
+}
+
+/// Builds a [`UtxoCandidate`] for an externally-provided mandatory input.
+///
+/// Only standard script types with a statically-known worst-case satisfaction weight are
+/// accepted; everything else is rejected to prevent a malicious peer from understating the
+/// weight of their input and corrupting fee estimation:
+///
+/// | Script type | Assumption            | Weight  |
+/// |-------------|---------------------- |---------|
+/// | P2TR        | key-path spend        | 66 WU   |
+/// | P2WPKH      | single ECDSA sig      | 109 WU  |
+/// | P2PKH       | single ECDSA sig      | 432 WU  |
+pub fn candidate_from_external_utxo(outpoint: OutPoint, txout: TxOut) -> Result<UtxoCandidate> {
+    let spk = &txout.script_pubkey;
+    let (satisfaction_weight, is_segwit) = if spk.is_p2tr() {
+        (TR_KEYSPEND_SATISFACTION_WEIGHT, true)
+    } else if spk.is_p2wpkh() {
+        (P2WPKH_SATISFACTION_WEIGHT, true)
+    } else if spk.is_p2pkh() {
+        (P2PKH_SATISFACTION_WEIGHT, false)
+    } else {
+        return Err(anyhow::Error::msg(format!(
+            "external input {outpoint}: unsupported script type — \
+             only P2TR (key-path), P2WPKH, and P2PKH are accepted"
+        )));
+    };
+    Ok(UtxoCandidate {
+        outpoint,
+        txout,
+        satisfaction_weight: Some(satisfaction_weight),
+        is_segwit,
+        is_ours: false,
+    })
 }
 
 /// Returns the output weight in weight units for the given recipient.

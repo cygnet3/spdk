@@ -6,6 +6,8 @@ mod structs;
 
 pub use bip321_parsing::{SpUriExtension, SpUriParseError, parse_sp, parse_tsp};
 pub use client::SpClient;
-pub use coin_select::{InputSelection, Strategy};
+pub use coin_select::{
+    InputSelection, Strategy, P2PKH_SATISFACTION_WEIGHT, P2WPKH_SATISFACTION_WEIGHT,
+};
 pub use spend::{propose_coin_selections, propose_drain_selection};
 pub use structs::*;
