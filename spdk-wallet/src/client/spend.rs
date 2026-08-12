@@ -19,11 +19,12 @@ use spdk_core::constants::DATA_CARRIER_SIZE;
 use spdk_core::updater::DiscoveredOutput;
 
 use super::coin_select::{
-    UtxoCandidate, pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate,
+    candidate_from_external_utxo, pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate,
+    UtxoCandidate,
 };
 use super::{
-    FeeRate, InputSelection, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction,
-    SpClient, Strategy,
+    FeeRate, InputSelection, Recipient, RecipientAddress, SelectedUtxo,
+    SilentPaymentUnsignedTransaction, SpClient, SpendingData, Strategy,
 };
 
 fn sp_network_from_network(network: Network) -> SpNetwork {
@@ -59,21 +60,41 @@ fn discovered_outputs_to_candidates(
         .collect()
 }
 
+/// Builds the full [`UtxoCandidate`] list from wallet-owned and external UTXOs.
+///
+/// External UTXOs are validated and marked mandatory; see
+/// [`candidate_from_external_utxo`] for the accepted script types.
+fn build_candidates(
+    available_utxos: &[(OutPoint, DiscoveredOutput)],
+    external_utxos: &[(OutPoint, TxOut)],
+) -> Result<Vec<UtxoCandidate>> {
+    let mut candidates = discovered_outputs_to_candidates(available_utxos);
+    for (outpoint, txout) in external_utxos {
+        candidates.push(candidate_from_external_utxo(*outpoint, txout.clone())?);
+    }
+    Ok(candidates)
+}
+
 /// Proposes coin selections for a normal (non-drain) transaction.
 ///
-/// Runs the Changeless, LowestFee, and Greedy strategies independently and
-/// returns one [`InputSelection`] per strategy that found a valid solution.
+/// Runs the Changeless, LowestFee, and Greedy strategies independently and returns one
+/// [`InputSelection`] per strategy that found a valid solution. The caller picks the preferred
+/// selection and hands it to [`SpClient::create_transaction_from_selection`].
 ///
-/// The caller picks the preferred selection and hands it to
-/// [`SpClient::create_transaction_from_selection`].
+/// `external_utxos` are mandatory inputs that do not belong to this wallet (e.g. a counterparty's
+/// UTXO in a collaborative transaction). They are always included in the selection regardless of
+/// strategy. Only P2TR (key-path), P2WPKH, and P2PKH script types are accepted; any other type
+/// returns an error, preventing a peer from understating the spending weight of their input.
+///
+/// `n_change_outputs` controls how many change outputs to budget for. Use `1` for the common case.
 pub fn propose_coin_selections(
     available_utxos: &[(OutPoint, DiscoveredOutput)],
+    external_utxos: &[(OutPoint, TxOut)],
     recipients: &[Recipient],
     fee_rate: FeeRate,
     n_change_outputs: usize,
 ) -> Result<Vec<InputSelection>> {
-    let candidates = discovered_outputs_to_candidates(available_utxos);
-    // One change output: the wallet's own SP change address.
+    let candidates = build_candidates(available_utxos, external_utxos)?;
     pick_utxos_for_fee_rate(candidates, recipients, n_change_outputs, fee_rate)
 }
 
@@ -84,12 +105,13 @@ pub fn propose_coin_selections(
 /// (`selection.change` is always zero for a drain).
 ///
 /// ```ignore
-/// let sel = propose_drain_selection(&utxos, &addr, fee_rate)?;
+/// let sel = propose_drain_selection(&utxos, &[], &addr, fee_rate)?;
 /// let recipients = vec![Recipient { address: addr, amount: sel.sent }];
-/// let unsigned = client.create_transaction_from_selection(&utxos, recipients, sel, network)?;
+/// let unsigned = client.create_transaction_from_selection(&utxos, &[], recipients, sel, network)?;
 /// ```
 pub fn propose_drain_selection(
     available_utxos: &[(OutPoint, DiscoveredOutput)],
+    external_utxos: &[(OutPoint, TxOut)],
     recipient: &RecipientAddress,
     fee_rate: FeeRate,
 ) -> Result<InputSelection> {
@@ -97,7 +119,7 @@ pub fn propose_drain_selection(
         return Err(Error::msg("Draining to OP_RETURN not allowed"));
     }
 
-    let candidates = discovered_outputs_to_candidates(available_utxos);
+    let candidates = build_candidates(available_utxos, external_utxos)?;
 
     // Amount::ZERO is a placeholder — only the output weight matters for fee
     // estimation here; the real amount is filled in by the caller.
@@ -126,9 +148,16 @@ impl SpClient {
     /// was computed for: their total amount must equal `selection.sent` and
     /// their count `selection.n_sent_outputs`, otherwise an error is
     /// returned.
+    ///
+    /// `external_utxos` must be the same slice that was passed to the corresponding
+    /// `propose_*` function. Any outpoint in the selection that is not found in
+    /// `available_utxos` is resolved from `external_utxos` and stored as
+    /// [`SpendingData::Legacy`]; an error is returned if an outpoint is absent from
+    /// both.
     pub fn create_transaction_from_selection(
         &self,
         available_utxos: &[(OutPoint, DiscoveredOutput)],
+        external_utxos: &[(OutPoint, TxOut)],
         mut recipients: Vec<Recipient>,
         selection: InputSelection,
         network: Network,
@@ -177,17 +206,26 @@ impl SpClient {
             ));
         }
 
-        let selected_utxos: Vec<(OutPoint, DiscoveredOutput)> = selection
+        let selected_utxos: Vec<SelectedUtxo> = selection
             .selected_utxos
             .iter()
             .map(|op| {
-                available_utxos
-                    .iter()
-                    .find(|(o, _)| o == op)
-                    .map(|(o, d)| (*o, d.clone()))
-                    .ok_or_else(|| {
-                        Error::msg(format!("outpoint {} not found in available_utxos", op))
+                if let Some((o, d)) = available_utxos.iter().find(|(o, _)| o == op) {
+                    Ok(SelectedUtxo {
+                        outpoint: *o,
+                        spending_data: SpendingData::SilentPayment(d.clone()),
                     })
+                } else if let Some((o, txout)) = external_utxos.iter().find(|(o, _)| o == op) {
+                    Ok(SelectedUtxo {
+                        outpoint: *o,
+                        spending_data: SpendingData::Legacy(txout.clone()),
+                    })
+                } else {
+                    Err(Error::msg(format!(
+                        "outpoint {} not found in available_utxos or external_utxos",
+                        op
+                    )))
+                }
             })
             .collect::<Result<_>>()?;
 
@@ -215,8 +253,8 @@ impl SpClient {
         let tx_ins: Vec<TxIn> = unsigned_transaction
             .selected_utxos
             .iter()
-            .map(|(outpoint, _)| TxIn {
-                previous_output: *outpoint,
+            .map(|selected| TxIn {
+                previous_output: selected.outpoint,
                 script_sig: ScriptBuf::new(),
                 sequence: Sequence::MAX,
                 witness: Witness::new(),
@@ -348,27 +386,30 @@ impl SpClient {
         let prevouts: Vec<_> = unsigned_tx
             .selected_utxos
             .iter()
-            .map(|(_, o)| TxOut {
-                value: o.value,
-                script_pubkey: o.script_pubkey.clone(),
-            })
+            .map(|selected| selected.spending_data.txout())
             .collect();
 
         let secp = Secp256k1::signing_only();
         let sighash_type = bitcoin::TapSighashType::Default; // We impose Default for now
 
         for (i, input) in to_sign.input.iter().enumerate() {
-            let tap_leaf_hash: Option<TapLeafHash> = None;
-
-            let msg = Self::taproot_sighash(sighash_type, &prevouts, i, &mut cache, tap_leaf_hash)?;
-
-            let (_, owned_output) = unsigned_tx
+            let selected = unsigned_tx
                 .selected_utxos
                 .iter()
-                .find(|(o, _)| o == &input.previous_output)
+                .find(|s| s.outpoint == input.previous_output)
                 .ok_or_else(|| {
                     Error::msg(format!("prevout for input {} not in selected utxos", i))
                 })?;
+
+            // Only SP-owned inputs carry a tweak this wallet can sign with;
+            // skip external inputs before doing any sighash work.
+            let SpendingData::SilentPayment(owned_output) = &selected.spending_data else {
+                continue;
+            };
+
+            let tap_leaf_hash: Option<TapLeafHash> = None;
+
+            let msg = Self::taproot_sighash(sighash_type, &prevouts, i, &mut cache, tap_leaf_hash)?;
 
             let sk = b_spend.add_tweak(&owned_output.tweak)?;
 
@@ -393,11 +434,20 @@ impl SpClient {
 
     pub fn get_partial_secret_for_selected_utxos(
         &self,
-        selected_utxos: &[(OutPoint, DiscoveredOutput)],
+        selected_utxos: &[SelectedUtxo],
     ) -> Result<PartialSecret> {
         let b_spend = self.try_get_secret_spend_key()?;
 
-        let outpoints = selected_utxos
+        // Only SP-owned inputs contribute to the partial secret computation.
+        let sp_inputs: Vec<_> = selected_utxos
+            .iter()
+            .filter_map(|u| match &u.spending_data {
+                SpendingData::SilentPayment(o) => Some((u.outpoint, o)),
+                SpendingData::Legacy(_) => None,
+            })
+            .collect();
+
+        let outpoints = sp_inputs
             .iter()
             .map(|(outpoint, _)| {
                 Ok(sp_utils::OutPoint::from_txid_and_vout(
@@ -407,7 +457,7 @@ impl SpClient {
             })
             .collect::<Result<Vec<sp_utils::OutPoint>>>()?;
 
-        let input_privkeys = selected_utxos
+        let input_privkeys = sp_inputs
             .iter()
             .map(|(_, output)| Ok((b_spend.add_tweak(&output.tweak)?, true)))
             .collect::<Result<Vec<_>>>()?;
@@ -482,13 +532,27 @@ mod tests {
         FeeRate::from_sat_per_vb(1.0)
     }
 
+    fn external_p2tr_txout(value_sat: u64) -> TxOut {
+        // Use a distinct key ([0x44; 32]) to distinguish from wallet/payment outputs.
+        let secp = Secp256k1::new();
+        let sk = SecretKey::from_slice(&[0x44; 32]).expect("valid test key");
+        let keypair = Keypair::from_secret_key(&secp, &sk);
+        let (xonly, _) = keypair.x_only_public_key();
+        let tweaked = xonly.tap_tweak(&secp, None).0;
+        TxOut {
+            value: Amount::from_sat(value_sat),
+            script_pubkey: ScriptBuf::new_p2tr_tweaked(tweaked),
+        }
+    }
+
     #[test]
     fn create_transaction_appends_change_for_normal_selection() {
         let client = test_client();
         let utxos = wallet_utxos(&[100_000, 200_000]);
         let recipients = vec![payment_recipient(50_000)];
         let selections =
-            propose_coin_selections(&utxos, &recipients, test_fee_rate(), 1).expect("selection");
+            propose_coin_selections(&utxos, &[], &recipients, test_fee_rate(), 1)
+                .expect("selection");
         let selection = selections
             .into_iter()
             .find(|s| s.change > Amount::ZERO)
@@ -497,6 +561,7 @@ mod tests {
         let unsigned = client
             .create_transaction_from_selection(
                 &utxos,
+                &[],
                 recipients.clone(),
                 selection,
                 Network::Regtest,
@@ -514,11 +579,13 @@ mod tests {
         let utxos = wallet_utxos(&[100_000, 200_000]);
         let recipients = vec![payment_recipient(50_000)];
         let selections =
-            propose_coin_selections(&utxos, &recipients, test_fee_rate(), 1).expect("selection");
+            propose_coin_selections(&utxos, &[], &recipients, test_fee_rate(), 1)
+                .expect("selection");
 
         let err = client
             .create_transaction_from_selection(
                 &utxos,
+                &[],
                 vec![payment_recipient(49_999)],
                 selections.into_iter().next().unwrap(),
                 Network::Regtest,
@@ -533,12 +600,14 @@ mod tests {
         let utxos = wallet_utxos(&[100_000, 200_000]);
         let recipients = vec![payment_recipient(50_000)];
         let selections =
-            propose_coin_selections(&utxos, &recipients, test_fee_rate(), 1).expect("selection");
+            propose_coin_selections(&utxos, &[], &recipients, test_fee_rate(), 1)
+                .expect("selection");
 
         // Same total amount as the selection, but split over two outputs.
         let err = client
             .create_transaction_from_selection(
                 &utxos,
+                &[],
                 vec![payment_recipient(25_000), payment_recipient(25_000)],
                 selections.into_iter().next().unwrap(),
                 Network::Regtest,
@@ -554,7 +623,7 @@ mod tests {
         let drain_address = RecipientAddress::LegacyAddress(legacy_address());
 
         let selection =
-            propose_drain_selection(&utxos, &drain_address, test_fee_rate()).expect("selection");
+            propose_drain_selection(&utxos, &[], &drain_address, test_fee_rate()).expect("selection");
         assert_eq!(selection.strategy, Strategy::Drain);
         assert_eq!(selection.change, Amount::ZERO);
 
@@ -563,7 +632,7 @@ mod tests {
             amount: selection.sent,
         }];
         let unsigned = client
-            .create_transaction_from_selection(&utxos, recipients, selection, Network::Regtest)
+            .create_transaction_from_selection(&utxos, &[], recipients, selection, Network::Regtest)
             .expect("transaction");
 
         assert_eq!(unsigned.recipients.len(), 1);
@@ -573,5 +642,93 @@ mod tests {
             unsigned.recipients[0].amount + unsigned.fee,
             Amount::from_sat(300_000)
         );
+    }
+
+    #[test]
+    fn create_transaction_resolves_external_input_as_legacy() {
+        let client = test_client();
+        let utxos = wallet_utxos(&[100_000]);
+        let ext_txout = external_p2tr_txout(50_000);
+        let ext_outpoint = OutPoint::new(Txid::from_byte_array([0x01; 32]), 0);
+        let external_utxos = vec![(ext_outpoint, ext_txout)];
+        // Payment requires both inputs (100_000 + 50_000 - fees > 120_000).
+        let recipients = vec![payment_recipient(120_000)];
+
+        let selections =
+            propose_coin_selections(&utxos, &external_utxos, &recipients, test_fee_rate(), 1)
+                .expect("selection");
+        let selection = selections.into_iter().next().unwrap();
+        // External inputs are mandatory so the external outpoint must be selected.
+        assert!(selection.selected_utxos.contains(&ext_outpoint));
+
+        let unsigned = client
+            .create_transaction_from_selection(
+                &utxos,
+                &external_utxos,
+                recipients,
+                selection,
+                Network::Regtest,
+            )
+            .expect("transaction");
+
+        let ext_selected = unsigned
+            .selected_utxos
+            .iter()
+            .find(|u| u.outpoint == ext_outpoint)
+            .expect("external input must be in selected_utxos");
+        assert!(
+            matches!(&ext_selected.spending_data, SpendingData::Legacy(_)),
+            "external input must carry Legacy spending data",
+        );
+
+        let wallet_selected = unsigned
+            .selected_utxos
+            .iter()
+            .find(|u| u.outpoint != ext_outpoint)
+            .expect("wallet input must be in selected_utxos");
+        assert!(
+            matches!(&wallet_selected.spending_data, SpendingData::SilentPayment(_)),
+            "wallet input must carry SilentPayment spending data",
+        );
+    }
+
+    #[test]
+    fn drain_with_external_input_counts_toward_sendable_amount() {
+        let client = test_client();
+        let utxos = wallet_utxos(&[100_000]);
+        let ext_txout = external_p2tr_txout(50_000);
+        let ext_outpoint = OutPoint::new(Txid::from_byte_array([0x01; 32]), 0);
+        let external_utxos = vec![(ext_outpoint, ext_txout)];
+        let drain_address = RecipientAddress::LegacyAddress(legacy_address());
+
+        let sel_without =
+            propose_drain_selection(&utxos, &[], &drain_address, test_fee_rate()).expect("without");
+        let sel_with =
+            propose_drain_selection(&utxos, &external_utxos, &drain_address, test_fee_rate())
+                .expect("with");
+
+        // The external input's value (minus its share of fees) must increase the sendable amount.
+        assert!(sel_with.sent > sel_without.sent);
+        assert!(sel_with.selected_utxos.contains(&ext_outpoint));
+
+        let recipients = vec![Recipient {
+            address: drain_address,
+            amount: sel_with.sent,
+        }];
+        let unsigned = client
+            .create_transaction_from_selection(
+                &utxos,
+                &external_utxos,
+                recipients,
+                sel_with,
+                Network::Regtest,
+            )
+            .expect("transaction");
+
+        assert!(unsigned
+            .selected_utxos
+            .iter()
+            .any(|u| matches!(&u.spending_data, SpendingData::Legacy(_))));
+        assert_eq!(unsigned.change, Amount::ZERO);
     }
 }
