@@ -12,11 +12,11 @@ use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
 use crate::utils::common::calculate_t_n;
-use crate::utils::common::SharedSecret;
-use crate::utils::common::SilentPaymentAddress;
+use crate::utils::common::TransactionSharedSecret;
 use crate::utils::sending::calculate_ecdh_shared_secret;
 use crate::utils::sending::PartialSecret;
 use crate::Result;
+use crate::SilentPaymentAddress;
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
 ///
@@ -45,8 +45,10 @@ pub fn generate_recipient_pubkeys(
 ) -> Result<HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
-    let mut silent_payment_groups: HashMap<PublicKey, (SharedSecret, Vec<SilentPaymentAddress>)> =
-        HashMap::new();
+    let mut silent_payment_groups: HashMap<
+        PublicKey,
+        (TransactionSharedSecret, Vec<SilentPaymentAddress>),
+    > = HashMap::new();
     for address in recipients {
         let recipient_scan_key = address.scan_key();
 
