@@ -83,15 +83,19 @@ impl<'a> SpScanner<'a> {
     ) -> Result<()> {
         pin_mut!(block_data_stream);
 
+        let mut tweak_count = 0;
+
         while let Some(blockdata) = block_data_stream.next().await {
             // stop scanning and return if interrupted
             if self.interrupt_requested() {
-                return Ok(());
+                break;
             }
 
             let blockdata = blockdata?;
             let blkhash = blockdata.blkhash;
             let blkheight = blockdata.blkheight;
+
+            tweak_count += blockdata.tweaks.len();
 
             let (discovered_outputs, discovered_inputs) = self.process_block(blockdata).await?;
 
@@ -102,6 +106,8 @@ impl<'a> SpScanner<'a> {
                 discovered_outputs,
             )?;
         }
+
+        info!("Total number of tweaks processed: {tweak_count}");
 
         Ok(())
     }
