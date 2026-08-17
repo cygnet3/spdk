@@ -1,7 +1,8 @@
 use std::{collections::HashMap, io::Write};
 
+use backend_blindbit_v2::structs::ComputeIndexTxItem;
 use bitcoin::{
-    Network,
+    Network, Txid, XOnlyPublicKey,
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,39 @@ impl SpClient {
             SpendKey::Public(_) => Err(Error::msg("Don't have secret key")),
             SpendKey::Secret(sk) => Ok(sk),
         }
+    }
+
+    pub fn get_matches(&self, comp_index: Vec<ComputeIndexTxItem>) -> Vec<(Txid, PublicKey)> {
+        use rayon::prelude::*;
+
+        let b_scan = &self.get_scan_key();
+
+        let iter = comp_index.into_par_iter();
+
+        let items: Vec<_> = iter
+            .filter_map(|tx| {
+                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tx.tweak, b_scan);
+                let spks = self
+                    .sp_receiver
+                    .get_spks_from_shared_secret(&secret)
+                    .unwrap();
+
+                let output_keys: Vec<XOnlyPublicKey> = spks
+                    .values()
+                    .map(|spk| XOnlyPublicKey::from_slice(&spk[2..]).unwrap())
+                    .collect();
+
+                for output_key in output_keys {
+                    if tx.outputs_short.iter().any(|x| x.matches(output_key)) {
+                        return Some((tx.txid, tx.tweak));
+                    }
+                }
+
+                None
+            })
+            .collect();
+
+        items
     }
 
     pub fn get_script_to_secret_map(

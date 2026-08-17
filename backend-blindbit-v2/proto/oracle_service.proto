@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package blindbit.oracle.v1;
+
+option go_package = "./pb";
+
+import "google/protobuf/empty.proto";
+// import "google/protobuf/empty.proto";
+import "indexing_server.proto";
+
+// OracleService provides access to Oracles data via RPC
+service OracleService {
+  /* Basic Meta data and info*/
+
+  // GetInfo returns oracle information
+  rpc GetInfo(google.protobuf.Empty) returns (InfoResponse);
+  
+  // GetBestBlockHeight returns the current best block height
+  rpc GetBestBlockHeight(google.protobuf.Empty) returns (BlockHeightResponse);
+  
+  // GetBlockHashByHeight returns the block hash for a given height
+  rpc GetBlockHashByHeight(BlockHeightRequest) returns (BlockHashResponse);
+
+  /* Data endpoints */
+
+  // Holistic stream interface to probabilistically find new or spent outputs
+  rpc StreamBlockScanDataShort(RangedBlockHeightRequestFiltered) returns (stream BlockScanDataShortResponse );
+
+  // Stream the compute index for a given range
+  rpc StreamComputeIndex(RangedBlockHeightRequestFiltered) returns (stream ComputeIndexResponse);
+  
+  // Get a full block with full information for the block
+  rpc GetFullBlock(BlockHeightRequest) returns (FullBlockResponse);
+
+  // Get Short spent outputs
+  rpc GetSpentOutputsShort(BlockHeightRequest) returns (IndexResponse);
+}
+

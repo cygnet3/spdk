@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
-use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
+use backend_blindbit_v1::BlindbitBackend;
+use backend_blindbit_v2::BlindbitClient;
 use bitcoin::{Amount, BlockHash, Network, OutPoint, absolute::Height, secp256k1::SecretKey};
 use spdk_core::updater::{DiscoveredOutput, Updater};
 use spdk_wallet::{
@@ -83,7 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // in this example, we keep it set to true
     let keep_scanning = AtomicBool::new(true);
 
-    let backend = BlindbitBackend::new(BlindbitClient::new(BLINDBIT_BACKEND_URL)?);
+    let backend = BlindbitBackend::new(backend_blindbit_v1::BlindbitClient::new(
+        BLINDBIT_BACKEND_URL,
+    )?);
 
     // we use a simple in-memory updater struct that stores all received updates in a vector
     let updater = InMemoryUpdater::new();
@@ -111,6 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(backend),
         HashSet::new(),
         &keep_scanning,
+        BlindbitClient::new("".to_string()),
     );
 
     let start = Height::from_consensus(SCAN_START_HEIGHT)?;
