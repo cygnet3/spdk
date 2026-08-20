@@ -141,7 +141,7 @@ impl SpClient {
             });
         };
 
-        let partial_secret = self.get_partial_secret_for_selected_utxos(&selected_utxos)?;
+        let partial_secret = self.partial_secret_for_selected_utxos(&selected_utxos)?;
 
         Ok(SilentPaymentUnsignedTransaction {
             selected_utxos,
@@ -239,7 +239,7 @@ impl SpClient {
             amount: Amount::from_sat(change.value),
         }];
 
-        let partial_secret = self.get_partial_secret_for_selected_utxos(&available_utxos)?;
+        let partial_secret = self.partial_secret_for_selected_utxos(&available_utxos)?;
 
         Ok(SilentPaymentUnsignedTransaction {
             selected_utxos: available_utxos,
@@ -375,7 +375,7 @@ impl SpClient {
         aux_rand: &[u8; 32],
     ) -> Result<Transaction> {
         // TODO check that we have aux_rand, at least that it's not all `0`s
-        let b_spend = self.try_get_secret_spend_key()?;
+        let b_spend = self.try_secret_spend_key()?;
 
         let to_sign = match unsigned_tx.unsigned_tx.as_ref() {
             Some(tx) => tx,
@@ -434,11 +434,11 @@ impl SpClient {
         Ok(signed)
     }
 
-    pub fn get_partial_secret_for_selected_utxos(
+    pub fn partial_secret_for_selected_utxos(
         &self,
         selected_utxos: &[(OutPoint, DiscoveredOutput)],
     ) -> Result<PartialSecret> {
-        let b_spend = self.try_get_secret_spend_key()?;
+        let b_spend = self.try_secret_spend_key()?;
 
         let outpoints = selected_utxos
             .iter()

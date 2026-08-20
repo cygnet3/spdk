@@ -148,7 +148,7 @@ impl<'a> SpScanner<'a> {
         let mut res = HashMap::new();
 
         if !tweaks.is_empty() {
-            let secrets_map = self.client.get_script_to_secret_map(tweaks)?;
+            let secrets_map = self.client.script_to_secret_map(tweaks)?;
 
             //last_scan = last_scan.max(n as u32);
             let candidate_spks: Vec<&[u8; 34]> = secrets_map.keys().collect();
