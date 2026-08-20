@@ -21,7 +21,7 @@ use crate::{
         hash::LabelHash,
         OP_1, OP_PUSHBYTES_32,
     },
-    Error, Network, Result, SilentPaymentAddress, SpVersion,
+    Error, Network, Result, SilentPaymentKeyMaterial, SpVersion,
 };
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
 use serde::{
@@ -320,7 +320,7 @@ impl Receiver {
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [SilentPaymentAddress] struct.
+    /// If successful, the function returns a [Result] wrapping a [SilentPaymentKeyMaterial] struct.
     ///
     /// # Errors
     ///
@@ -328,7 +328,7 @@ impl Receiver {
     ///
     /// * If the label is not known for this recipient.
     /// * If key addition results in an invalid key.
-    pub fn get_receiving_address_for_label(&self, label: &Label) -> Result<SilentPaymentAddress> {
+    pub fn get_receiving_address_for_label(&self, label: &Label) -> Result<SilentPaymentKeyMaterial> {
         for (mG, l) in self.labels.iter() {
             if l == label {
                 let B_m = mG.combine(&self.spend_pubkey)?;
@@ -344,7 +344,7 @@ impl Receiver {
     /// by sending to this static change address, much like sending to a normal
     /// silent payment address.
     /// Important note: this address should never be shown to the user!
-    pub fn get_change_address(&self) -> SilentPaymentAddress {
+    pub fn get_change_address(&self) -> SilentPaymentKeyMaterial {
         let sk = SecretKey::from_slice(&self.change_label.as_inner().to_be_bytes())
             .expect("Unexpected invalid change label");
         let pk = sk.public_key(&Secp256k1::signing_only());
@@ -355,7 +355,7 @@ impl Receiver {
     }
 
     /// Get the default, no-label silent payment address.
-    pub fn get_receiving_address(&self) -> SilentPaymentAddress {
+    pub fn get_receiving_address(&self) -> SilentPaymentKeyMaterial {
         self.get_silent_payment_address(self.spend_pubkey)
     }
 
@@ -467,8 +467,8 @@ impl Receiver {
         Ok(res)
     }
 
-    fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentAddress {
-        SilentPaymentAddress::new(self.version, self.scan_pubkey, m_pubkey)
+    fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentKeyMaterial {
+        SilentPaymentKeyMaterial::new(self.version, self.scan_pubkey, m_pubkey)
     }
 }
 

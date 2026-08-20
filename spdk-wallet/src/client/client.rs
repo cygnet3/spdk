@@ -7,7 +7,7 @@ use bitcoin::{
 use serde::{Deserialize, Serialize};
 use silentpayments::{Network as SpNetwork, SharedSecret, SpVersion};
 use silentpayments::{
-    SilentPaymentAddress,
+    SilentPaymentKeyMaterial,
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
 };
@@ -54,7 +54,7 @@ impl SpClient {
         })
     }
 
-    pub fn get_receiving_address(&self) -> SilentPaymentAddress {
+    pub fn get_receiving_address(&self) -> SilentPaymentKeyMaterial {
         self.sp_receiver.get_receiving_address()
     }
 
@@ -114,7 +114,7 @@ impl SpClient {
     }
 
     pub fn get_client_fingerprint(&self) -> Result<[u8; 8]> {
-        let sp_address: SilentPaymentAddress = self.get_receiving_address();
+        let sp_address: SilentPaymentKeyMaterial = self.get_receiving_address();
         let scan_pk = sp_address.scan_key();
         let spend_pk = sp_address.m_pubkey();
 

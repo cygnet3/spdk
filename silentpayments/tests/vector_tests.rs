@@ -12,7 +12,7 @@ mod tests {
             sending::calculate_partial_secret,
             OutPoint,
         },
-        Network, SilentPaymentAddress,
+        Network, SilentPaymentKeyMaterial,
     };
     use std::{collections::HashSet, io::Cursor, str::FromStr};
 
@@ -146,7 +146,7 @@ mod tests {
                 sp_receiver.add_label(label).unwrap();
             }
 
-            let mut receiving_addresses: HashSet<SilentPaymentAddress> = HashSet::new();
+            let mut receiving_addresses: HashSet<SilentPaymentKeyMaterial> = HashSet::new();
             // get receiving address for no label
             receiving_addresses.insert(sp_receiver.get_receiving_address());
 
@@ -161,10 +161,10 @@ mod tests {
                 receiving_addresses.remove(&sp_receiver.get_change_address());
             }
 
-            let expected_addresses: HashSet<SilentPaymentAddress> = expected
+            let expected_addresses: HashSet<SilentPaymentKeyMaterial> = expected
                 .addresses
                 .iter()
-                .map(SilentPaymentAddress::from)
+                .map(SilentPaymentKeyMaterial::from)
                 .collect();
 
             // check that the receiving addresses generated are equal

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::utils::common::calculate_t_n;
 use crate::utils::common::SharedSecret;
-use crate::utils::common::SilentPaymentAddress;
+use crate::utils::common::SilentPaymentKeyMaterial;
 use crate::utils::sending::calculate_ecdh_shared_secret;
 use crate::utils::sending::PartialSecret;
 use crate::Result;
@@ -40,12 +40,12 @@ use crate::Result;
 ///
 /// * Edge cases are hit during elliptic curve computation (extremely unlikely).
 pub fn generate_recipient_pubkeys(
-    recipients: Vec<SilentPaymentAddress>,
+    recipients: Vec<SilentPaymentKeyMaterial>,
     partial_secret: PartialSecret,
-) -> Result<HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>>> {
+) -> Result<HashMap<SilentPaymentKeyMaterial, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
-    let mut silent_payment_groups: HashMap<PublicKey, (SharedSecret, Vec<SilentPaymentAddress>)> =
+    let mut silent_payment_groups: HashMap<PublicKey, (SharedSecret, Vec<SilentPaymentKeyMaterial>)> =
         HashMap::new();
     for address in recipients {
         let recipient_scan_key = address.scan_key();
@@ -60,7 +60,7 @@ pub fn generate_recipient_pubkeys(
         }
     }
 
-    let mut result: HashMap<SilentPaymentAddress, Vec<XOnlyPublicKey>> = HashMap::new();
+    let mut result: HashMap<SilentPaymentKeyMaterial, Vec<XOnlyPublicKey>> = HashMap::new();
     for group in silent_payment_groups.into_values() {
         let (ecdh_shared_secret, recipients) = group;
 

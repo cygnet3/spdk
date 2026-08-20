@@ -19,14 +19,14 @@ The library is split up in two parts: sending and receiving.
 This library offers granular feature flags to minimize dependencies for different use cases:
 
 - **default**: Enables all features (`encode`, `sending`, `receiving`)
-- **encode**: Enables string encoding/decoding for `SilentPaymentAddressDisplay` (adds `bech32` dependency)
+- **encode**: Enables string encoding/decoding for `SilentPaymentCode` (adds `bech32` dependency)
 - **serde**: Enables serde serialization/deserialization for types (adds `serde` dependency)
 - **sending**: Enables sending functionality (adds `bitcoin_hashes`, `hex` dependencies)
 - **receiving**: Enables receiving functionality (adds `bitcoin_hashes`, `hex`, `bimap`, `serde` dependencies)
 
 ### Minimal Usage
 
-If you only need the type definitions (`Network` and `SilentPaymentAddress`) without any protocol functionality:
+If you only need the type definitions (`Network` and `SilentPaymentKeyMaterial`) without any protocol functionality:
 
 ```toml
 [dependencies]
@@ -35,7 +35,7 @@ silentpayments = { version = "0.4", default-features = false }
 
 This configuration only pulls in `secp256k1` as a dependency, significantly reducing the dependency tree for applications that only need to work with silent payment addresses without implementing the full protocol.
 
-**Bring Your Own Parser**: Even without the `encode` feature, you can construct a `SilentPaymentAddress` using `SilentPaymentAddress::new()` from pubkeys you parsed yourself. With `encode`, use `SilentPaymentAddressDisplay` for bech32m strings; see `SilentPaymentAddressDisplay::new` for the on-wire format if you parse bech32 yourself.
+**Bring Your Own Parser**: Even without the `encode` feature, you can construct a `SilentPaymentKeyMaterial` using `SilentPaymentKeyMaterial::new()` from pubkeys you parsed yourself. With `encode`, use `SilentPaymentCode` for bech32m strings; see `SilentPaymentCode::new` for the on-wire format if you parse bech32 yourself.
 
 ### Custom Feature Combinations
 
