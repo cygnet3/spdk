@@ -22,17 +22,17 @@ use crate::Result;
 ///
 /// When creating the outputs for a transaction, this function should be used to generate the output keys.
 ///
-/// This function should only be used once per transaction! If used multiple times, address reuse may occur.
+/// This function should only be used once per transaction! If used multiple times, output key reuse may occur.
 ///
 /// # Arguments
 ///
-/// * `recipients` - A [Vec] of silent payment addresses to be paid.
+/// * `recipients` - A [Vec] of [`SilentPaymentKeyMaterial`] to be paid.
 /// * `partial_secret` - [PartialSecret] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
 ///
 /// # Returns
 ///
-/// If successful, the function returns a [Result] wrapping a [HashMap] of silent payment addresses to a [Vec].
-/// The [Vec] contains all the outputs that are associated with the silent payment address.
+/// If successful, the function returns a [Result] wrapping a [HashMap] of [`SilentPaymentKeyMaterial`] to a [Vec].
+/// The [Vec] contains all the outputs that are associated with that recipient's key material.
 ///
 /// # Errors
 ///
@@ -45,18 +45,21 @@ pub fn generate_recipient_pubkeys(
 ) -> Result<HashMap<SilentPaymentKeyMaterial, Vec<XOnlyPublicKey>>> {
     let secp = Secp256k1::new();
 
-    let mut silent_payment_groups: HashMap<PublicKey, (SharedSecret, Vec<SilentPaymentKeyMaterial>)> =
-        HashMap::new();
-    for address in recipients {
-        let recipient_scan_key = address.scan_key();
+    let mut silent_payment_groups: HashMap<
+        PublicKey,
+        (SharedSecret, Vec<SilentPaymentKeyMaterial>),
+    > = HashMap::new();
+    for key_material in recipients {
+        let recipient_scan_key = key_material.scan_key();
 
         if let Some((_, payments)) = silent_payment_groups.get_mut(&recipient_scan_key) {
-            payments.push(address);
+            payments.push(key_material);
         } else {
             let ecdh_shared_secret =
                 calculate_ecdh_shared_secret(&recipient_scan_key, &partial_secret);
 
-            silent_payment_groups.insert(recipient_scan_key, (ecdh_shared_secret, vec![address]));
+            silent_payment_groups
+                .insert(recipient_scan_key, (ecdh_shared_secret, vec![key_material]));
         }
     }
 
@@ -64,14 +67,14 @@ pub fn generate_recipient_pubkeys(
     for group in silent_payment_groups.into_values() {
         let (ecdh_shared_secret, recipients) = group;
 
-        for (n, addr) in recipients.into_iter().enumerate() {
+        for (n, key_material) in recipients.into_iter().enumerate() {
             let t_n = calculate_t_n(&ecdh_shared_secret, n as u32)?;
 
             let res = t_n.public_key(&secp);
-            let reskey = res.combine(&addr.m_pubkey())?;
+            let reskey = res.combine(&key_material.m_pubkey())?;
             let (reskey_xonly, _) = reskey.x_only_public_key();
 
-            let entry = result.entry(addr).or_default();
+            let entry = result.entry(key_material).or_default();
             entry.push(reskey_xonly);
         }
     }

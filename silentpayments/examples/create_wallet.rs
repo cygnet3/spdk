@@ -44,13 +44,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Network::Testnet,
     )?;
 
-    // Print the receiving address to the console
-    println!(
-        "Receiving address: {}",
-        receiver
-            .get_receiving_address()
-            .to_display_for_network(receiver.network)
-    );
+    // Print the receiving code to the console
+    println!("Receiving code: {}", receiver.receiving_code());
 
     Ok(())
 }

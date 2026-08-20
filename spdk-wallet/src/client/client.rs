@@ -5,13 +5,12 @@ use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
-use silentpayments::{Network as SpNetwork, SharedSecret, SpVersion};
+use silentpayments::{Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion};
+use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 use silentpayments::{
-    SilentPaymentKeyMaterial,
     bitcoin_hashes::sha256,
     receiving::{Label, Receiver},
 };
-use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
 
 use anyhow::{Error, Result};
 
@@ -54,8 +53,8 @@ impl SpClient {
         })
     }
 
-    pub fn get_receiving_address(&self) -> SilentPaymentKeyMaterial {
-        self.sp_receiver.get_receiving_address()
+    pub fn receiving_code(&self) -> SilentPaymentCode {
+        self.sp_receiver.receiving_code()
     }
 
     pub fn get_scan_key(&self) -> SecretKey {
@@ -114,9 +113,9 @@ impl SpClient {
     }
 
     pub fn get_client_fingerprint(&self) -> Result<[u8; 8]> {
-        let sp_address: SilentPaymentKeyMaterial = self.get_receiving_address();
-        let scan_pk = sp_address.scan_key();
-        let spend_pk = sp_address.m_pubkey();
+        let sp_code: SilentPaymentCode = self.receiving_code();
+        let scan_pk = sp_code.scan_key();
+        let spend_pk = sp_code.m_pubkey();
 
         // take a fingerprint of the wallet by hashing its keys
         let mut engine = sha256::HashEngine::default();

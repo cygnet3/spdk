@@ -90,7 +90,7 @@ pub(crate) fn calculate_P_n(B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKe
     Ok(P_n)
 }
 
-/// The network format used for this silent payment address.
+/// The network format used for a [`SilentPaymentCode`].
 ///
 /// There are three network types: Mainnet (`sp1..`), Testnet (`tsp1..`), and Regtest (`sprt1..`).
 /// Signet uses the same network type as Testnet.
@@ -152,14 +152,14 @@ impl TryFrom<u8> for SpVersion {
     }
 }
 
-/// Silent payment address (version + scan pubkey + `m` pubkey), without network.
+/// Silent payment key material (version + scan pubkey + `m` pubkey), without network.
 ///
-/// [`m_pubkey`](Self::m_pubkey) is the address spend pubkey (`B_m` in BIP352):
+/// [`m_pubkey`](Self::m_pubkey) is the spend pubkey (`B_m` in BIP352):
 /// the receiver's spend public key, which may be unlabeled (`B_spend`) or labeled
 /// (`B_spend + m·G`).
 #[cfg_attr(
     feature = "encode",
-    doc = "\n\nNetwork is only needed for bech32m strings; use [`SilentPaymentCode`] or [`SilentPaymentKeyMaterial::to_display_for_network`] when encoding or showing an address."
+    doc = "\n\nNetwork is only needed for bech32m strings; construct a [`SilentPaymentCode`] when encoding or showing a code. Convert a code to key material with [`SilentPaymentKeyMaterial::from`]."
 )]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentKeyMaterial {
@@ -169,9 +169,9 @@ pub struct SilentPaymentKeyMaterial {
 }
 
 impl SilentPaymentKeyMaterial {
-    /// Create a silent payment address from version, scan pubkey, and `m` pubkey.
+    /// Create silent payment key material from version, scan pubkey, and `m` pubkey.
     ///
-    /// `m_pubkey` is the address spend pubkey (`B_m`), which may be labeled or not.
+    /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
     pub fn new(version: SpVersion, scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
         Self {
             version,
@@ -180,17 +180,11 @@ impl SilentPaymentKeyMaterial {
         }
     }
 
-    /// Create a version-0 silent payment address.
+    /// Create version-0 silent payment key material.
     ///
-    /// `m_pubkey` is the address spend pubkey (`B_m`), which may be labeled or not.
+    /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
     pub fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
         Self::new(SpVersion::ZERO, scan_key, m_pubkey)
-    }
-
-    #[cfg(feature = "encode")]
-    /// Attach a [`Network`] for string encoding via [`SilentPaymentCode`].
-    pub fn to_display_for_network(&self, network: Network) -> SilentPaymentCode {
-        SilentPaymentCode::from_sp_address(*self, network)
     }
 
     pub fn try_from_byte_array_v0(bytes: &[u8; PUBLIC_KEY_SIZE * 2]) -> Result<Self> {
@@ -207,7 +201,7 @@ impl SilentPaymentKeyMaterial {
         self.scan_key
     }
 
-    /// The address spend pubkey (`B_m` in BIP352).
+    /// The spend pubkey (`B_m` in BIP352).
     ///
     /// This may be the unlabeled spend pubkey, or a labeled one (`B_spend + m·G`).
     pub fn m_pubkey(&self) -> PublicKey {
@@ -218,22 +212,22 @@ impl SilentPaymentKeyMaterial {
 #[cfg(feature = "encode")]
 impl From<SilentPaymentCode> for SilentPaymentKeyMaterial {
     fn from(value: SilentPaymentCode) -> Self {
-        value.sp_address
+        value.sp_key_material
     }
 }
 
 #[cfg(feature = "encode")]
 impl From<&SilentPaymentCode> for SilentPaymentKeyMaterial {
     fn from(value: &SilentPaymentCode) -> Self {
-        value.sp_address
+        value.sp_key_material
     }
 }
 
-/// A silent payment address with network, serializable as a bech32m string.
+/// A silent payment code: [`SilentPaymentKeyMaterial`] plus [`Network`], serializable as bech32m.
 #[cfg(feature = "encode")]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct SilentPaymentCode {
-    sp_address: SilentPaymentKeyMaterial,
+    sp_key_material: SilentPaymentKeyMaterial,
     network: Network,
 }
 
@@ -254,41 +248,39 @@ impl<'de> Deserialize<'de> for SilentPaymentCode {
     where
         D: Deserializer<'de>,
     {
-        let addr_str: String = Deserialize::deserialize(deserializer)?;
+        let code_str: String = Deserialize::deserialize(deserializer)?;
 
-        Self::try_from(addr_str.as_str()).map_err(serde::de::Error::custom)
+        Self::try_from(code_str.as_str()).map_err(serde::de::Error::custom)
     }
 }
 
 #[cfg(feature = "encode")]
 impl SilentPaymentCode {
-    /// Build a display address from an existing [`SilentPaymentKeyMaterial`] and [`Network`].
-    pub fn from_sp_address(sp_address: SilentPaymentKeyMaterial, network: Network) -> Self {
+    fn from_key_material(sp_key_material: SilentPaymentKeyMaterial, network: Network) -> Self {
         Self {
-            sp_address,
+            sp_key_material,
             network,
         }
     }
 
     /// Construct a [`SilentPaymentCode`] from its component parts.
     ///
-    /// Combines a [`SilentPaymentKeyMaterial`] with a [`Network`] for bech32m string
-    /// encoding. If you already have a [`SilentPaymentKeyMaterial`], prefer
-    /// [`Self::from_sp_address`].
+    /// Combines scan/`m` pubkeys with a [`Network`] for bech32m string encoding.
+    /// Convert back to network-agnostic keys with [`SilentPaymentKeyMaterial::from`].
     ///
-    /// If you use your own bech32 parser, extract the HRP and payload, then build
-    /// a [`SilentPaymentKeyMaterial`] (or call this method) and attach the network.
+    /// If you use your own bech32 parser, extract the HRP and payload, then call
+    /// this method with the pubkeys and network.
     ///
     /// # Bech32 format (for external parsers)
     ///
-    /// Silent payment addresses use bech32m encoding with the following structure:
+    /// Silent payment codes use bech32m encoding with the following structure:
     /// - **HRP (Human Readable Part)**:
     ///   - Mainnet: `"sp"`
     ///   - Testnet/Signet: `"tsp"`
     ///   - Regtest: `"sprt"`
     /// - **Data**: a single 5-bit version digit, then the 66-byte payload
     ///   `serP(B_scan) ‖ serP(B_m)` converted to 5-bit characters.
-    ///   `B_m` is the address spend pubkey (labeled or not).
+    ///   `B_m` is the spend pubkey (labeled or not).
     ///
     /// # Example
     ///
@@ -300,46 +292,46 @@ impl SilentPaymentCode {
     /// let scan_key = PublicKey::from_slice(&scan_bytes)?;
     /// let m_pubkey = PublicKey::from_slice(&m_pubkey_bytes)?;
     ///
-    /// let display = SilentPaymentCode::new(
+    /// let code = SilentPaymentCode::new(
+    ///     SpVersion::ZERO,
     ///     scan_key,
     ///     m_pubkey,
     ///     Network::Mainnet,
-    ///     SpVersion::ZERO,
     /// );
     ///
-    /// // Sending/receiving APIs take the network-agnostic address:
-    /// let sp_address: silentpayments::SilentPaymentKeyMaterial = display.into();
+    /// // Sending APIs take the network-agnostic key material:
+    /// let sp_key_material: silentpayments::SilentPaymentKeyMaterial = code.into();
     /// ```
     ///
-    /// `m_pubkey` is the address spend pubkey (`B_m`), which may be labeled or not.
+    /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
     pub fn new(
+        version: SpVersion,
         scan_key: PublicKey,
         m_pubkey: PublicKey,
         network: Network,
-        version: SpVersion,
     ) -> Self {
-        Self::from_sp_address(
+        Self::from_key_material(
             SilentPaymentKeyMaterial::new(version, scan_key, m_pubkey),
             network,
         )
     }
 
-    /// Calls new() with version set at SpVersion::ZERO.
+    /// Calls [`Self::new`] with version set to [`SpVersion::ZERO`].
     ///
-    /// `m_pubkey` is the address spend pubkey (`B_m`), which may be labeled or not.
+    /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
     pub fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey, network: Network) -> Self {
-        Self::new(scan_key, m_pubkey, network, SpVersion::ZERO)
+        Self::new(SpVersion::ZERO, scan_key, m_pubkey, network)
     }
 
     pub fn scan_key(&self) -> PublicKey {
-        self.sp_address.scan_key()
+        self.sp_key_material.scan_key()
     }
 
-    /// The address spend pubkey (`B_m` in BIP352).
+    /// The spend pubkey (`B_m` in BIP352).
     ///
     /// This may be the unlabeled spend pubkey, or a labeled one (`B_spend + m·G`).
     pub fn m_pubkey(&self) -> PublicKey {
-        self.sp_address.m_pubkey()
+        self.sp_key_material.m_pubkey()
     }
 
     pub fn network(&self) -> Network {
@@ -347,11 +339,7 @@ impl SilentPaymentCode {
     }
 
     pub fn version(&self) -> SpVersion {
-        self.sp_address.version()
-    }
-
-    pub fn as_inner(&self) -> SilentPaymentKeyMaterial {
-        self.sp_address
+        self.sp_key_material.version()
     }
 }
 
@@ -366,11 +354,11 @@ impl fmt::Display for SilentPaymentCode {
 impl TryFrom<&str> for SilentPaymentCode {
     type Error = Error;
 
-    fn try_from(addr: &str) -> Result<Self> {
-        let (hrp, data, _variant) = bech32::decode(addr)?;
+    fn try_from(s: &str) -> Result<Self> {
+        let (hrp, data, _variant) = bech32::decode(s)?;
 
         if data.len() != 107 {
-            return Err(Error::GenericError("Address length is wrong".to_owned()));
+            return Err(Error::InvalidCode("Code length is wrong".to_owned()));
         }
 
         let version: SpVersion = data[0].to_u8().try_into()?;
@@ -380,7 +368,7 @@ impl TryFrom<&str> for SilentPaymentCode {
             "tsp" => Network::Testnet,
             "sprt" => Network::Regtest,
             _ => {
-                return Err(Error::InvalidAddress(format!(
+                return Err(Error::InvalidCode(format!(
                     "Wrong prefix, expected \"sp\", \"tsp\", or \"sprt\", got \"{}\"",
                     &hrp
                 )))
@@ -392,7 +380,7 @@ impl TryFrom<&str> for SilentPaymentCode {
         let scan_key = PublicKey::from_slice(&data[..33])?;
         let m_pubkey = PublicKey::from_slice(&data[33..])?;
 
-        Ok(Self::from_sp_address(
+        Ok(Self::from_key_material(
             SilentPaymentKeyMaterial::new(version, scan_key, m_pubkey),
             network,
         ))
@@ -403,8 +391,8 @@ impl TryFrom<&str> for SilentPaymentCode {
 impl TryFrom<String> for SilentPaymentCode {
     type Error = Error;
 
-    fn try_from(addr: String) -> Result<Self> {
-        addr.as_str().try_into()
+    fn try_from(s: String) -> Result<Self> {
+        s.as_str().try_into()
     }
 }
 

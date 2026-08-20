@@ -6,23 +6,23 @@ use silentpayments::{Network, SilentPaymentCode};
 /// Error returned when validating silent payment fields of a BIP 321 URI.
 #[derive(Debug)]
 pub enum SpUriParseError {
-    Address(silentpayments::Error),
+    Code(silentpayments::Error),
     NetworkMismatch { expected: Network, got: Network },
 }
 
 impl fmt::Display for SpUriParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SpUriParseError::Address(e) => write!(f, "invalid silent payment address: {e}"),
+            SpUriParseError::Code(e) => write!(f, "invalid silent payment code: {e}"),
             SpUriParseError::NetworkMismatch { expected, got } => match expected {
                 Network::Mainnet => write!(
                     f,
-                    "expected mainnet silent payment address, got {}",
+                    "expected mainnet silent payment code, got {}",
                     <silentpayments::Network as Into<&str>>::into(*got)
                 ),
                 _ => write!(
                     f,
-                    "expected non-mainnet silent payment address, got {}",
+                    "expected non-mainnet silent payment code, got {}",
                     <silentpayments::Network as Into<&str>>::into(*got)
                 ),
             },
@@ -33,7 +33,7 @@ impl fmt::Display for SpUriParseError {
 impl std::error::Error for SpUriParseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SpUriParseError::Address(e) => Some(e),
+            SpUriParseError::Code(e) => Some(e),
             _ => None,
         }
     }
@@ -106,9 +106,9 @@ fn parse_slot(
     fields
         .iter()
         .map(|field| {
-            let addr = SilentPaymentCode::try_from(field.inner().as_str())
-                .map_err(SpUriParseError::Address)?;
-            let got = addr.network();
+            let code = SilentPaymentCode::try_from(field.inner().as_str())
+                .map_err(SpUriParseError::Code)?;
+            let got = code.network();
             let ok = match expected {
                 Network::Mainnet => got == Network::Mainnet,
                 _ => got != Network::Mainnet,
@@ -116,7 +116,7 @@ fn parse_slot(
             if !ok {
                 return Err(SpUriParseError::NetworkMismatch { expected, got });
             }
-            Ok(addr)
+            Ok(code)
         })
         .collect()
 }
@@ -124,7 +124,7 @@ fn parse_slot(
 /// Parse `sp=` fields.
 ///
 /// BIP 321 allows multiple payment-instruction parameters with the same key;
-/// every entry is parsed. Each address must be mainnet.
+/// every entry is parsed. Each code must be mainnet.
 pub fn parse_sp(
     fields: &[FieldWithAttributes<String>],
 ) -> Result<Vec<SilentPaymentCode>, SpUriParseError> {
@@ -134,7 +134,7 @@ pub fn parse_sp(
 /// Parse `tsp=` fields.
 ///
 /// BIP 321 allows multiple payment-instruction parameters with the same key;
-/// every entry is parsed. Each address must be non-mainnet (testnet or
+/// every entry is parsed. Each code must be non-mainnet (testnet or
 /// regtest), matching bip321's `tb` rule.
 pub fn parse_tsp(
     fields: &[FieldWithAttributes<String>],
@@ -150,11 +150,9 @@ mod tests {
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use silentpayments::SpVersion;
 
-    use super::{
-        Network, SilentPaymentCode, SpUriExtension, SpUriParseError, parse_sp, parse_tsp,
-    };
+    use super::{Network, SilentPaymentCode, SpUriExtension, SpUriParseError, parse_sp, parse_tsp};
 
-    fn make_sp_address(network: Network) -> SilentPaymentCode {
+    fn make_sp_code(network: Network) -> SilentPaymentCode {
         let secp = Secp256k1::new();
         let (scan_bytes, spend_bytes) = match network {
             Network::Mainnet => ([0x03; 32], [0x04; 32]),
@@ -167,7 +165,7 @@ mod tests {
         let spend = SecretKey::from_slice(&spend_bytes)
             .unwrap()
             .public_key(&secp);
-        SilentPaymentCode::new(scan, spend, network, SpVersion::ZERO)
+        SilentPaymentCode::new(SpVersion::ZERO, scan, spend, network)
     }
 
     fn parse(s: &str) -> Bip321Uri<SpUriExtension> {
@@ -176,37 +174,37 @@ mod tests {
 
     #[test]
     fn parse_sp_parameter() {
-        let sp = make_sp_address(Network::Mainnet).to_string();
+        let sp = make_sp_code(Network::Mainnet).to_string();
         let uri = parse(&format!("bitcoin:?sp={sp}"));
-        let addrs = parse_sp(uri.sp()).unwrap();
-        assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].network(), Network::Mainnet);
+        let codes = parse_sp(uri.sp()).unwrap();
+        assert_eq!(codes.len(), 1);
+        assert_eq!(codes[0].network(), Network::Mainnet);
         assert!(uri.extensions().tsp().is_empty());
     }
 
     #[test]
     fn parse_tsp_parameter() {
-        let tsp = make_sp_address(Network::Testnet).to_string();
+        let tsp = make_sp_code(Network::Testnet).to_string();
         let uri = parse(&format!("bitcoin:?tsp={tsp}"));
-        let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
-        assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].network(), Network::Testnet);
+        let codes = parse_tsp(uri.extensions().tsp()).unwrap();
+        assert_eq!(codes.len(), 1);
+        assert_eq!(codes[0].network(), Network::Testnet);
         assert!(uri.sp().is_empty());
     }
 
     #[test]
-    fn parse_regtest_address_in_tsp_parameter() {
-        let regtest = make_sp_address(Network::Regtest).to_string();
+    fn parse_regtest_code_in_tsp_parameter() {
+        let regtest = make_sp_code(Network::Regtest).to_string();
         let uri = parse(&format!("bitcoin:?tsp={regtest}"));
-        let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
-        assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].network(), Network::Regtest);
+        let codes = parse_tsp(uri.extensions().tsp()).unwrap();
+        assert_eq!(codes.len(), 1);
+        assert_eq!(codes[0].network(), Network::Regtest);
         assert!(uri.sp().is_empty());
     }
 
     #[test]
-    fn reject_mainnet_address_in_tsp_parameter() {
-        let sp = make_sp_address(Network::Mainnet).to_string();
+    fn reject_mainnet_code_in_tsp_parameter() {
+        let sp = make_sp_code(Network::Mainnet).to_string();
         let uri = parse(&format!("bitcoin:?tsp={sp}"));
         assert!(matches!(
             parse_tsp(uri.extensions().tsp()),
@@ -218,8 +216,8 @@ mod tests {
     }
 
     #[test]
-    fn reject_testnet_address_in_sp_parameter() {
-        let tsp = make_sp_address(Network::Testnet).to_string();
+    fn reject_testnet_code_in_sp_parameter() {
+        let tsp = make_sp_code(Network::Testnet).to_string();
         let uri = parse(&format!("bitcoin:?sp={tsp}"));
         assert!(matches!(
             parse_sp(uri.sp()),
@@ -231,8 +229,8 @@ mod tests {
     }
 
     #[test]
-    fn reject_regtest_address_in_sp_parameter() {
-        let regtest = make_sp_address(Network::Regtest).to_string();
+    fn reject_regtest_code_in_sp_parameter() {
+        let regtest = make_sp_code(Network::Regtest).to_string();
         let uri = parse(&format!("bitcoin:?sp={regtest}"));
         assert!(matches!(
             parse_sp(uri.sp()),
@@ -245,8 +243,8 @@ mod tests {
 
     #[test]
     fn sprt_query_key_is_stored_as_custom() {
-        let regtest = make_sp_address(Network::Regtest).to_string();
-        let sp = make_sp_address(Network::Mainnet).to_string();
+        let regtest = make_sp_code(Network::Regtest).to_string();
+        let sp = make_sp_code(Network::Mainnet).to_string();
         // `sprt` is not handled; unknown non-required params go to `custom`.
         let uri = parse(&format!("bitcoin:?sp={sp}&sprt={regtest}"));
         assert!(uri.extensions().tsp().is_empty());
@@ -256,13 +254,13 @@ mod tests {
 
     #[test]
     fn parse_mixed_non_mainnet_tsp_parameters() {
-        let tsp = make_sp_address(Network::Testnet).to_string();
-        let regtest = make_sp_address(Network::Regtest).to_string();
+        let tsp = make_sp_code(Network::Testnet).to_string();
+        let regtest = make_sp_code(Network::Regtest).to_string();
         let uri = parse(&format!("bitcoin:?tsp={tsp}&tsp={regtest}"));
-        let addrs = parse_tsp(uri.extensions().tsp()).unwrap();
-        assert_eq!(addrs.len(), 2);
-        assert_eq!(addrs[0].network(), Network::Testnet);
-        assert_eq!(addrs[1].network(), Network::Regtest);
+        let codes = parse_tsp(uri.extensions().tsp()).unwrap();
+        assert_eq!(codes.len(), 2);
+        assert_eq!(codes[0].network(), Network::Testnet);
+        assert_eq!(codes[1].network(), Network::Regtest);
     }
 
     #[test]

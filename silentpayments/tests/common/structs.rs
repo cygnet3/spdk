@@ -50,7 +50,8 @@ pub struct ReceivingDataGiven {
 
 #[derive(Debug, Deserialize)]
 pub struct ReceivingDataExpected {
-    pub addresses: Vec<SilentPaymentCode>,
+    #[serde(rename = "addresses")]
+    pub codes: Vec<SilentPaymentCode>,
     pub outputs: Vec<OutputWithSignature>,
 }
 

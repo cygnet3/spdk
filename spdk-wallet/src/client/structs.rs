@@ -19,15 +19,15 @@ pub use bdk_coin_select::FeeRate;
 #[serde(untagged)]
 pub enum RecipientAddress {
     LegacyAddress(Address<NetworkUnchecked>),
-    SpAddress(SilentPaymentCode),
+    SpCode(SilentPaymentCode),
     Data(Vec<u8>), // OpReturn output
 }
 
 impl TryFrom<String> for RecipientAddress {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if let Ok(sp_address) = SilentPaymentCode::try_from(value.as_str()) {
-            Ok(Self::SpAddress(sp_address))
+        if let Ok(sp_code) = SilentPaymentCode::try_from(value.as_str()) {
+            Ok(Self::SpCode(sp_code))
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))
         } else if let Ok(data) = Vec::from_hex(&value) {
@@ -42,7 +42,7 @@ impl From<RecipientAddress> for String {
     fn from(value: RecipientAddress) -> Self {
         match value {
             RecipientAddress::LegacyAddress(address) => address.assume_checked().to_string(),
-            RecipientAddress::SpAddress(sp_address) => sp_address.to_string(),
+            RecipientAddress::SpCode(sp_code) => sp_code.to_string(),
             RecipientAddress::Data(data) => data.to_lower_hex_string(),
         }
     }

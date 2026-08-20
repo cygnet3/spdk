@@ -12,7 +12,7 @@ mod tests {
             sending::calculate_partial_secret,
             OutPoint,
         },
-        Network, SilentPaymentKeyMaterial,
+        Network, SilentPaymentCode,
     };
     use std::{collections::HashSet, io::Cursor, str::FromStr};
 
@@ -76,12 +76,12 @@ mod tests {
 
             // we drop the amounts from the test here, since we don't work with amounts
             // the wallet should make sure the amount sent are correct
-            let silent_addresses = decode_recipients(&given.recipients);
+            let silent_key_material = decode_recipients(&given.recipients);
 
             // as an alternative, we could first multiply each input priv key with the input hash
             // that way, we never expose the sk to our library
             let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
-            let outputs = generate_recipient_pubkeys(silent_addresses, partial_secret).unwrap();
+            let outputs = generate_recipient_pubkeys(silent_key_material, partial_secret).unwrap();
 
             for output_pubkeys in &outputs {
                 for pubkey in output_pubkeys.1 {
@@ -146,30 +146,25 @@ mod tests {
                 sp_receiver.add_label(label).unwrap();
             }
 
-            let mut receiving_addresses: HashSet<SilentPaymentKeyMaterial> = HashSet::new();
-            // get receiving address for no label
-            receiving_addresses.insert(sp_receiver.get_receiving_address());
+            let mut receiving_codes: HashSet<SilentPaymentCode> = HashSet::new();
+            // get receiving code for no label
+            receiving_codes.insert(sp_receiver.receiving_code());
 
-            // get receiving addresses for every label
+            // get receiving codes for every label
             let labels = sp_receiver.list_labels();
             for label in &labels {
-                receiving_addresses
-                    .insert(sp_receiver.get_receiving_address_for_label(label).unwrap());
+                receiving_codes.insert(sp_receiver.receiving_code_for_label(label).unwrap());
             }
 
             if !&given.labels.contains(&0) {
-                receiving_addresses.remove(&sp_receiver.get_change_address());
+                receiving_codes.remove(&sp_receiver.change_code());
             }
 
-            let expected_addresses: HashSet<SilentPaymentKeyMaterial> = expected
-                .addresses
-                .iter()
-                .map(SilentPaymentKeyMaterial::from)
-                .collect();
+            let expected_codes: HashSet<SilentPaymentCode> = expected.codes.into_iter().collect();
 
-            // check that the receiving addresses generated are equal
-            // to the expected addresses
-            assert_eq!(receiving_addresses, expected_addresses);
+            // check that the receiving codes generated are equal
+            // to the expected codes
+            assert_eq!(receiving_codes, expected_codes);
 
             let tweak_data = calculate_tweak_data(&input_pub_keys, &outpoints).unwrap();
             let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);
