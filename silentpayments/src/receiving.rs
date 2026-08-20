@@ -444,7 +444,7 @@ impl Receiver {
     /// This function will return an error if:
     ///
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
-    pub fn get_spks_from_shared_secret(
+    pub fn script_pubkeys_from_shared_secret(
         &self,
         ecdh_shared_secret: &SharedSecret,
     ) -> Result<HashMap<Option<Label>, [u8; 34]>> {

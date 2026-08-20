@@ -57,26 +57,26 @@ impl SpClient {
         self.sp_receiver.receiving_code()
     }
 
-    pub fn get_scan_key(&self) -> SecretKey {
+    pub fn scan_key(&self) -> SecretKey {
         self.scan_sk
     }
 
-    pub fn get_spend_key(&self) -> SpendKey {
+    pub fn spend_key(&self) -> SpendKey {
         self.spend_key.clone()
     }
 
-    pub fn get_network(&self) -> Network {
+    pub fn network(&self) -> Network {
         self.network
     }
 
-    pub fn try_get_secret_spend_key(&self) -> Result<SecretKey> {
+    pub fn try_secret_spend_key(&self) -> Result<SecretKey> {
         match self.spend_key {
             SpendKey::Public(_) => Err(Error::msg("Don't have secret key")),
             SpendKey::Secret(sk) => Ok(sk),
         }
     }
 
-    pub fn get_script_to_secret_map(
+    pub fn script_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
     ) -> Result<HashMap<[u8; 34], SharedSecret>> {
@@ -84,7 +84,7 @@ impl SpClient {
         #[cfg(feature = "rayon")]
         use rayon::prelude::*;
 
-        let b_scan = &self.get_scan_key();
+        let b_scan = &self.scan_key();
 
         // parallel iterator using rayon
         #[cfg(feature = "rayon")]
@@ -97,7 +97,9 @@ impl SpClient {
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
                 let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
-                let spks = self.sp_receiver.get_spks_from_shared_secret(&secret)?;
+                let spks = self
+                    .sp_receiver
+                    .script_pubkeys_from_shared_secret(&secret)?;
 
                 Ok((secret, spks.into_values()))
             })
@@ -112,7 +114,7 @@ impl SpClient {
         Ok(res)
     }
 
-    pub fn get_client_fingerprint(&self) -> Result<[u8; 8]> {
+    pub fn client_fingerprint(&self) -> Result<[u8; 8]> {
         let sp_code: SilentPaymentCode = self.receiving_code();
         let scan_pk = sp_code.scan_key();
         let spend_pk = sp_code.m_pubkey();
