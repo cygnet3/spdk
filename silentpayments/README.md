@@ -70,13 +70,7 @@ silentpayments = { version = "0.4", default-features = false, features = ["recei
 
 ## Sending
 
-For sending to silent payment recipients, you can call the `sender::generate_recipient_pubkeys` function.
-This function takes a list of silent payment recipients (as `SilentPaymentKeyMaterial`), as well as a `partial_secret`.
-
-The `partial_secret` represents the sum of all input private keys multiplied with the input hash.
-To compute the `partial_secret`, the `utils::sending::compute_partial_secret` function can be used,
-although this requires exposing secret data to this library.
-Other methods for calculating the `partial_secret` will be added later.
+For sending to silent payment recipients, build a `TransactionSharedSecret` per recipient scan key using `GlobalSenderEcdhShare` (single signer) or `PartialSenderEcdhShare` (collaborative), then call `sending::generate_recipient_pubkeys` with the recipient key material and the shared secrets map.
 
 ## Recipient
 
