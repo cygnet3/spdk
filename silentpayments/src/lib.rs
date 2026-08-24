@@ -33,10 +33,9 @@ pub use rust_dleq::DleqProof;
 pub use utils::common::Network;
 #[cfg(feature = "encode")]
 pub use utils::common::SilentPaymentCode;
+pub use utils::common::SilentPaymentKeyMaterial;
+pub use utils::common::SpVersion;
 #[cfg(any(feature = "sending", feature = "receiving"))]
-pub use utils::common::TransactionInputs;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-pub use utils::common::TransactionSharedSecret;
-pub use utils::common::{SilentPaymentKeyMaterial, SpVersion};
+pub use utils::common::{NonEmptyArray, TransactionInputs, TransactionSharedSecret};
 
 pub type Result<T> = std::result::Result<T, Error>;
