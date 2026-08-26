@@ -132,3 +132,11 @@ impl SpClient {
         Ok(wallet_fingerprint)
     }
 }
+
+impl Drop for SpClient {
+    fn drop(&mut self) {
+        // Erase the scan key before dropping; the spend key is erased
+        // by SpendKey's own Drop impl.
+        self.scan_sk.non_secure_erase();
+    }
+}

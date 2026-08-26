@@ -70,6 +70,18 @@ pub enum SpendKey {
     Public(PublicKey),
 }
 
+impl Drop for SpendKey {
+    fn drop(&mut self) {
+        if let Self::Secret(sk) = self {
+            // Erase the key material before dropping.
+            // secp256k1::SecretKey does not implement Zeroize (its inner
+            // array is private); non_secure_erase() is the zeroize-documented
+            // erase path (volatile C-level memset, cannot be optimized away).
+            sk.non_secure_erase();
+        }
+    }
+}
+
 impl TryInto<SecretKey> for SpendKey {
     type Error = anyhow::Error;
     fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
