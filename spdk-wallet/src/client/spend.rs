@@ -18,7 +18,7 @@ use bitcoin::{
 };
 use silentpayments::utils as sp_utils;
 use silentpayments::utils::sending::PartialSecret;
-use silentpayments::{Network as SpNetwork, SilentPaymentAddress, SilentPaymentAddressDisplay};
+use silentpayments::{Network as SpNetwork, SilentPaymentKeyMaterial};
 
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
@@ -41,7 +41,7 @@ impl SpClient {
                 .dangerous_assume_tweaked(),
         );
 
-        let address_sp_network = match network {
+        let sp_network = match network {
             Network::Bitcoin => SpNetwork::Mainnet,
             Network::Testnet | Network::Signet => SpNetwork::Testnet,
             Network::Regtest => SpNetwork::Regtest,
@@ -63,11 +63,11 @@ impl SpClient {
                         script_pubkey,
                     })
                 }
-                RecipientAddress::SpAddress(sp_address) => {
-                    if sp_address.network() != address_sp_network {
+                RecipientAddress::SpCode(sp_code) => {
+                    if sp_code.network() != sp_network {
                         return Err(Error::msg(format!(
-                            "Wrong network for address {}",
-                            sp_address
+                            "Wrong network for silent payment code {}",
+                            sp_code
                         )));
                     }
 
@@ -131,16 +131,12 @@ impl SpClient {
             selected_utxos.push((*outpoint, output.clone()));
         }
 
-        // if there is change, add a return address to the list of recipients
+        // if there is change, add a change code to the list of recipients
         let change = coin_selector.drain(target, change_policy);
         let change_value = if change.is_some() { change.value } else { 0 };
         if change_value > 0 {
-            let change_address = SilentPaymentAddressDisplay::from_sp_address(
-                self.sp_receiver.get_change_address(),
-                address_sp_network,
-            );
             recipients.push(Recipient {
-                address: RecipientAddress::SpAddress(change_address),
+                address: RecipientAddress::SpCode(self.sp_receiver.change_code()),
                 amount: Amount::from_sat(change_value),
             });
         };
@@ -171,7 +167,7 @@ impl SpClient {
                 .dangerous_assume_tweaked(),
         );
 
-        let address_sp_network = match network {
+        let sp_network = match network {
             Network::Bitcoin => SpNetwork::Mainnet,
             Network::Testnet | Network::Signet => SpNetwork::Testnet,
             Network::Regtest => SpNetwork::Regtest,
@@ -183,11 +179,11 @@ impl SpClient {
                 value: Amount::ZERO,
                 script_pubkey: address.clone().require_network(network)?.script_pubkey(),
             }),
-            RecipientAddress::SpAddress(sp_address) => {
-                if sp_address.network() != address_sp_network {
+            RecipientAddress::SpCode(sp_code) => {
+                if sp_code.network() != sp_network {
                     return Err(Error::msg(format!(
-                        "Wrong network for address {}",
-                        sp_address
+                        "Wrong network for silent payment code {}",
+                        sp_code
                     )));
                 }
 
@@ -269,19 +265,17 @@ impl SpClient {
             })
             .collect();
 
-        let sp_addresses: Vec<SilentPaymentAddress> = unsigned_transaction
+        let sp_key_material: Vec<SilentPaymentKeyMaterial> = unsigned_transaction
             .recipients
             .iter()
             .filter_map(|r| match &r.address {
-                RecipientAddress::SpAddress(sp_address) => {
-                    Some(SilentPaymentAddress::from(*sp_address))
-                }
+                RecipientAddress::SpCode(sp_code) => Some(SilentPaymentKeyMaterial::from(*sp_code)),
                 _ => None,
             })
             .collect();
 
-        let sp_address2xonlypubkeys = silentpayments::sending::generate_recipient_pubkeys(
-            sp_addresses,
+        let sp_key_material2xonlypubkeys = silentpayments::sending::generate_recipient_pubkeys(
+            sp_key_material,
             unsigned_transaction.partial_secret,
         )?;
 
@@ -289,13 +283,13 @@ impl SpClient {
             .recipients
             .iter()
             .map(|recipient| match &recipient.address {
-                RecipientAddress::SpAddress(s) => {
+                RecipientAddress::SpCode(sp_code) => {
                     // We now need to fill the sp outputs with actual spk
-                    let pubkeys = sp_address2xonlypubkeys
-                        .get(&SilentPaymentAddress::from(*s))
-                        .ok_or(Error::msg("Unknown sp address"))?;
+                    let pubkeys = sp_key_material2xonlypubkeys
+                        .get(&SilentPaymentKeyMaterial::from(*sp_code))
+                        .ok_or(Error::msg("Unknown silent payment key material"))?;
 
-                    // we currently only allow having 1 output per silent payment address
+                    // we currently only allow having 1 output per silent payment key material
                     // note: when changing this, it should also be accounted for in 'create_new_transaction'
                     if pubkeys.len() == 1 {
                         let pubkey = pubkeys[0];

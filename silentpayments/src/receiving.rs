@@ -21,7 +21,7 @@ use crate::{
         hash::LabelHash,
         OP_1, OP_PUSHBYTES_32,
     },
-    Error, Network, Result, SilentPaymentAddress, SpVersion,
+    Error, Network, Result, SilentPaymentCode, SpVersion,
 };
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
 use serde::{
@@ -312,7 +312,7 @@ impl Receiver {
         self.labels.values().cloned().collect()
     }
 
-    /// Get the bech32m-encoded silent payment address for a specific label.
+    /// Get the silent payment code for a specific label.
     ///
     /// # Arguments
     ///
@@ -320,7 +320,7 @@ impl Receiver {
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [SilentPaymentAddress] struct.
+    /// If successful, the function returns a [Result] wrapping a [SilentPaymentCode].
     ///
     /// # Errors
     ///
@@ -328,35 +328,43 @@ impl Receiver {
     ///
     /// * If the label is not known for this recipient.
     /// * If key addition results in an invalid key.
-    pub fn get_receiving_address_for_label(&self, label: &Label) -> Result<SilentPaymentAddress> {
+    pub fn receiving_code_for_label(&self, label: &Label) -> Result<SilentPaymentCode> {
         for (mG, l) in self.labels.iter() {
             if l == label {
-                let B_m = mG.combine(&self.spend_pubkey)?;
-                return Ok(self.get_silent_payment_address(B_m));
+                let m_pubkey = mG.combine(&self.spend_pubkey)?;
+                let code =
+                    SilentPaymentCode::new(self.version, self.scan_pubkey, m_pubkey, self.network);
+                return Ok(code);
             }
         }
         Err(Error::InvalidLabel("Label not known".to_owned()))
     }
 
-    /// Get the silent payment change address for this Receiver. This is the
-    /// static address associated with the change label, as described
-    /// in the BIP. Wallets can create silent payment-native change addresses
-    /// by sending to this static change address, much like sending to a normal
-    /// silent payment address.
-    /// Important note: this address should never be shown to the user!
-    pub fn get_change_address(&self) -> SilentPaymentAddress {
+    /// Get the silent payment change code for this [`Receiver`].
+    ///
+    /// This is the static code associated with the change label, as described in
+    /// BIP352. Wallets can create silent-payment-native change by sending to this
+    /// code, much like sending to a normal silent payment code.
+    ///
+    /// Important: this code should never be shown to the user.
+    pub fn change_code(&self) -> SilentPaymentCode {
         let sk = SecretKey::from_slice(&self.change_label.as_inner().to_be_bytes())
             .expect("Unexpected invalid change label");
         let pk = sk.public_key(&Secp256k1::signing_only());
-        let B_m = pk
+        let m_pubkey = pk
             .combine(&self.spend_pubkey)
             .expect("Unexpected invalid pubkey");
-        self.get_silent_payment_address(B_m)
+        SilentPaymentCode::new(self.version, self.scan_pubkey, m_pubkey, self.network)
     }
 
-    /// Get the default, no-label silent payment address.
-    pub fn get_receiving_address(&self) -> SilentPaymentAddress {
-        self.get_silent_payment_address(self.spend_pubkey)
+    /// Get the default, no-label silent payment code.
+    pub fn receiving_code(&self) -> SilentPaymentCode {
+        SilentPaymentCode::new(
+            self.version,
+            self.scan_pubkey,
+            self.spend_pubkey,
+            self.network,
+        )
     }
 
     /// Scans a transaction for outputs belonging to us.
@@ -465,10 +473,6 @@ impl Receiver {
             res.insert(Some(label.clone()), spk);
         }
         Ok(res)
-    }
-
-    fn get_silent_payment_address(&self, m_pubkey: PublicKey) -> SilentPaymentAddress {
-        SilentPaymentAddress::new(self.version, self.scan_pubkey, m_pubkey)
     }
 }
 

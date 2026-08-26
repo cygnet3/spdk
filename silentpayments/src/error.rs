@@ -4,7 +4,7 @@ use std::fmt;
 pub enum Error {
     GenericError(String),
     InvalidLabel(String),
-    InvalidAddress(String),
+    InvalidCode(String),
     InvalidSharedSecret(String),
     InvalidVin(String),
     InvalidNetwork(String),
@@ -19,7 +19,7 @@ impl fmt::Display for Error {
         match self {
             Error::GenericError(msg) => write!(f, "{}", msg),
             Error::InvalidLabel(msg) => write!(f, "{}", msg),
-            Error::InvalidAddress(msg) => write!(f, "{}", msg),
+            Error::InvalidCode(msg) => write!(f, "{}", msg),
             Error::InvalidSharedSecret(msg) => write!(f, "{}", msg),
             Error::InvalidVin(msg) => write!(f, "{}", msg),
             Error::InvalidNetwork(msg) => write!(f, "Invalid network: {}", msg),
@@ -43,7 +43,7 @@ impl From<hex::FromHexError> for Error {
 #[cfg(feature = "encode")]
 impl From<bech32::Error> for Error {
     fn from(e: bech32::Error) -> Self {
-        Error::InvalidAddress(e.to_string())
+        Error::InvalidCode(e.to_string())
     }
 }
 

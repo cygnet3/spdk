@@ -6,14 +6,14 @@
 //! This library offers granular feature flags to minimize dependencies:
 //!
 //! - **default**: Enables `encode`, `sending`, and `receiving` features
-//! - **encode**: Enables string encoding/decoding for `SilentPaymentAddressDisplay` (requires `bech32`)
+//! - **encode**: Enables string encoding/decoding for `SilentPaymentCode` (requires `bech32`)
 //! - **serde**: Enables serde serialization/deserialization for types
 //! - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex`, and `encode`)
 //! - **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`, `bimap`, `serde`, and `encode`)
 //!
 //! ### Minimal Usage
 //!
-//! If you only need the type definitions (`Network` and `SilentPaymentAddress`) without
+//! If you only need the type definitions (`Network` and `SilentPaymentKeyMaterial`) without
 //! any additional functionality, you can disable all default features:
 //!
 //! ```toml
@@ -24,9 +24,9 @@
 //! This will only pull in `secp256k1` as a dependency, giving you access to the core types
 //! without any encoding, serialization, or protocol functionality.
 //!
-//! **Note**: Without the `encode` feature, construct a [`SilentPaymentAddress`] from
-//! parsed pubkeys using [`SilentPaymentAddress::new`]. With `encode`, use
-//! [`SilentPaymentAddressDisplay`] for bech32m strings (see [`SilentPaymentAddressDisplay::new`]
+//! **Note**: Without the `encode` feature, construct a [`SilentPaymentKeyMaterial`] from
+//! parsed pubkeys using [`SilentPaymentKeyMaterial::new`]. With `encode`, use
+//! [`SilentPaymentCode`] for bech32m strings (see [`SilentPaymentCode::new`]
 //! for the on-wire format if you parse bech32 yourself).
 //!
 //! ## Examples
@@ -54,9 +54,9 @@ pub use crate::error::Error;
 pub use utils::common::Network;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub use utils::common::SharedSecret;
-pub use utils::common::SilentPaymentAddress;
 #[cfg(feature = "encode")]
-pub use utils::common::SilentPaymentAddressDisplay;
+pub use utils::common::SilentPaymentCode;
+pub use utils::common::SilentPaymentKeyMaterial;
 pub use utils::common::SpVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;
