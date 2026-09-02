@@ -1,11 +1,11 @@
 [package]
 name = "silentpayments"
-version = "0.6.0"
+version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage = "https://github.com/cygnet3/spdk/tree/master/silentpayments"
-edition = "2024"
+edition.workspace = true
 description = "A library for adding BIP352: Silent Payments support to wallets."
 keywords = ["bitcoin", "secp256k1"]
 readme = "README.md"
