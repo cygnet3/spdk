@@ -1,22 +1,22 @@
 #[cfg(feature = "encode")]
 use core::fmt;
 
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::hash::SharedSecretHash;
 use crate::Error;
 use crate::Result;
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::utils::hash::SharedSecretHash;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32, ToBase32};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use bitcoin_hashes::Hash;
-use secp256k1::constants::PUBLIC_KEY_SIZE;
 use secp256k1::PublicKey;
+use secp256k1::constants::PUBLIC_KEY_SIZE;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
 #[cfg(all(feature = "serde", feature = "encode"))]
-use serde::ser::Serializer;
-#[cfg(all(feature = "serde", feature = "encode"))]
 use serde::Deserializer;
+#[cfg(all(feature = "serde", feature = "encode"))]
+use serde::ser::Serializer;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -371,7 +371,7 @@ impl TryFrom<&str> for SilentPaymentCode {
                 return Err(Error::InvalidCode(format!(
                     "Wrong prefix, expected \"sp\", \"tsp\", or \"sprt\", got \"{}\"",
                     &hrp
-                )))
+                )));
             }
         };
 

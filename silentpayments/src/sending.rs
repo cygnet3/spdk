@@ -11,12 +11,12 @@
 use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
-use crate::utils::common::calculate_t_n;
+use crate::Result;
 use crate::utils::common::SharedSecret;
 use crate::utils::common::SilentPaymentKeyMaterial;
-use crate::utils::sending::calculate_ecdh_shared_secret;
+use crate::utils::common::calculate_t_n;
 use crate::utils::sending::PartialSecret;
-use crate::Result;
+use crate::utils::sending::calculate_ecdh_shared_secret;
 
 /// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
 ///

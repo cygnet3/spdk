@@ -1,20 +1,20 @@
 //! Receiving utility functions.
 use crate::{
+    Error, Result,
     utils::{
         common::{NonEmptyArray, OutPoint, SharedSecret},
         script::{is_p2pkh, is_p2sh, is_p2wpkh},
     },
-    Error, Result,
 };
 
 pub use crate::utils::script::{is_eligible, is_p2tr};
-use bitcoin_hashes::{hash160, Hash};
-use secp256k1::{ecdh::shared_secret_point, Parity::Even, XOnlyPublicKey};
+use bitcoin_hashes::{Hash, hash160};
+use secp256k1::{Parity::Even, XOnlyPublicKey, ecdh::shared_secret_point};
 use secp256k1::{PublicKey, SecretKey};
 
 use super::{
-    hash::calculate_input_hash, COMPRESSED_PUBKEY_SIZE, NUMS_H, OP_PUSHBYTES_1, OP_PUSHBYTES_75,
-    OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4, TAPROOT_ANNEX_PREFIX,
+    COMPRESSED_PUBKEY_SIZE, NUMS_H, OP_PUSHBYTES_1, OP_PUSHBYTES_75, OP_PUSHDATA1, OP_PUSHDATA2,
+    OP_PUSHDATA4, TAPROOT_ANNEX_PREFIX, hash::calculate_input_hash,
 };
 
 /// Returns the last data push in a push-only script, or `None` if malformed.
@@ -160,12 +160,12 @@ pub fn get_pubkey_from_input(
             (_, true) => {
                 return Err(Error::InvalidVin(
                     "Empty script_sig for spending a p2pkh".to_owned(),
-                ))
+                ));
             }
             (false, _) => {
                 return Err(Error::InvalidVin(
                     "non empty witness for spending a p2pkh".to_owned(),
-                ))
+                ));
             }
         }
     } else if is_p2sh(script_pub_key) {
@@ -186,7 +186,7 @@ pub fn get_pubkey_from_input(
             (_, true) => {
                 return Err(Error::InvalidVin(
                     "Empty script_sig for spending a p2sh".to_owned(),
-                ))
+                ));
             }
             (true, false) => return Ok(None),
         }
@@ -202,12 +202,12 @@ pub fn get_pubkey_from_input(
             (_, false) => {
                 return Err(Error::InvalidVin(
                     "Non empty script sig for spending a segwit output".to_owned(),
-                ))
+                ));
             }
             (true, _) => {
                 return Err(Error::InvalidVin(
                     "Empty witness for spending a segwit output".to_owned(),
-                ))
+                ));
             }
         }
     } else if is_p2tr(script_pub_key) {
@@ -240,12 +240,12 @@ pub fn get_pubkey_from_input(
             (_, false) => {
                 return Err(Error::InvalidVin(
                     "Non empty script sig for spending a segwit output".to_owned(),
-                ))
+                ));
             }
             (true, _) => {
                 return Err(Error::InvalidVin(
                     "Empty witness for spending a segwit output".to_owned(),
-                ))
+                ));
             }
         }
     }
