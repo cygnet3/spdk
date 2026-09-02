@@ -14,6 +14,19 @@ In the future, the library will probably be expanded to rely on structs from rus
 
 The library is split up in two parts: sending and receiving.
 
+
+<details>
+
+<summary>Changelog</summary>
+
+### v0.7.0
+
+- Add public constants for scan / spend key paths
+- Rename getters: drop `get-` prefixes
+- Split `SilentPaymentAddress` into 2 separate structs: `SilentPaymentCode` and `SilentPaymentKeyMaterial`. `SilentPaymentCode` represents the encodable silent payment address, the key material struct is used for performing the bip352-related calculations.
+
+</details>
+
 ## Feature Flags
 
 This library offers granular feature flags to minimize dependencies for different use cases:
