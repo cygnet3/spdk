@@ -1,5 +1,5 @@
 mod structs;
 mod r#trait;
 
-pub use r#trait::ChainBackend;
 pub use structs::*;
+pub use r#trait::ChainBackend;
