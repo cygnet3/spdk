@@ -1,4 +1,4 @@
-use bitcoin::{absolute::Height, secp256k1::PublicKey, Amount, BlockHash, ScriptBuf, Txid};
+use bitcoin::{Amount, BlockHash, ScriptBuf, Txid, absolute::Height, secp256k1::PublicKey};
 
 pub struct BlockData {
     pub blkheight: Height,

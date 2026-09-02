@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{absolute::Height, BlockHash, OutPoint};
+use bitcoin::{BlockHash, OutPoint, absolute::Height};
 
 use anyhow::Result;
 

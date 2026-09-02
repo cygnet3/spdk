@@ -2,7 +2,7 @@ use std::{ops::RangeInclusive, pin::Pin};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use bitcoin::{absolute::Height, Amount};
+use bitcoin::{Amount, absolute::Height};
 use futures::Stream;
 
 use super::structs::{BlockData, SpentIndexData, UtxoData};
