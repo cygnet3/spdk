@@ -1,6 +1,6 @@
 //! Sending utility functions.
 use crate::utils::common::{NonEmptyArray, OutPoint};
-use crate::{utils::common::SharedSecret, Error, Result};
+use crate::{Error, Result, utils::common::SharedSecret};
 use secp256k1::constants::SECRET_KEY_SIZE;
 use secp256k1::ecdh::shared_secret_point;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};

@@ -4,15 +4,15 @@ mod common;
 mod tests {
     use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
     use silentpayments::{
+        Network, SilentPaymentCode,
         receiving::Label,
         utils::{
+            OutPoint,
             receiving::{
                 calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
             },
             sending::calculate_partial_secret,
-            OutPoint,
         },
-        Network, SilentPaymentCode,
     };
     use std::{collections::HashSet, io::Cursor, str::FromStr};
 

@@ -8,8 +8,8 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex;
 
-use silentpayments::utils::{OutPoint, TEST_SCAN_PATH, TEST_SPEND_PATH};
 use silentpayments::SpVersion;
+use silentpayments::utils::{OutPoint, TEST_SCAN_PATH, TEST_SPEND_PATH};
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::utils::receiving::{

@@ -1,5 +1,5 @@
 use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
-use bitcoin_hashes::{sha256t_hash_newtype, Hash, HashEngine};
+use bitcoin_hashes::{Hash, HashEngine, sha256t_hash_newtype};
 use secp256k1::{PublicKey, Scalar, SecretKey};
 
 sha256t_hash_newtype! {

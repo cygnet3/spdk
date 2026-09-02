@@ -16,18 +16,18 @@ use std::{
 };
 
 use crate::{
-    utils::{
-        common::{calculate_P_n, calculate_t_n, SharedSecret},
-        hash::LabelHash,
-        OP_1, OP_PUSHBYTES_32,
-    },
     Error, Network, Result, SilentPaymentCode, SpVersion,
+    utils::{
+        OP_1, OP_PUSHBYTES_32,
+        common::{SharedSecret, calculate_P_n, calculate_t_n},
+        hash::LabelHash,
+    },
 };
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
 use serde::{
+    Deserialize, Deserializer, Serialize,
     de::{self, SeqAccess, Visitor},
     ser::{SerializeStruct, SerializeTuple},
-    Deserialize, Deserializer, Serialize,
 };
 
 /// A Silent payment receiving label.
