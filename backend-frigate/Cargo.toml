@@ -1,0 +1,10 @@
+[package]
+name = "backend-frigate"
+version = "0.1.0"
+edition = "2024"
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+electrum_streaming_client = { workspace = true }
