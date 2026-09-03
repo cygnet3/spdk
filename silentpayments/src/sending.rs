@@ -1,81 +1,90 @@
 //! The sending component of silent payments.
 //!
-//! The [`generate_recipient_pubkeys`] function can be used to create outputs for a list of silent payment recipients.
+//! The [`generate_recipient_pubkeys`] function creates taproot output keys for silent payment recipients.
 //!
-//! Using [`generate_recipient_pubkeys`] will require calculating a
-//! `partial_secret` beforehand.
-//! To do this, you can use [`calculate_partial_secret`](crate::utils::sending::calculate_partial_secret) from the `utils` module.
-//! See the [tests on github](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs)
-//! for a concrete example.
+//! Callers must supply a [`TransactionSharedSecret`] per unique recipient scan key.
+//! On the sender side, build secrets from a [`GlobalSenderEcdhShare`](crate::utils::sending::GlobalSenderEcdhShare)
+//! or from combined [`PartialSenderEcdhShare`](crate::utils::sending::PartialSenderEcdhShare)s.
+//! See [the test vectors](https://github.com/cygnet3/spdk/blob/master/silentpayments/tests/vector_tests.rs)
+//! for a full example.
 
 use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
-use crate::Result;
-use crate::utils::common::SharedSecret;
 use crate::utils::common::SilentPaymentKeyMaterial;
+use crate::utils::common::TransactionSharedSecret;
 use crate::utils::common::calculate_t_n;
-use crate::utils::sending::PartialSecret;
-use crate::utils::sending::calculate_ecdh_shared_secret;
+use crate::{Error, Result};
 
-/// Create outputs for a given set of silent payment recipients and their corresponding shared secrets.
+/// Create taproot output keys for a set of silent payment recipients.
 ///
-/// When creating the outputs for a transaction, this function should be used to generate the output keys.
-///
-/// This function should only be used once per transaction! If used multiple times, output key reuse may occur.
+/// Recipients are grouped by scan key. Within each group the BIP352 output-index counter `n`
+/// increments in the order the key material entries appear in `recipients`, so callers must pass
+/// them in their intended output order. Calling this function more than once for the same
+/// transaction with the same `shared_secrets` will restart every `n` counter at 0, producing
+/// duplicate output keys and breaking recipient privacy — call it exactly once per transaction.
 ///
 /// # Arguments
 ///
-/// * `recipients` - A [Vec] of [`SilentPaymentKeyMaterial`] to be paid.
-/// * `partial_secret` - [PartialSecret] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
+/// * `recipients` - Silent payment key material to pay, in output order. Multiple entries may
+///   share the same scan key; `n` is assigned within that scan-key group in the order given.
+/// * `shared_secrets` - One [`TransactionSharedSecret`] per unique scan key, keyed by that scan
+///   `PublicKey`. Each entry's internally stored scan key must equal its map key.
 ///
 /// # Returns
 ///
-/// If successful, the function returns a [Result] wrapping a [HashMap] of [`SilentPaymentKeyMaterial`] to a [Vec].
-/// The [Vec] contains all the outputs that are associated with that recipient's key material.
+/// A [`HashMap`] whose keys are the original key material entries from `recipients` and whose
+/// values are the corresponding taproot [`XOnlyPublicKey`] outputs.
 ///
 /// # Errors
 ///
 /// This function will return an error if:
 ///
+/// * A scan key has no corresponding entry in `shared_secrets`, or the entry's stored scan key
+///   does not match its map key.
 /// * Edge cases are hit during elliptic curve computation (extremely unlikely).
-pub fn generate_recipient_pubkeys(
-    recipients: Vec<SilentPaymentKeyMaterial>,
-    partial_secret: PartialSecret,
+pub fn generate_recipient_pubkeys<C: secp256k1::Signing>(
+    secp: &Secp256k1<C>,
+    recipients: &[SilentPaymentKeyMaterial],
+    shared_secrets: &HashMap<PublicKey, TransactionSharedSecret>,
 ) -> Result<HashMap<SilentPaymentKeyMaterial, Vec<XOnlyPublicKey>>> {
-    let secp = Secp256k1::new();
-
     let mut silent_payment_groups: HashMap<
         PublicKey,
-        (SharedSecret, Vec<SilentPaymentKeyMaterial>),
+        (TransactionSharedSecret, Vec<SilentPaymentKeyMaterial>),
     > = HashMap::new();
+
     for key_material in recipients {
         let recipient_scan_key = key_material.scan_key();
 
         if let Some((_, payments)) = silent_payment_groups.get_mut(&recipient_scan_key) {
-            payments.push(key_material);
+            payments.push(*key_material);
         } else {
-            let ecdh_shared_secret =
-                calculate_ecdh_shared_secret(&recipient_scan_key, &partial_secret);
-
-            silent_payment_groups
-                .insert(recipient_scan_key, (ecdh_shared_secret, vec![key_material]));
+            let shared_secret = shared_secrets.get(&recipient_scan_key).ok_or_else(|| {
+                Error::GenericError(format!(
+                    "Missing shared secret for scan key {recipient_scan_key}"
+                ))
+            })?;
+            if shared_secret.as_recipient_scan_key() != &recipient_scan_key {
+                return Err(Error::GenericError(format!(
+                    "Shared secret stored under scan key {recipient_scan_key} has mismatched \
+                     internal scan key {}",
+                    shared_secret.as_recipient_scan_key()
+                )));
+            }
+            silent_payment_groups.insert(recipient_scan_key, (*shared_secret, vec![*key_material]));
         }
     }
 
     let mut result: HashMap<SilentPaymentKeyMaterial, Vec<XOnlyPublicKey>> = HashMap::new();
-    for group in silent_payment_groups.into_values() {
-        let (ecdh_shared_secret, recipients) = group;
-
-        for (n, key_material) in recipients.into_iter().enumerate() {
+    for (ecdh_shared_secret, key_materials) in silent_payment_groups.into_values() {
+        for (n, key_material) in key_materials.into_iter().enumerate() {
             let t_n = calculate_t_n(&ecdh_shared_secret, n as u32)?;
 
-            let res = t_n.public_key(&secp);
+            let res = t_n.public_key(secp);
             let reskey = res.combine(&key_material.m_pubkey())?;
             let (reskey_xonly, _) = reskey.x_only_public_key();
 
-            let entry = result.entry(key_material).or_default();
-            entry.push(reskey_xonly);
+            result.entry(key_material).or_default().push(reskey_xonly);
         }
     }
     Ok(result)
