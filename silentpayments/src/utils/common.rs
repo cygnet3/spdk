@@ -469,7 +469,7 @@ where
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::consensus::serialize;
+    use bitcoin::{consensus::serialize, hashes::Hash};
 
     use crate::utils;
 
@@ -487,6 +487,10 @@ mod tests {
         let outpoint_bytes: [u8; 36] = serialize(&outpoint).try_into().unwrap();
         let sp_outpoint_from_bytes = utils::OutPoint::from_bytes(outpoint_bytes);
 
+        let sp_outpoint_from_byte_array_and_vout =
+            utils::OutPoint::from_txid_bytes_and_vout(outpoint.txid.to_byte_array(), outpoint.vout);
+
         assert_eq!(sp_outpoint_from_txid_and_vout, sp_outpoint_from_bytes);
+        assert_eq!(sp_outpoint_from_bytes, sp_outpoint_from_byte_array_and_vout);
     }
 }
