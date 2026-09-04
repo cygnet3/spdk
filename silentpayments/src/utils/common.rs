@@ -25,6 +25,18 @@ use serde::{Deserialize, Serialize};
 /// This can be constructed from a rust-bitcoin outpoint:
 /// ```
 /// use silentpayments::utils::OutPoint;
+/// use bitcoin::hashes::Hash;
+/// # use std::str::FromStr;
+/// # let bitcoin_outpoint = bitcoin::OutPoint::from_str(&format!("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f:0")).unwrap();
+///
+/// let outpoint = OutPoint::from_txid_bytes_and_vout(
+///     bitcoin_outpoint.txid.to_byte_array(),
+///     bitcoin_outpoint.vout
+/// );
+/// ```
+/// Or alternatively
+/// ```
+/// use silentpayments::utils::OutPoint;
 /// use bitcoin::consensus::serialize;
 /// # use std::str::FromStr;
 ///
@@ -58,6 +70,15 @@ impl OutPoint {
         buffer[..32].copy_from_slice(&bytes);
         buffer[32..].copy_from_slice(&vout.to_le_bytes());
         Ok(Self(buffer))
+    }
+
+    /// Parse outpoint from a txid byte array, and a vout as a u32.
+    /// Can be used to convert a rust-bitcoin OutPoint struct.
+    pub fn from_txid_bytes_and_vout(txid: [u8; 32], vout: u32) -> Self {
+        let mut buf = [0u8; 36];
+        buf[..32].copy_from_slice(&txid);
+        buf[32..].copy_from_slice(&vout.to_le_bytes());
+        Self(buf)
     }
 
     pub fn from_bytes(bytes: [u8; 36]) -> Self {
