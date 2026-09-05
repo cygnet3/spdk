@@ -1,5 +1,5 @@
 [workspace]
-members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet", "silentpayments"]
+members = ["spdk-core", "backend-blindbit-v1", "spdk-wallet", "silentpayments", "backend-frigate"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -7,6 +7,7 @@ resolver = "3"
 spdk-core = { path = "spdk-core" }
 silentpayments = { path = "silentpayments" }
 backend-blindbit-v1 = { path = "backend-blindbit-v1"}
+backend-frigate = { path = "backend-frigate"}
 
 # Core dependencies - shared across crates
 anyhow = "1.0"
@@ -28,6 +29,8 @@ reqwest = { version = "0.12.4", features = [
   "gzip",
 ], default-features = false }
 secp256k1 = { version = "0.29.0" }
+
+electrum_streaming_client = { git = "https://github.com/sdmg15/electrum_streaming_client", branch = "master", features = ["frigate"]}
 
 [workspace.package]
 version = "0.7.0"
