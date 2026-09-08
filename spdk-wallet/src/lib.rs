@@ -1,6 +1,5 @@
 pub mod client;
 
-// re-export traits for consumers who need to provide valid implementors
 // re-export blindbit backend if enabled
 #[cfg(feature = "backend-blindbit-v1")]
 pub use backend_blindbit_v1;
@@ -10,5 +9,7 @@ pub use bitcoin;
 // re-export local scanner if enabled
 #[cfg(feature = "local-scanner")]
 pub use local_scanner::SpScanner;
+pub use psbt;
 pub use silentpayments;
+pub use spdk_core::constants::DATA_CARRIER_SIZE;
 pub use spdk_core::{chain, scanner};
