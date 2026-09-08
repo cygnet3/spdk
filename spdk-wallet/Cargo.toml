@@ -12,6 +12,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 spdk-core.workspace = true
 backend-blindbit-v1 = { workspace = true, optional = true }
 local-scanner = { workspace = true, optional = true, features = ["rayon"] }
+psbt.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
