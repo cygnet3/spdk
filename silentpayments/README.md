@@ -68,6 +68,12 @@ You can test the code using the test vectors by running `cargo test`.
 
 <summary>Expand</summary>
 
+### v0.7.1
+
+- Adds `OutPoint::from_txid_bytes_and_vout` constructor
+- Allow both `SilentPaymentCode` and `SilentPaymentKeyMaterial` as inputs for `generate_recipient_pubkeys`
+- Make top-level crate doc in line with project README
+
 ### v0.7.0
 
 - Add public constants for scan / spend key paths
