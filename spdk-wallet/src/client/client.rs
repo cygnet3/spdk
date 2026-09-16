@@ -20,7 +20,7 @@ use super::SpendKey;
 pub struct SpClient {
     scan_sk: SecretKey,
     spend_key: SpendKey,
-    pub sp_receiver: Receiver,
+    pub(crate) sp_receiver: Receiver,
     network: Network,
 }
 
