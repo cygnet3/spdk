@@ -22,11 +22,7 @@ async-trait = "0.1"
 log = "0.4"
 hex = { version = "0.4.3", features = ["serde"] }
 bdk_coin_select = "0.4.0"
-reqwest = { version = "0.12.4", features = [
-  "json",
-  "rustls-tls",
-  "gzip",
-], default-features = false }
+reqwest = { version = "0.13.5", features = ["json", "gzip", "query"] }
 secp256k1 = { version = "0.29.0" }
 
 [workspace.package]
