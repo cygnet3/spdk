@@ -1,10 +1,10 @@
-use bitcoin::{Amount, ScriptBuf, Txid};
+use bitcoin::{Amount, Txid, XOnlyPublicKey};
 
 pub struct UtxoData {
     pub txid: Txid,
     pub vout: u32,
     pub value: Amount,
-    pub scriptpubkey: ScriptBuf,
+    pub output_key: XOnlyPublicKey,
     pub spent: bool,
 }
 
