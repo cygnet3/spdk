@@ -5,11 +5,15 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Error, Result};
-use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey, absolute::Height, secp256k1::Scalar};
+use anyhow::Result;
+use bitcoin::{
+    Amount, OutPoint, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height, secp256k1::Scalar,
+};
 use futures::{Stream, StreamExt, pin_mut};
 use log::info;
-use silentpayments::{SharedSecret, receiving::Label};
+use silentpayments::{
+    SharedSecret, receiving::Label, utils::receiving::generate_script_pubkey_from_output_key,
+};
 
 use spdk_core::chain::{BoxedBlockData, ChainBackend, UtxoData};
 use spdk_core::updater::{DiscoveredOutput, Updater};
@@ -132,12 +136,11 @@ impl<'a> SpScanner<'a> {
         let tweaks = blockdata.tweaks();
 
         if !tweaks.is_empty() {
-            let secrets_map = self.client.script_to_secret_map(tweaks)?;
+            let secrets_map = self.client.output_key_to_secret_map(tweaks)?;
 
-            //last_scan = last_scan.max(n as u32);
-            let candidate_spks: Vec<&[u8; 34]> = secrets_map.keys().collect();
+            let candidate_keys: Vec<XOnlyPublicKey> = secrets_map.keys().cloned().collect();
 
-            let matched_outputs = blockdata.check_match_outputs(candidate_spks)?;
+            let matched_outputs = blockdata.check_match_outputs(candidate_keys)?;
 
             //if match: fetch and scan utxos
             if matched_outputs {
@@ -151,10 +154,12 @@ impl<'a> SpScanner<'a> {
                             vout: utxo.vout,
                         };
 
+                        let spk_bytes = generate_script_pubkey_from_output_key(utxo.output_key);
+
                         let out = DiscoveredOutput {
                             tweak,
                             value: utxo.value,
-                            script_pubkey: utxo.scriptpubkey,
+                            script_pubkey: ScriptBuf::from_bytes(spk_bytes.to_vec()),
                             label,
                         };
 
@@ -188,7 +193,7 @@ impl<'a> SpScanner<'a> {
     async fn scan_utxos(
         &self,
         blkheight: Height,
-        secrets_map: HashMap<[u8; 34], SharedSecret>,
+        secrets_map: HashMap<XOnlyPublicKey, SharedSecret>,
     ) -> Result<Vec<(Option<Label>, UtxoData, Scalar)>> {
         let utxos = self.backend.utxos(blkheight).await?;
 
@@ -204,8 +209,7 @@ impl<'a> SpScanner<'a> {
             // check if we know the secret to any of the spks
             let mut secret = None;
             for utxo in utxos.iter() {
-                let spk = utxo.scriptpubkey.as_bytes();
-                if let Some(s) = secrets_map.get(spk) {
+                if let Some(s) = secrets_map.get(&utxo.output_key) {
                     secret = Some(s);
                     break;
                 }
@@ -217,40 +221,24 @@ impl<'a> SpScanner<'a> {
                 None => continue,
             };
 
-            let output_keys: Result<Vec<XOnlyPublicKey>> = utxos
-                .iter()
-                .filter_map(|x| {
-                    if x.scriptpubkey.is_p2tr() {
-                        Some(
-                            XOnlyPublicKey::from_slice(&x.scriptpubkey.as_bytes()[2..])
-                                .map_err(Error::new),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let output_keys: Vec<XOnlyPublicKey> =
+                utxos.iter().map(|utxo| utxo.output_key).collect();
 
             let ours = self
                 .client
                 .sp_receiver
-                .scan_transaction(secret, &output_keys?)?;
+                .scan_transaction(secret, &output_keys)?;
 
             for utxo in utxos {
-                if !utxo.scriptpubkey.is_p2tr() || utxo.spent {
+                if utxo.spent {
                     continue;
                 }
 
-                match XOnlyPublicKey::from_slice(&utxo.scriptpubkey.as_bytes()[2..]) {
-                    Ok(xonly) => {
-                        for (label, map) in ours.iter() {
-                            if let Some(scalar) = map.get(&xonly) {
-                                res.push((label.clone(), utxo, *scalar));
-                                break;
-                            }
-                        }
+                for (label, map) in ours.iter() {
+                    if let Some(scalar) = map.get(&utxo.output_key) {
+                        res.push((label.clone(), utxo, *scalar));
+                        break;
                     }
-                    Err(_) => todo!(),
                 }
             }
         }
