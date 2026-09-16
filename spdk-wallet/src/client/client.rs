@@ -57,6 +57,10 @@ impl SpClient {
         self.sp_receiver.receiving_code()
     }
 
+    pub fn change_code(&self) -> SilentPaymentCode {
+        self.sp_receiver.change_code()
+    }
+
     pub fn scan_key(&self) -> SecretKey {
         self.scan_sk
     }
