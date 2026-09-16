@@ -2,6 +2,7 @@
 use crate::{
     Error, Result,
     utils::{
+        OP_1, OP_PUSHBYTES_32,
         common::{NonEmptyArray, OutPoint, SharedSecret},
         script::{is_p2pkh, is_p2sh, is_p2wpkh},
     },
@@ -250,4 +251,14 @@ pub fn get_pubkey_from_input(
         }
     }
     Ok(None)
+}
+
+/// Convert an output key to a taproot ScriptPubKey.
+/// This has the following format:
+/// `OP_PUSHNUM_1 OP_PUSHBYTES_32 key`
+pub fn generate_script_pubkey_from_output_key(output_key: XOnlyPublicKey) -> [u8; 34] {
+    let mut buf = [0u8; 34];
+    buf[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
+    buf[2..].copy_from_slice(&output_key.serialize());
+    buf
 }
