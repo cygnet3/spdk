@@ -18,7 +18,6 @@ use std::{
 use crate::{
     Error, Network, Result, SilentPaymentCode, SpVersion,
     utils::{
-        OP_1, OP_PUSHBYTES_32,
         common::{SharedSecret, calculate_P_n, calculate_t_n},
         hash::LabelHash,
     },
@@ -427,9 +426,10 @@ impl Receiver {
         Ok(found)
     }
 
-    /// Get the possible ScriptPubKeys from a transaction's tweak data.
-    /// Using the tweak data, this function will calculate the resulting script, given the assumption that this transaction is a payment to us.
-    /// This Script can be useful for BIP158 block filters.
+    /// Get all the output keys for a given transaction shared secret.
+    /// This is useful when looking for candidate keys to match against a BIP157/BIP158 block filter.
+    ///
+    /// This is not needed for the regular receive flow of scanning transactions.
     ///
     /// # Arguments
     ///
@@ -437,40 +437,34 @@ impl Receiver {
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [HashMap] that maps an optional [Label] to a Script as a 34-byte vector. The script has the following format: `OP_PUSHNUM_1 OP_PUSHBYTES_32 taproot_output`
+    /// If successful, the function returns a [Result] wrapping a [HashMap] that maps an optional [Label] to an output key.
+    ///
+    /// This output key can be converted to a ScriptPubKey using
+    /// [generate_script_pubkey_from_output_key](crate::utils::receiving::generate_script_pubkey_from_output_key)
     ///
     /// # Errors
     ///
     /// This function will return an error if:
     ///
     /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
-    pub fn script_pubkeys_from_shared_secret(
+    pub fn generate_output_keys_from_shared_secret(
         &self,
         ecdh_shared_secret: &SharedSecret,
-    ) -> Result<HashMap<Option<Label>, [u8; 34]>> {
+    ) -> Result<HashMap<Option<Label>, XOnlyPublicKey>> {
         let t_0: SecretKey = calculate_t_n(ecdh_shared_secret, 0)?;
         let P_0: PublicKey = calculate_P_n(&self.spend_pubkey, t_0.into())?;
-        let output_key_bytes = P_0.x_only_public_key().0.serialize();
+        let output_key = P_0.x_only_public_key().0;
 
         let mut res = HashMap::new();
 
-        let mut spk = [0u8; 34];
-        // OP_PUSHNUM_1 OP_PUSHBYTES_32 taproot output key
-        spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
-        spk[2..].copy_from_slice(&output_key_bytes);
-
-        res.insert(None, spk);
+        res.insert(None, output_key);
 
         for (mG, label) in &self.labels {
             let B_m = mG.combine(&self.spend_pubkey)?;
             let P_m0 = calculate_P_n(&B_m, t_0.into())?;
-            let output_key_bytes = P_m0.x_only_public_key().0.serialize();
+            let output_key = P_m0.x_only_public_key().0;
 
-            let mut spk = [0u8; 34];
-            spk[..2].copy_from_slice(&[OP_1, OP_PUSHBYTES_32]);
-            spk[2..].copy_from_slice(&output_key_bytes);
-
-            res.insert(Some(label.clone()), spk);
+            res.insert(Some(label.clone()), output_key);
         }
         Ok(res)
     }
