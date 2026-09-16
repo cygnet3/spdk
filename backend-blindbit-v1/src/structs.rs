@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use crate::api_structs::FilterResponse;
 use crate::utils::input_hashes_map;
-use bitcoin::{BlockHash, OutPoint, absolute::Height, bip158::BlockFilter, secp256k1::PublicKey};
+use bitcoin::{
+    BlockHash, OutPoint, XOnlyPublicKey, absolute::Height, bip158::BlockFilter,
+    secp256k1::PublicKey,
+};
 use spdk_core::chain::BlockData;
 
 pub struct BlindbitV1BlockData {
@@ -40,18 +43,15 @@ impl BlockData for BlindbitV1BlockData {
         self.tweaks.clone()
     }
 
-    fn check_match_outputs(&self, candidate_spks: Vec<&[u8; 34]>) -> anyhow::Result<bool> {
-        // check output scripts
-        let output_keys: Vec<_> = candidate_spks
-            .into_iter()
-            .map(|spk| spk[2..].as_ref())
-            .collect();
-
+    fn check_match_outputs(&self, candidate_keys: Vec<XOnlyPublicKey>) -> anyhow::Result<bool> {
         // note: match will always return true for an empty query!
-        if !output_keys.is_empty() {
+        if !candidate_keys.is_empty() {
+            // check output scripts
+            let mut key_bytes_iter = candidate_keys.into_iter().map(|key| key.serialize());
+
             let filter = BlockFilter::new(&self.new_utxo_filter.data);
 
-            Ok(filter.match_any(&self.blkhash, &mut output_keys.into_iter())?)
+            Ok(filter.match_any(&self.blkhash, &mut key_bytes_iter)?)
         } else {
             Ok(false)
         }

@@ -2,7 +2,9 @@ use std::{collections::HashSet, ops::RangeInclusive, pin::Pin};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use bitcoin::{Amount, BlockHash, OutPoint, absolute::Height, secp256k1::PublicKey};
+use bitcoin::{
+    Amount, BlockHash, OutPoint, XOnlyPublicKey, absolute::Height, secp256k1::PublicKey,
+};
 use futures::Stream;
 
 use super::structs::UtxoData;
@@ -37,7 +39,7 @@ pub trait BlockData {
     fn blkhash(&self) -> BlockHash;
 
     /// Checks if any of the outputs in the block matches the provided list of scriptpubkeys
-    fn check_match_outputs(&self, candidate_spks: Vec<&[u8; 34]>) -> anyhow::Result<bool>;
+    fn check_match_outputs(&self, candidate_keys: Vec<XOnlyPublicKey>) -> anyhow::Result<bool>;
 
     /// Check if any of the provided set in outpoints are spent in this block
     fn check_match_inputs(&self, owned_outpoints: &HashSet<OutPoint>) -> anyhow::Result<bool>;
