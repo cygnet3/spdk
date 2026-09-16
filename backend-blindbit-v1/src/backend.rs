@@ -94,12 +94,11 @@ impl ChainBackend for BlindbitBackend {
     }
 
     async fn utxos(&self, block_height: Height) -> Result<Vec<UtxoData>> {
-        Ok(self
-            .client
+        self.client
             .utxos(block_height)
             .await?
             .into_iter()
-            .map(Into::into)
-            .collect())
+            .map(TryInto::try_into)
+            .collect()
     }
 }

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
-use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, absolute::Height};
+use anyhow::bail;
+use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height};
 use serde::{Deserialize, Deserializer, Serialize};
 use spdk_core::chain::{SpentIndexData, UtxoData};
 
@@ -20,14 +21,21 @@ pub struct UtxoResponse {
     pub spent: bool,
 }
 
-impl From<UtxoResponse> for UtxoData {
-    fn from(value: UtxoResponse) -> Self {
-        Self {
-            txid: value.txid,
-            vout: value.vout,
-            value: value.value,
-            scriptpubkey: value.scriptpubkey,
-            spent: value.spent,
+impl TryFrom<UtxoResponse> for UtxoData {
+    type Error = anyhow::Error;
+
+    fn try_from(value: UtxoResponse) -> Result<Self, Self::Error> {
+        if value.scriptpubkey.is_p2tr() {
+            let output_key = XOnlyPublicKey::from_slice(&value.scriptpubkey.to_bytes()[2..])?;
+            Ok(Self {
+                txid: value.txid,
+                vout: value.vout,
+                value: value.value,
+                output_key,
+                spent: value.spent,
+            })
+        } else {
+            bail!("Non-taproot scriptpubkey: {}", value.scriptpubkey)
         }
     }
 }

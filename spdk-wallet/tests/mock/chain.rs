@@ -88,6 +88,6 @@ impl ChainBackend for MockChainBackend {
         let file = File::open(format!("{BLOCK_DATA_PATH}/{block_height}/utxos.json")).unwrap();
         let utxos: Vec<UtxoResponse> = serde_json::from_reader(file).unwrap();
 
-        Ok(utxos.into_iter().map(Into::into).collect())
+        utxos.into_iter().map(TryInto::try_into).collect()
     }
 }
