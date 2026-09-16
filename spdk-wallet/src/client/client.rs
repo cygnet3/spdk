@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::Write};
 
 use bitcoin::{
-    Network,
+    Network, XOnlyPublicKey,
     secp256k1::{PublicKey, Secp256k1, SecretKey},
 };
 use serde::{Deserialize, Serialize};
@@ -80,10 +80,10 @@ impl SpClient {
         }
     }
 
-    pub fn script_to_secret_map(
+    pub fn output_key_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
-    ) -> Result<HashMap<[u8; 34], SharedSecret>> {
+    ) -> Result<HashMap<XOnlyPublicKey, SharedSecret>> {
         // if using rayon feature, import the preludes
         #[cfg(feature = "rayon")]
         use rayon::prelude::*;
@@ -101,11 +101,11 @@ impl SpClient {
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
                 let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
-                let spks = self
+                let output_keys = self
                     .sp_receiver
-                    .script_pubkeys_from_shared_secret(&secret)?;
+                    .generate_output_keys_from_shared_secret(&secret)?;
 
-                Ok((secret, spks.into_values()))
+                Ok((secret, output_keys.into_values()))
             })
             .collect();
 
