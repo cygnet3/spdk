@@ -23,11 +23,6 @@ use crate::{
     },
 };
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
-use serde::{
-    Deserialize, Deserializer, Serialize,
-    de::{self, SeqAccess, Visitor},
-    ser::{SerializeStruct, SerializeTuple},
-};
 
 /// A Silent payment receiving label.
 #[derive(Eq, PartialEq, Clone)]
@@ -103,25 +98,6 @@ impl From<Label> for Scalar {
     }
 }
 
-impl Serialize for Label {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.as_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Label {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value: String = String::deserialize(deserializer)?;
-        value.try_into().map_err(serde::de::Error::custom)
-    }
-}
-
 /// A struct representing a silent payment recipient.
 ///
 /// It can be used to scan for transaction outputs belonging to us by using the [`scan_transaction`](Receiver::scan_transaction) function.
@@ -135,136 +111,6 @@ pub struct Receiver {
     change_label: Label, // To be able to tell which label is the change
     labels: HashMap<PublicKey, Label>,
     pub network: Network,
-}
-
-struct SerializablePubkey([u8; 33]);
-
-struct SerializableHashMap(HashMap<PublicKey, Label>);
-
-impl Serialize for SerializablePubkey {
-    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut seq = serializer.serialize_tuple(self.0.len())?;
-        for element in &self.0[..] {
-            seq.serialize_element(element)?;
-        }
-        seq.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for SerializablePubkey {
-    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SerializablePubkeyVisitor;
-
-        impl<'de> Visitor<'de> for SerializablePubkeyVisitor {
-            type Value = SerializablePubkey;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an array of 33 bytes")
-            }
-
-            fn visit_seq<V>(
-                self,
-                mut seq: V,
-            ) -> std::prelude::v1::Result<SerializablePubkey, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let mut arr = [0u8; 33];
-                for (i, byte) in arr.iter_mut().enumerate() {
-                    *byte = seq
-                        .next_element()?
-                        .ok_or_else(|| de::Error::invalid_length(i, &self))?;
-                }
-                Ok(SerializablePubkey(arr))
-            }
-        }
-
-        deserializer.deserialize_tuple(33, SerializablePubkeyVisitor)
-    }
-}
-
-impl Serialize for SerializableHashMap {
-    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let pairs: Vec<(SerializablePubkey, Label)> = self
-            .0
-            .iter()
-            .map(|(pubkey, label)| (SerializablePubkey(pubkey.serialize()), label.to_owned()))
-            .collect();
-        // Now serialize `pairs` as a vector of tuples
-        pairs.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for SerializableHashMap {
-    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let pairs: Vec<(SerializablePubkey, Label)> = Deserialize::deserialize(deserializer)?;
-        let mut map: HashMap<PublicKey, Label> = HashMap::new();
-        for (ser_pubkey, label) in pairs {
-            map.insert(PublicKey::from_slice(&ser_pubkey.0).unwrap(), label);
-        }
-        Ok(SerializableHashMap(map))
-    }
-}
-
-impl Serialize for Receiver {
-    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("Receiver", 5)?;
-        state.serialize_field::<u8>("version", &self.version.into())?;
-        state.serialize_field("network", &self.network)?;
-        state.serialize_field(
-            "scan_pubkey",
-            &SerializablePubkey(self.scan_pubkey.serialize()),
-        )?;
-        state.serialize_field(
-            "spend_pubkey",
-            &SerializablePubkey(self.spend_pubkey.serialize()),
-        )?;
-        state.serialize_field("change_label", &self.change_label)?;
-        state.serialize_field("labels", &SerializableHashMap(self.labels.clone()))?;
-        state.end()
-    }
-}
-
-#[derive(Deserialize)]
-struct ReceiverHelper {
-    version: u8,
-    network: Network,
-    scan_pubkey: SerializablePubkey,
-    spend_pubkey: SerializablePubkey,
-    change_label: String,
-    labels: SerializableHashMap,
-}
-
-impl<'de> Deserialize<'de> for Receiver {
-    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let helper = ReceiverHelper::deserialize(deserializer)?;
-        Ok(Receiver {
-            version: helper.version.try_into().unwrap(),
-            network: helper.network,
-            scan_pubkey: PublicKey::from_slice(&helper.scan_pubkey.0).unwrap(),
-            spend_pubkey: PublicKey::from_slice(&helper.spend_pubkey.0).unwrap(),
-            change_label: Label::try_from(helper.change_label).unwrap(),
-            labels: helper.labels.0,
-        })
-    }
 }
 
 impl Receiver {
@@ -472,10 +318,6 @@ impl Receiver {
 
 #[cfg(test)]
 mod tests {
-    use secp256k1::{Secp256k1, SecretKey};
-
-    use crate::SpVersion;
-
     use super::Label;
 
     #[test]
@@ -483,18 +325,6 @@ mod tests {
         let s: String =
             "8e4bbee712779f746337cadf39e8b1eab8e8869dd40f2e3a7281113e858ffc0b".to_owned();
         Label::try_from(s).unwrap();
-    }
-
-    #[test]
-    fn deserialize_label() {
-        let s: String =
-            "\"8e4bbee712779f746337cadf39e8b1eab8e8869dd40f2e3a7281113e858ffc0b\"".to_owned();
-
-        let label: Label = serde_json::from_str(&s).unwrap();
-
-        let label_str = serde_json::to_string(&label).unwrap();
-
-        assert_eq!(label_str, s);
     }
 
     #[test]
@@ -508,29 +338,5 @@ mod tests {
         // Not 32B
         let s: String = "deadbeef".to_owned();
         Label::try_from(s).unwrap_err();
-    }
-
-    #[test]
-    fn serialize_deserialize_receiver() {
-        let scan_key = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let spend_key = SecretKey::from_slice(&[2u8; 32]).unwrap();
-
-        let change_label = Label::new(scan_key, 0);
-
-        let secp = Secp256k1::new();
-
-        let receiver = super::Receiver::new(
-            SpVersion::ZERO,
-            scan_key.public_key(&secp),
-            spend_key.public_key(&secp),
-            change_label,
-            crate::Network::Testnet,
-        )
-        .unwrap();
-
-        let serialized = serde_json::to_string(&receiver).unwrap();
-        let deserialized: super::Receiver = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(receiver, deserialized);
     }
 }
