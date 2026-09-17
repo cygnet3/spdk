@@ -15,9 +15,8 @@ This library offers granular feature flags to minimize dependencies:
 
 - **default**: Enables all features (`encode`, `sending`, `receiving`)
 - **encode**: Enables string encoding/decoding for `SilentPaymentCode` (requires `bech32`)
-- **serde**: Enables serde serialization/deserialization for types
 - **sending**: Enables sending functionality (requires `bitcoin_hashes`, `hex` and `encode`)
-- **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex`,`serde` and `encode`)
+- **receiving**: Enables receiving functionality (requires `bitcoin_hashes`, `hex` and `encode`)
 
 ### Minimal Usage
 
@@ -28,7 +27,7 @@ If you only need the type definitions ([`Network`] and [`SilentPaymentKeyMateria
 silentpayments = { version = "0.7", default-features = false }
 ```
 
-This will only pull `secp256k1` as a dependency, giving you access to the core types without any encoding, serialization, or protocol functionality.
+This will only pull `secp256k1` as a dependency, giving you access to the core types without any encoding or protocol functionality.
 
 ## Sending
 
@@ -72,6 +71,7 @@ You can test the code using the test vectors by running `cargo test`.
 
 - Change `script_pubkeys_from_shared_secret` to return an output key instead, and rename to [`generate_output_keys_from_shared_secret`](crate::receiving::Receiver::generate_output_keys_from_shared_secret)
 - Add [`generate_script_pubkey_from_output_key`](crate::utils::receiving::generate_script_pubkey_from_output_key) utility function
+- Remove the `serde` feature and all `Serialize`/`Deserialize` implementations (`Receiver`, `Label`, `SilentPaymentCode`, `Network`)
 
 ### v0.7.1
 
