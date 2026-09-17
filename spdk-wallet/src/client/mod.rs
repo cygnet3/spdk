@@ -1,5 +1,6 @@
 mod bip321_parsing;
 mod client;
+mod coin_select;
 mod spend;
 mod structs;
 
