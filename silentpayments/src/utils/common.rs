@@ -1,5 +1,7 @@
 #[cfg(feature = "encode")]
 use core::fmt;
+#[cfg(feature = "encode")]
+use core::str::FromStr;
 
 use crate::Error;
 use crate::Result;
@@ -13,12 +15,6 @@ use secp256k1::PublicKey;
 use secp256k1::constants::PUBLIC_KEY_SIZE;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
-#[cfg(all(feature = "serde", feature = "encode"))]
-use serde::Deserializer;
-#[cfg(all(feature = "serde", feature = "encode"))]
-use serde::ser::Serializer;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 
 /// Struct representing an OutPoint type.
 ///
@@ -116,7 +112,6 @@ pub(crate) fn calculate_P_n(B_spend: &PublicKey, t_n: Scalar) -> Result<PublicKe
 /// There are three network types: Mainnet (`sp1..`), Testnet (`tsp1..`), and Regtest (`sprt1..`).
 /// Signet uses the same network type as Testnet.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum Network {
     Mainnet,
     Testnet,
@@ -252,29 +247,6 @@ pub struct SilentPaymentCode {
     network: Network,
 }
 
-#[cfg(feature = "serde")]
-impl Serialize for SilentPaymentCode {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let encoded: String = (*self).into();
-        serializer.serialize_str(&encoded)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> Deserialize<'de> for SilentPaymentCode {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let code_str: String = Deserialize::deserialize(deserializer)?;
-
-        Self::try_from(code_str.as_str()).map_err(serde::de::Error::custom)
-    }
-}
-
 #[cfg(feature = "encode")]
 impl SilentPaymentCode {
     fn from_key_material(sp_key_material: SilentPaymentKeyMaterial, network: Network) -> Self {
@@ -372,10 +344,10 @@ impl fmt::Display for SilentPaymentCode {
 }
 
 #[cfg(feature = "encode")]
-impl TryFrom<&str> for SilentPaymentCode {
-    type Error = Error;
+impl FromStr for SilentPaymentCode {
+    type Err = Error;
 
-    fn try_from(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<Self> {
         let (hrp, data, _variant) = bech32::decode(s)?;
 
         if data.len() != 107 {
@@ -409,11 +381,20 @@ impl TryFrom<&str> for SilentPaymentCode {
 }
 
 #[cfg(feature = "encode")]
+impl TryFrom<&str> for SilentPaymentCode {
+    type Error = Error;
+
+    fn try_from(s: &str) -> Result<Self> {
+        Self::from_str(s)
+    }
+}
+
+#[cfg(feature = "encode")]
 impl TryFrom<String> for SilentPaymentCode {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self> {
-        s.as_str().try_into()
+        Self::from_str(&s)
     }
 }
 

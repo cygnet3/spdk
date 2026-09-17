@@ -66,7 +66,7 @@ pub fn decode_outputs_to_check(outputs: &[String]) -> Vec<XOnlyPublicKey> {
 pub fn decode_recipients(recipients: &[String]) -> Vec<SilentPaymentCode> {
     recipients
         .iter()
-        .map(|sp_code_str| sp_code_str.as_str().try_into().unwrap())
+        .map(|sp_code_str| SilentPaymentCode::from_str(sp_code_str).unwrap())
         .collect()
 }
 
