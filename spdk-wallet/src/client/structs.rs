@@ -15,8 +15,7 @@ use spdk_core::updater::DiscoveredOutput;
 // re-export from bdk_coin_select, as we use this in the api
 pub use bdk_coin_select::FeeRate;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {
     LegacyAddress(Address<NetworkUnchecked>),
     SpCode(SilentPaymentCode),
@@ -48,7 +47,7 @@ impl From<RecipientAddress> for String {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Recipient {
     pub address: RecipientAddress, // either old school or silent payment
     pub amount: Amount,            // must be 0 if address is Data.
