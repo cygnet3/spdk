@@ -68,6 +68,11 @@ You can test the code using the test vectors by running `cargo test`.
 
 <summary>Expand</summary>
 
+### vx.x.x
+
+- Change `script_pubkeys_from_shared_secret` to return an output key instead, and rename to [`generate_output_keys_from_shared_secret`](crate::receiving::Receiver::generate_output_keys_from_shared_secret)
+- Add [`generate_script_pubkey_from_output_key`](crate::utils::receiving::generate_script_pubkey_from_output_key) utility function
+
 ### v0.7.1
 
 - Adds `OutPoint::from_txid_bytes_and_vout` constructor
