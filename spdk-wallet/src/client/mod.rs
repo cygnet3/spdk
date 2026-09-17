@@ -1,6 +1,7 @@
 mod bip321_parsing;
 #[expect(clippy::module_inception)]
 mod client;
+mod coin_select;
 mod spend;
 mod structs;
 
