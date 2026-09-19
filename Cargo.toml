@@ -35,3 +35,23 @@ edition = "2024"
 repository = "https://github.com/cygnet3/spdk"
 authors = ["cygnet <cygnet3@proton.me>"]
 license = "MIT"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+# Enable selected 'nursery' and 'restriction' lints...
+allow_attributes = "warn"
+branches_sharing_code = "warn"
+iter_on_empty_collections = "warn"
+iter_on_single_items = "warn"
+missing_const_for_fn = "warn"
+renamed_function_params = "warn"
+str_to_string = "warn"
+try_err = "warn"
+unused_trait_names = "warn"
+use_self = "warn"
+# Probably counterproductive to document errors of all publicly visible fns before the code has matured:
+missing_errors_doc = { level = "allow", priority = 1 }
+# Panics shall generally only result from bugs in callee code, so this gives too many false positives:
+missing_panics_doc = { level = "allow", priority = 1 }
+# Probably shouldn't annotate every (public) pure fn with '#[must_use]', so too many false positives:
+must_use_candidate = { level = "allow", priority = 1 }
