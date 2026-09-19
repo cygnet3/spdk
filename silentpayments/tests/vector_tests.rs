@@ -14,7 +14,7 @@ mod tests {
             sending::calculate_partial_secret,
         },
     };
-    use std::{collections::HashSet, io::Cursor, str::FromStr};
+    use std::{collections::HashSet, io::Cursor, str::FromStr as _};
 
     use silentpayments::receiving::Receiver;
 
@@ -39,6 +39,7 @@ mod tests {
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     fn process_test_case(test_case: TestData) {
         println!("test: {}", test_case.comment);
         let secp = Secp256k1::new();
@@ -51,7 +52,7 @@ mod tests {
             let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
+                .map(|vin| OutPoint::from_txid_and_vout(&vin.txid, vin.vout).unwrap())
                 .collect();
             let mut input_priv_keys = Vec::new();
             for input in given.vin {
@@ -67,7 +68,7 @@ mod tests {
                         is_p2tr(&script_pub_key),
                     )),
                     Ok(None) => (),
-                    Err(e) => panic!("Problem parsing the input: {:?}", e),
+                    Err(e) => panic!("Problem parsing the input: {e:?}"),
                 }
             }
             if input_priv_keys.is_empty() {
@@ -119,7 +120,7 @@ mod tests {
             let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(vin.txid.clone(), vin.vout).unwrap())
+                .map(|vin| OutPoint::from_txid_and_vout(&vin.txid, vin.vout).unwrap())
                 .collect();
             let mut input_pub_keys = Vec::new();
             for input in given.vin {
@@ -132,12 +133,12 @@ mod tests {
                 match get_pubkey_from_input(&script_sig, &txinwitness, &script_pub_key) {
                     Ok(Some(pubkey)) => input_pub_keys.push(pubkey),
                     Ok(None) => (),
-                    Err(e) => panic!("Problem parsing the input: {:?}", e),
+                    Err(e) => panic!("Problem parsing the input: {e:?}"),
                 }
             }
             if input_pub_keys.is_empty() {
                 continue;
-            };
+            }
 
             let input_pub_keys: Vec<&PublicKey> = input_pub_keys.iter().collect();
 
@@ -173,9 +174,7 @@ mod tests {
                 .scan_transaction(&ecdh_shared_secret, &outputs_to_check)
                 .unwrap();
 
-            let key_tweaks: Vec<Scalar> = scanned_outputs_received
-                .into_iter()
-                .flat_map(|(_, map)| {
+            let key_tweaks: Vec<Scalar> = scanned_outputs_received.into_values().flat_map(|map| {
                     let mut ret: Vec<Scalar> = vec![];
                     for l in map.into_values() {
                         ret.push(l);

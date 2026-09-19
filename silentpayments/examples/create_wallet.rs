@@ -1,4 +1,4 @@
-use std::{error::Error, str::FromStr};
+use std::{error::Error, str::FromStr as _};
 
 // Import necessary libraries and modules
 use bip39::Mnemonic;
@@ -16,10 +16,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate a 12-word mnemonic phrase using bip39 module and store it in the variable 'm'
     let m = Mnemonic::generate(12).expect("mnemonic generation failed");
-    let passphrase = "".to_owned();
+    let passphrase = String::new();
 
     // Print the generated mnemonic phrase to the console
-    println!("Mnemonic phrase: {}", m);
+    println!("Mnemonic phrase: {m}");
 
     // Convert the mnemonic phrase into a seed for cryptographic operations
     let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(passphrase))?;
