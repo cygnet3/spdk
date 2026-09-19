@@ -1,6 +1,7 @@
-use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
 use bitcoin_hashes::{Hash as _, HashEngine as _, sha256t_hash_newtype};
 use secp256k1::{PublicKey, Scalar, SecretKey};
+
+use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
 
 sha256t_hash_newtype! {
     pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
@@ -29,10 +30,7 @@ sha256t_hash_newtype! {
 }
 
 impl InputsHash {
-    pub(crate) fn from_outpoint_and_A_sum(
-        smallest_outpoint: &OutPoint,
-        A_sum: PublicKey,
-    ) -> Self {
+    pub(crate) fn from_outpoint_and_A_sum(smallest_outpoint: &OutPoint, A_sum: PublicKey) -> Self {
         let mut eng = Self::engine();
         eng.input(&smallest_outpoint.0);
         eng.input(&A_sum.serialize());

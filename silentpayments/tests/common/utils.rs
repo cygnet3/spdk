@@ -1,4 +1,6 @@
-use std::{fs::File, io::Read as _, str::FromStr as _};
+use std::fs::File;
+use std::io::{self, Cursor, Read as _};
+use std::str::FromStr as _;
 
 use bitcoin_hashes::Hash as _;
 use secp256k1::{Message, Scalar, SecretKey, XOnlyPublicKey};
@@ -6,8 +8,6 @@ use serde_json::from_str;
 use silentpayments::SilentPaymentCode;
 
 use super::structs::{OutputWithSignature, TestData};
-
-use std::io::{self, Cursor};
 
 fn deser_compact_size(f: &mut Cursor<&Vec<u8>>) -> io::Result<u64> {
     let mut buf = [0; 8];
@@ -30,9 +30,8 @@ fn deser_compact_size(f: &mut Cursor<&Vec<u8>>) -> io::Result<u64> {
 }
 
 fn deser_string(f: &mut Cursor<&Vec<u8>>) -> io::Result<Vec<u8>> {
-    let size = usize::try_from(deser_compact_size(f)?).map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize")
-    })?;
+    let size = usize::try_from(deser_compact_size(f)?)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize"))?;
     let mut buf = vec![0; size];
     f.read_exact(&mut buf)?;
     Ok(buf)
@@ -43,9 +42,8 @@ pub fn deser_string_vector(f: &mut Cursor<&Vec<u8>>) -> io::Result<Vec<Vec<u8>>>
     if f.get_ref().is_empty() {
         return Ok(Vec::new()); // Return an empty vector if the buffer is empty
     }
-    let size = usize::try_from(deser_compact_size(f)?).map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize")
-    })?;
+    let size = usize::try_from(deser_compact_size(f)?)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize"))?;
     let mut vec = Vec::with_capacity(size);
     for _ in 0..size {
         vec.push(deser_string(f)?);

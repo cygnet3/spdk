@@ -1,9 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{
-    BlockHash, OutPoint,
-    hashes::{Hash as _, sha256},
-};
+use bitcoin::hashes::{Hash as _, sha256};
+use bitcoin::{BlockHash, OutPoint};
 
 #[expect(clippy::implicit_hasher)]
 pub fn input_hashes_map(

@@ -1,13 +1,17 @@
-use std::{collections::HashSet, ops::RangeInclusive, pin::Pin};
+use std::collections::HashSet;
+use std::ops::RangeInclusive;
+use std::pin::Pin;
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use bitcoin::{Amount, BlockHash, OutPoint, absolute::Height};
+use bitcoin::absolute::Height;
+use bitcoin::{Amount, BlockHash, OutPoint};
 use futures::{Stream, StreamExt as _, stream};
-
 use spdk_core::chain::{BoxedBlockData, ChainBackend, SpentIndexData, UtxoData};
 
-use crate::{BlindbitClient, structs::BlindbitV1BlockData, utils::input_hashes_map};
+use crate::BlindbitClient;
+use crate::structs::BlindbitV1BlockData;
+use crate::utils::input_hashes_map;
 
 const CONCURRENT_FILTER_REQUESTS: usize = 200;
 
@@ -25,8 +29,8 @@ impl BlindbitBackend {
 #[async_trait]
 impl ChainBackend for BlindbitBackend {
     /// High-level function to get block data for a range of blocks.
-    /// Block data includes all the information needed to determine if a block is relevant for scanning,
-    /// but does not include utxos, or spent index.
+    /// Block data includes all the information needed to determine if a block is relevant for
+    /// scanning, but does not include utxos, or spent index.
     /// These need to be fetched separately afterwards, if it is determined this block is relevant.
     fn get_block_data_for_range(
         &self,

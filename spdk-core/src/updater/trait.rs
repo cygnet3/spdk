@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{BlockHash, OutPoint, absolute::Height};
-
 use anyhow::Result;
+use bitcoin::absolute::Height;
+use bitcoin::{BlockHash, OutPoint};
 
 use super::DiscoveredOutput;
 

@@ -1,20 +1,17 @@
-use anyhow::Result;
-use backend_blindbit_v1::{
-    api_structs::{FilterResponse, SpentIndexResponse, UtxoResponse},
-    structs::BlindbitV1BlockData,
-    utils::input_hashes_map,
-};
 use std::collections::HashSet;
 use std::fs::File;
 use std::ops::RangeInclusive;
 use std::pin::Pin;
 
+use anyhow::Result;
 use async_trait::async_trait;
+use backend_blindbit_v1::api_structs::{FilterResponse, SpentIndexResponse, UtxoResponse};
+use backend_blindbit_v1::structs::BlindbitV1BlockData;
+use backend_blindbit_v1::utils::input_hashes_map;
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Amount, BlockHash, OutPoint};
 use futures::{Stream, stream};
-
 use spdk_core::chain::{BoxedBlockData, ChainBackend, SpentIndexData, UtxoData};
 
 const BLOCK_DATA_PATH: &str = "tests/resources/blocks";

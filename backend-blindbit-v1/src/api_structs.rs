@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use anyhow::bail;
-use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height};
+use bitcoin::absolute::Height;
+use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, XOnlyPublicKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use spdk_core::chain::{SpentIndexData, UtxoData};
 

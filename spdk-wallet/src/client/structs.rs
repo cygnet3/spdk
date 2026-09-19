@@ -1,6 +1,8 @@
 use std::str::FromStr as _;
 
 use anyhow::Error;
+// re-export from bdk_coin_select, as we use this in the api
+pub use bdk_coin_select::FeeRate;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::key::Secp256k1;
@@ -9,11 +11,7 @@ use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentCode;
 use silentpayments::utils::sending::PartialSecret;
-
 use spdk_core::updater::DiscoveredOutput;
-
-// re-export from bdk_coin_select, as we use this in the api
-pub use bdk_coin_select::FeeRate;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {

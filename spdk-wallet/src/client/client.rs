@@ -1,17 +1,14 @@
-use std::{collections::HashMap, io::Write as _};
-
-use bitcoin::{
-    Network, XOnlyPublicKey,
-    secp256k1::{PublicKey, Secp256k1, SecretKey},
-};
-use silentpayments::{Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion};
-use silentpayments::{bitcoin_hashes::Hash as _, utils as sp_utils};
-use silentpayments::{
-    bitcoin_hashes::sha256,
-    receiving::{Label, Receiver},
-};
+use std::collections::HashMap;
+use std::io::Write as _;
 
 use anyhow::{Error, Result};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::{Network, XOnlyPublicKey};
+use silentpayments::bitcoin_hashes::{Hash as _, sha256};
+use silentpayments::receiving::{Label, Receiver};
+use silentpayments::{
+    Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion, utils as sp_utils,
+};
 
 use super::SpendKey;
 

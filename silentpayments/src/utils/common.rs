@@ -3,10 +3,6 @@ use core::fmt;
 #[cfg(feature = "encode")]
 use core::str::FromStr;
 
-use crate::Error;
-use crate::Result;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::hash::SharedSecretHash;
 #[cfg(feature = "encode")]
 use bech32::{FromBase32 as _, ToBase32 as _};
 #[cfg(any(feature = "sending", feature = "receiving"))]
@@ -15,6 +11,10 @@ use secp256k1::PublicKey;
 use secp256k1::constants::PUBLIC_KEY_SIZE;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
+
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::utils::hash::SharedSecretHash;
+use crate::{Error, Result};
 
 /// Struct representing an `OutPoint` type.
 ///
@@ -120,7 +120,8 @@ pub enum Network {
 impl From<Network> for &str {
     fn from(value: Network) -> Self {
         match value {
-            Network::Mainnet => "bitcoin", // we use the same string as rust-bitcoin for compatibility
+            // we use the same string as rust-bitcoin for compatibility
+            Network::Mainnet => "bitcoin",
             Network::Regtest => "regtest",
             Network::Testnet => "testnet",
         }
@@ -248,7 +249,10 @@ pub struct SilentPaymentCode {
 
 #[cfg(feature = "encode")]
 impl SilentPaymentCode {
-    const fn from_key_material(sp_key_material: SilentPaymentKeyMaterial, network: Network) -> Self {
+    const fn from_key_material(
+        sp_key_material: SilentPaymentKeyMaterial,
+        network: Network,
+    ) -> Self {
         Self {
             sp_key_material,
             network,
@@ -270,9 +274,8 @@ impl SilentPaymentCode {
     ///   - Mainnet: `"sp"`
     ///   - Testnet/Signet: `"tsp"`
     ///   - Regtest: `"sprt"`
-    /// - **Data**: a single 5-bit version digit, then the 66-byte payload
-    ///   `serP(B_scan) ‖ serP(B_m)` converted to 5-bit characters.
-    ///   `B_m` is the spend pubkey (labeled or not).
+    /// - **Data**: a single 5-bit version digit, then the 66-byte payload `serP(B_scan) ‖
+    ///   serP(B_m)` converted to 5-bit characters. `B_m` is the spend pubkey (labeled or not).
     ///
     /// # Example
     ///
@@ -449,7 +452,8 @@ where
 mod tests {
     use std::str::FromStr as _;
 
-    use bitcoin::{consensus::serialize, hashes::Hash as _};
+    use bitcoin::consensus::serialize;
+    use bitcoin::hashes::Hash as _;
 
     use crate::utils;
 

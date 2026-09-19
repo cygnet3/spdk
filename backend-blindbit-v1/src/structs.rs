@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
+use bitcoin::absolute::Height;
+use bitcoin::bip158::BlockFilter;
+use bitcoin::secp256k1::PublicKey;
+use bitcoin::{BlockHash, OutPoint, XOnlyPublicKey};
+use spdk_core::chain::BlockData;
+
 use crate::api_structs::FilterResponse;
 use crate::utils::input_hashes_map;
-use bitcoin::{
-    BlockHash, OutPoint, XOnlyPublicKey, absolute::Height, bip158::BlockFilter,
-    secp256k1::PublicKey,
-};
-use spdk_core::chain::BlockData;
 
 pub struct BlindbitV1BlockData {
     pub blkheight: Height,

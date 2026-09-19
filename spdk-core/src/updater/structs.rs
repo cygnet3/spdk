@@ -1,4 +1,5 @@
-use bitcoin::{Amount, ScriptBuf, secp256k1::Scalar};
+use bitcoin::secp256k1::Scalar;
+use bitcoin::{Amount, ScriptBuf};
 use silentpayments::receiving::Label;
 
 #[derive(Debug, Clone)]
