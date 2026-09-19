@@ -31,17 +31,17 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(b_scan: SecretKey, m: u32) -> Label {
-        Label {
+    pub fn new(b_scan: SecretKey, m: u32) -> Self {
+        Self {
             s: LabelHash::from_b_scan_and_m(b_scan, m).to_scalar(),
         }
     }
 
-    pub fn into_inner(self) -> Scalar {
+    pub const fn into_inner(self) -> Scalar {
         self.s
     }
 
-    pub fn as_inner(&self) -> &Scalar {
+    pub const fn as_inner(&self) -> &Scalar {
         &self.s
     }
 
@@ -65,22 +65,22 @@ impl std::hash::Hash for Label {
 
 impl From<Scalar> for Label {
     fn from(s: Scalar) -> Self {
-        Label { s }
+        Self { s }
     }
 }
 
 impl TryFrom<String> for Label {
     type Error = Error;
 
-    fn try_from(s: String) -> Result<Label> {
-        Label::try_from(&s[..])
+    fn try_from(s: String) -> Result<Self> {
+        Self::try_from(&s[..])
     }
 }
 
 impl TryFrom<&str> for Label {
     type Error = Error;
 
-    fn try_from(s: &str) -> Result<Label> {
+    fn try_from(s: &str) -> Result<Self> {
         // Is it valid hex?
         let bytes = hex::decode(s)?;
         // Is it 32B long?
@@ -88,7 +88,7 @@ impl TryFrom<&str> for Label {
             Error::InvalidLabel("Label must be 32 bytes (256 bits) long".to_owned())
         })?;
         // Is it on the curve? If yes, push it on our labels list
-        Ok(Label::from(Scalar::from_be_bytes(bytes)?))
+        Ok(Self::from(Scalar::from_be_bytes(bytes)?))
     }
 }
 
@@ -123,7 +123,7 @@ impl Receiver {
     ) -> Result<Self> {
         let labels: HashMap<PublicKey, Label> = HashMap::new();
 
-        let mut receiver = Receiver {
+        let mut receiver = Self {
             version,
             scan_pubkey,
             spend_pubkey,
@@ -165,7 +165,7 @@ impl Receiver {
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [SilentPaymentCode].
+    /// If successful, the function returns a [`Result`] wrapping a [`SilentPaymentCode`].
     ///
     /// # Errors
     ///
@@ -174,7 +174,7 @@ impl Receiver {
     /// * If the label is not known for this recipient.
     /// * If key addition results in an invalid key.
     pub fn receiving_code_for_label(&self, label: &Label) -> Result<SilentPaymentCode> {
-        for (mG, l) in self.labels.iter() {
+        for (mG, l) in &self.labels {
             if l == label {
                 let m_pubkey = mG.combine(&self.spend_pubkey)?;
                 let code =
@@ -203,7 +203,7 @@ impl Receiver {
     }
 
     /// Get the default, no-label silent payment code.
-    pub fn receiving_code(&self) -> SilentPaymentCode {
+    pub const fn receiving_code(&self) -> SilentPaymentCode {
         SilentPaymentCode::new(
             self.version,
             self.scan_pubkey,
@@ -217,11 +217,11 @@ impl Receiver {
     /// # Arguments
     ///
     /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
-    /// * `pubkeys_to_check` - A [HashSet] of public keys of all (unspent) taproot output of the transaction.
+    /// * `pubkeys_to_check` - A [`HashSet`] of public keys of all (unspent) taproot output of the transaction.
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [HashMap] of labels to a map of outputs to key tweaks (since the same label may have been paid multiple times in one transaction). The key tweaks can be added to the wallet's spending private key to produce a key that can spend the utxo. A resulting [HashMap] of length 0 implies none of the outputs are owned by us.
+    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] of labels to a map of outputs to key tweaks (since the same label may have been paid multiple times in one transaction). The key tweaks can be added to the wallet's spending private key to produce a key that can spend the utxo. A resulting [`HashMap`] of length 0 implies none of the outputs are owned by us.
     ///
     /// # Errors
     ///
@@ -279,14 +279,14 @@ impl Receiver {
     ///
     /// # Arguments
     ///
-    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient as a PublicKey, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
+    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient as a `PublicKey`, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [Result] wrapping a [HashMap] that maps an optional [Label] to an output key.
+    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] that maps an optional [`Label`] to an output key.
     ///
-    /// This output key can be converted to a ScriptPubKey using
-    /// [generate_script_pubkey_from_output_key](crate::utils::receiving::generate_script_pubkey_from_output_key)
+    /// This output key can be converted to a `ScriptPubKey` using
+    /// [`generate_script_pubkey_from_output_key`](crate::utils::receiving::generate_script_pubkey_from_output_key)
     ///
     /// # Errors
     ///

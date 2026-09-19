@@ -1,4 +1,4 @@
-use std::{env, error::Error, str::FromStr};
+use std::{env, error::Error, str::FromStr as _};
 
 // Import necessary libraries and modules
 use bip39::Mnemonic;
@@ -6,7 +6,7 @@ use bitcoin::bip32::{DerivationPath, Xpriv};
 use bitcoin::consensus::deserialize;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
-use bitcoin_hashes::hex::FromHex;
+use bitcoin_hashes::hex::FromHex as _;
 
 use silentpayments::SpVersion;
 use silentpayments::utils::{OutPoint, TEST_SCAN_PATH, TEST_SPEND_PATH};
@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|i| {
             let prevout = i.previous_output;
-            OutPoint::from_txid_and_vout(prevout.txid.to_string(), prevout.vout).unwrap()
+            OutPoint::from_txid_and_vout(&prevout.txid.to_string(), prevout.vout).unwrap()
         })
         .collect();
 
@@ -116,8 +116,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let wif = PrivateKey::from_slice(&spending_key.secret_bytes(), Network::Signet)
                 .unwrap()
                 .to_wif();
-            println!("Private key to spend output with key {}: {}", xonly, wif);
-            println!("Descriptor to import in Bitcoin Core: rawtr({})", wif);
+            println!("Private key to spend output with key {xonly}: {wif}");
+            println!("Descriptor to import in Bitcoin Core: rawtr({wif})");
         }
     }
 

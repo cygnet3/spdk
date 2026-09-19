@@ -11,7 +11,7 @@
 use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use std::collections::HashMap;
 
-use crate::Result;
+use crate::{Error, Result};
 use crate::utils::common::SharedSecret;
 use crate::utils::common::SilentPaymentKeyMaterial;
 use crate::utils::common::calculate_t_n;
@@ -26,12 +26,12 @@ use crate::utils::sending::calculate_ecdh_shared_secret;
 ///
 /// # Arguments
 ///
-/// * `recipients` - An iterable list of recipients to be paid. List can contain either [SilentPaymentKeyMaterial] or [crate::SilentPaymentCode].
-/// * `partial_secret` - [PartialSecret] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
+/// * `recipients` - An iterable list of recipients to be paid. List can contain either [`SilentPaymentKeyMaterial`] or [`crate::SilentPaymentCode`].
+/// * `partial_secret` - [`PartialSecret`] that represents the sum of the private keys of eligible inputs of the transaction multiplied by the input hash.
 ///
 /// # Returns
 ///
-/// If successful, the function returns a [Result] wrapping a [HashMap] of each recipient item to a [Vec].
+/// If successful, the function returns a [Result] wrapping a [`HashMap`] of each recipient item to a [Vec].
 /// The [Vec] contains all the outputs that are associated with that recipient.
 /// If the same recipient was added multiple times, this [Vec] will contain multiple elements.
 ///
@@ -72,7 +72,9 @@ where
 
         for (n, recipient) in recipients.into_iter().enumerate() {
             let recipient_key_material = recipient.into();
-            let t_n = calculate_t_n(&ecdh_shared_secret, n as u32)?;
+            let n = u32::try_from(n)
+                .map_err(|_| Error::GenericError("Recipient index exceeds u32 range".to_owned()))?;
+            let t_n = calculate_t_n(&ecdh_shared_secret, n)?;
 
             let res = t_n.public_key(&secp);
             let reskey = res.combine(&recipient_key_material.m_pubkey())?;
