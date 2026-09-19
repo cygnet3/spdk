@@ -16,8 +16,8 @@ const BLINDBIT_BACKEND_URL: &str = "https://silentpayments.dev/blindbit/signet";
 const NETWORK: Network = Network::Signet;
 
 // scan range settings
-const SCAN_START_HEIGHT: u32 = 200000;
-const SCAN_END_HEIGHT: u32 = 200010;
+const SCAN_START_HEIGHT: u32 = 200_000;
+const SCAN_END_HEIGHT: u32 = 200_010;
 const DUST_LIMIT: Amount = Amount::from_sat(546);
 const WITH_CUTTHROUGH: bool = true;
 
@@ -42,7 +42,7 @@ struct InMemoryUpdater {
 impl InMemoryUpdater {
     fn new() -> Self {
         Self {
-            received_updates: Default::default(),
+            received_updates: Arc::default(),
         }
     }
 

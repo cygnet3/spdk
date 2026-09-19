@@ -1,4 +1,5 @@
 mod bip321_parsing;
+#[expect(clippy::module_inception)]
 mod client;
 mod spend;
 mod structs;

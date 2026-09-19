@@ -1,8 +1,8 @@
-use std::str::FromStr;
+use std::str::FromStr as _;
 
 use anyhow::Error;
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::hex::{DisplayHex, FromHex};
+use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};

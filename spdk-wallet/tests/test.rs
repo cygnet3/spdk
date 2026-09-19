@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 
 use bitcoin::absolute::Height;
-use bitcoin::hex::FromHex;
+use bitcoin::hex::FromHex as _;
 use bitcoin::secp256k1::{Scalar, SecretKey};
 use bitcoin::{Amount, BlockHash, Network, OutPoint, ScriptBuf};
 use silentpayments::receiving::Label;
@@ -41,7 +41,7 @@ async fn simple_scan_single_block() {
         &keep_scanning,
     );
 
-    let block_height: Height = Height::from_consensus(200000).unwrap();
+    let block_height: Height = Height::from_consensus(200_000).unwrap();
     let block_hash: BlockHash = "0000007d60f5ffc47975418ac8331c0ea52cf551730ef7ead7ff9082a536f13c"
         .parse()
         .unwrap();
@@ -89,13 +89,13 @@ async fn simple_scan_multiple_blocks() {
         &keep_scanning,
     );
 
-    let first_block_height: Height = Height::from_consensus(200000).unwrap();
+    let first_block_height: Height = Height::from_consensus(200_000).unwrap();
     let first_block_hash: BlockHash =
         "0000007d60f5ffc47975418ac8331c0ea52cf551730ef7ead7ff9082a536f13c"
             .parse()
             .unwrap();
 
-    let second_block_height: Height = Height::from_consensus(200001).unwrap();
+    let second_block_height: Height = Height::from_consensus(200_001).unwrap();
     let second_block_hash: BlockHash =
         "000000ad6bf1ea934186822de99a611924d94aff8fbcb1ad6be2c790c3b92ae1"
             .parse()
@@ -166,7 +166,7 @@ async fn scan_single_block_with_output() {
         &keep_scanning,
     );
 
-    let block_height = Height::from_consensus(295125).unwrap();
+    let block_height = Height::from_consensus(295_125).unwrap();
 
     scanner
         .scan_blocks(block_height..=block_height, DUST_LIMIT, true)
@@ -224,7 +224,7 @@ async fn scan_single_block_with_spent_input() {
         &keep_scanning,
     );
 
-    let block_height = Height::from_consensus(295147).unwrap();
+    let block_height = Height::from_consensus(295_147).unwrap();
 
     scanner
         .scan_blocks(block_height..=block_height, DUST_LIMIT, true)

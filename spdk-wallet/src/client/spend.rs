@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::str::FromStr as _;
 
 use anyhow::{Error, Result};
 use bdk_coin_select::{
@@ -6,8 +6,8 @@ use bdk_coin_select::{
     TargetFee, TargetOutputs,
 };
 use bitcoin::absolute::LockTime;
-use bitcoin::hashes::Hash;
-use bitcoin::key::TapTweak;
+use bitcoin::hashes::Hash as _;
+use bitcoin::key::TapTweak as _;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{Keypair, Message, Secp256k1};
 use bitcoin::sighash::{Prevouts, SighashCache};
@@ -29,7 +29,7 @@ impl SpClient {
     // For now it's only suitable for wallet that spends only silent payments outputs that it owns
     pub fn create_new_transaction(
         &self,
-        available_utxos: Vec<(OutPoint, DiscoveredOutput)>,
+        available_utxos: &[(OutPoint, DiscoveredOutput)],
         mut recipients: Vec<Recipient>,
         fee_rate: FeeRate,
         network: Network,
@@ -43,9 +43,8 @@ impl SpClient {
 
         let sp_network = match network {
             Network::Bitcoin => SpNetwork::Mainnet,
-            Network::Testnet | Network::Signet => SpNetwork::Testnet,
+            Network::Testnet | Network::Signet | Network::Testnet4 => SpNetwork::Testnet,
             Network::Regtest => SpNetwork::Regtest,
-            _ => unreachable!(),
         };
 
         let tx_outs = recipients
@@ -66,8 +65,7 @@ impl SpClient {
                 RecipientAddress::SpCode(sp_code) => {
                     if sp_code.network() != sp_network {
                         return Err(Error::msg(format!(
-                            "Wrong network for silent payment code {}",
-                            sp_code
+                            "Wrong network for silent payment code {sp_code}"
                         )));
                     }
 
@@ -83,8 +81,7 @@ impl SpClient {
                         Err(Error::msg("Data output must have an amount of 0!"))
                     } else if data_len > DATA_CARRIER_SIZE {
                         Err(Error::msg(format!(
-                            "Can't embed data of length {}. Max length: {}",
-                            data_len, DATA_CARRIER_SIZE
+                            "Can't embed data of length {data_len}. Max length: {DATA_CARRIER_SIZE}"
                         )))
                     } else {
                         let mut op_return = PushBytesBuf::with_capacity(data_len);
@@ -139,7 +136,7 @@ impl SpClient {
                 address: RecipientAddress::SpCode(self.sp_receiver.change_code()),
                 amount: Amount::from_sat(change_value),
             });
-        };
+        }
 
         let partial_secret = self.partial_secret_for_selected_utxos(&selected_utxos)?;
 
@@ -152,7 +149,7 @@ impl SpClient {
         })
     }
 
-    /// A drain transaction spends all the available utxos to a single RecipientAddress.
+    /// A drain transaction spends all the available utxos to a single `RecipientAddress`.
     pub fn create_drain_transaction(
         &self,
         available_utxos: Vec<(OutPoint, DiscoveredOutput)>,
@@ -169,9 +166,8 @@ impl SpClient {
 
         let sp_network = match network {
             Network::Bitcoin => SpNetwork::Mainnet,
-            Network::Testnet | Network::Signet => SpNetwork::Testnet,
+            Network::Testnet | Network::Signet | Network::Testnet4 => SpNetwork::Testnet,
             Network::Regtest => SpNetwork::Regtest,
-            _ => unreachable!(),
         };
 
         let output = match &recipient {
@@ -182,8 +178,7 @@ impl SpClient {
             RecipientAddress::SpCode(sp_code) => {
                 if sp_code.network() != sp_network {
                     return Err(Error::msg(format!(
-                        "Wrong network for silent payment code {}",
-                        sp_code
+                        "Wrong network for silent payment code {sp_code}"
                     )));
                 }
 
@@ -320,8 +315,7 @@ impl SpClient {
                     let data_len = data.len();
                     if data_len > DATA_CARRIER_SIZE {
                         return Err(Error::msg(format!(
-                            "Can't embed data of length {}. Max length: {}",
-                            data_len, DATA_CARRIER_SIZE
+                            "Can't embed data of length {data_len}. Max length: {DATA_CARRIER_SIZE}"
                         )));
                     }
                     let mut op_return = PushBytesBuf::with_capacity(data_len);
@@ -371,16 +365,13 @@ impl SpClient {
 
     pub fn sign_transaction(
         &self,
-        unsigned_tx: SilentPaymentUnsignedTransaction,
+        unsigned_tx: &SilentPaymentUnsignedTransaction,
         aux_rand: &[u8; 32],
     ) -> Result<Transaction> {
         // TODO check that we have aux_rand, at least that it's not all `0`s
         let b_spend = self.try_secret_spend_key()?;
 
-        let to_sign = match unsigned_tx.unsigned_tx.as_ref() {
-            Some(tx) => tx,
-            None => return Err(Error::msg("Missing unsigned transaction")),
-        };
+        let Some(to_sign) = unsigned_tx.unsigned_tx.as_ref() else { return Err(Error::msg("Missing unsigned transaction")) };
 
         let mut signed = to_sign.clone();
 
@@ -409,8 +400,7 @@ impl SpClient {
                 .iter()
                 .find(|(outpoint, _)| *outpoint == input.previous_output)
                 .ok_or(Error::msg(format!(
-                    "prevout for output {} not in selected utxos",
-                    i
+                    "prevout for output {i} not in selected utxos"
                 )))?;
 
             let sk = b_spend.add_tweak(&owned_output.tweak)?;
@@ -444,7 +434,7 @@ impl SpClient {
             .iter()
             .map(|(outpoint, _)| {
                 Ok(sp_utils::OutPoint::from_txid_and_vout(
-                    outpoint.txid.to_string(),
+                    &outpoint.txid.to_string(),
                     outpoint.vout,
                 )?)
             })
