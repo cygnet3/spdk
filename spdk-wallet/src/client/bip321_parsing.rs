@@ -13,8 +13,8 @@ pub enum SpUriParseError {
 impl fmt::Display for SpUriParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SpUriParseError::Code(e) => write!(f, "invalid silent payment code: {e}"),
-            SpUriParseError::NetworkMismatch { expected, got } => match expected {
+            Self::Code(e) => write!(f, "invalid silent payment code: {e}"),
+            Self::NetworkMismatch { expected, got } => match expected {
                 Network::Mainnet => write!(
                     f,
                     "expected mainnet silent payment code, got {}",
@@ -33,8 +33,8 @@ impl fmt::Display for SpUriParseError {
 impl std::error::Error for SpUriParseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SpUriParseError::Code(e) => Some(e),
-            _ => None,
+            Self::Code(e) => Some(e),
+            Self::NetworkMismatch { .. } => None,
         }
     }
 }
@@ -144,7 +144,7 @@ pub fn parse_tsp(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     use bip321::Bip321Uri;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};

@@ -1,13 +1,14 @@
 //! Sending utility functions.
-use crate::utils::common::{NonEmptyArray, OutPoint};
-use crate::{Error, Result, utils::common::SharedSecret};
 use secp256k1::constants::SECRET_KEY_SIZE;
 use secp256k1::ecdh::shared_secret_point;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 use super::hash::calculate_input_hash;
+use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
+use crate::{Error, Result};
 
-/// Represents the sum of all eligible input private keys of a transaction, multiplied with the input hash.
+/// Represents the sum of all eligible input private keys of a transaction, multiplied with the
+/// input hash.
 #[derive(Clone, Copy, Debug)]
 pub struct PartialSecret(pub(crate) SecretKey);
 
@@ -27,19 +28,24 @@ impl PartialSecret {
 ///
 /// # Arguments
 ///
-/// * `input_keys` - A reference to a list of tuples, each tuple containing a [SecretKey] and [bool]. The [SecretKey] is the private key used in the input, and the [bool] indicates whether this was from a taproot address.
-/// * `outpoints_data` - The prevout outpoints used as input for this transaction. Note that the txid is given in [String] format, which is displayed in reverse order from the inner byte array.
+/// * `input_keys` - A reference to a list of tuples, each tuple containing a [`SecretKey`] and
+///   [bool]. The [`SecretKey`] is the private key used in the input, and the [bool] indicates
+///   whether this was from a taproot address.
+/// * `outpoints_data` - The prevout outpoints used as input for this transaction. Note that the
+///   txid is given in [String] format, which is displayed in reverse order from the inner byte
+///   array.
 ///
 /// # Returns
 ///
-/// This function returns the partial secret, which represents the sum of all (eligible) input keys multiplied with the input hash.
+/// This function returns the partial secret, which represents the sum of all (eligible) input keys
+/// multiplied with the input hash.
 ///
 /// # Errors
 ///
 /// This function will error if:
 ///
 /// * The input keys array is of length zero, or the summing results in an invalid key.
-/// * The outpoints_data is of length zero, or invalid.
+/// * The `outpoints_data` is of length zero, or invalid.
 pub fn calculate_partial_secret(
     input_keys: &[(SecretKey, bool)],
     outpoints_data: &[OutPoint],
@@ -50,23 +56,26 @@ pub fn calculate_partial_secret(
     let A_sum = a_sum.public_key(&secp);
 
     let outpoints = NonEmptyArray::new(outpoints_data)?;
-    let input_hash = calculate_input_hash(outpoints, A_sum);
+    let input_hash = calculate_input_hash(&outpoints, A_sum);
 
     Ok(PartialSecret(a_sum.mul_tweak(&input_hash)?))
 }
 
 /// Calculate the shared secret of a transaction.
 ///
-/// Since [generate_recipient_pubkeys](crate::sending::generate_recipient_pubkeys) calls this function internally, it is not needed for the default sending flow.
+/// Since [`generate_recipient_pubkeys`](crate::sending::generate_recipient_pubkeys) calls this
+/// function internally, it is not needed for the default sending flow.
 ///
 /// # Arguments
 ///
 /// * `B_scan` - The scan public key used by the wallet.
-/// * `partial_secret` - the sum of all (eligible) input keys multiplied with the input hash, see [calculate_partial_secret].
+/// * `partial_secret` - the sum of all (eligible) input keys multiplied with the input hash, see
+///   [`calculate_partial_secret`].
 ///
 /// # Returns
 ///
-/// This function returns the shared secret unique to this recipient and input keys. This shared secret can be used to generate output keys for the recipient.
+/// This function returns the shared secret unique to this recipient and input keys. This shared
+/// secret can be used to generate output keys for the recipient.
 pub fn calculate_ecdh_shared_secret(
     B_scan: &PublicKey,
     partial_secret: &PartialSecret,

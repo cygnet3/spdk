@@ -1,6 +1,7 @@
-use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
-use bitcoin_hashes::{Hash, HashEngine, sha256t_hash_newtype};
+use bitcoin_hashes::{Hash as _, HashEngine as _, sha256t_hash_newtype};
 use secp256k1::{PublicKey, Scalar, SecretKey};
+
+use crate::utils::common::{NonEmptyArray, OutPoint, SharedSecret};
 
 sha256t_hash_newtype! {
     pub(crate) struct InputsTag = hash_str("BIP0352/Inputs");
@@ -29,14 +30,11 @@ sha256t_hash_newtype! {
 }
 
 impl InputsHash {
-    pub(crate) fn from_outpoint_and_A_sum(
-        smallest_outpoint: &OutPoint,
-        A_sum: PublicKey,
-    ) -> InputsHash {
-        let mut eng = InputsHash::engine();
+    pub(crate) fn from_outpoint_and_A_sum(smallest_outpoint: &OutPoint, A_sum: PublicKey) -> Self {
+        let mut eng = Self::engine();
         eng.input(&smallest_outpoint.0);
         eng.input(&A_sum.serialize());
-        InputsHash::from_engine(eng)
+        Self::from_engine(eng)
     }
     pub(crate) fn to_scalar(self) -> Scalar {
         // This is statistically extremely unlikely to panic.
@@ -45,11 +43,11 @@ impl InputsHash {
 }
 
 impl LabelHash {
-    pub(crate) fn from_b_scan_and_m(b_scan: SecretKey, m: u32) -> LabelHash {
-        let mut eng = LabelHash::engine();
+    pub(crate) fn from_b_scan_and_m(b_scan: SecretKey, m: u32) -> Self {
+        let mut eng = Self::engine();
         eng.input(&b_scan.secret_bytes());
         eng.input(&m.to_be_bytes());
-        LabelHash::from_engine(eng)
+        Self::from_engine(eng)
     }
 
     pub(crate) fn to_scalar(self) -> Scalar {
@@ -59,16 +57,16 @@ impl LabelHash {
 }
 
 impl SharedSecretHash {
-    pub(crate) fn from_ecdh_and_k(ecdh: &SharedSecret, k: u32) -> SharedSecretHash {
-        let mut eng = SharedSecretHash::engine();
+    pub(crate) fn from_ecdh_and_k(ecdh: &SharedSecret, k: u32) -> Self {
+        let mut eng = Self::engine();
         eng.input(&ecdh.0.serialize());
         eng.input(&k.to_be_bytes());
-        SharedSecretHash::from_engine(eng)
+        Self::from_engine(eng)
     }
 }
 
 pub(crate) fn calculate_input_hash(
-    outpoints_data: NonEmptyArray<OutPoint>,
+    outpoints_data: &NonEmptyArray<OutPoint>,
     A_sum: PublicKey,
 ) -> Scalar {
     InputsHash::from_outpoint_and_A_sum(outpoints_data.min(), A_sum).to_scalar()

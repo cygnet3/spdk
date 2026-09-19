@@ -1,10 +1,10 @@
-use std::{error::Error, str::FromStr};
+use std::error::Error;
+use std::str::FromStr as _;
 
 // Import necessary libraries and modules
 use bip39::Mnemonic;
 use bitcoin::bip32::{DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
-
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::utils::{TEST_SCAN_PATH, TEST_SPEND_PATH};
@@ -16,10 +16,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate a 12-word mnemonic phrase using bip39 module and store it in the variable 'm'
     let m = Mnemonic::generate(12).expect("mnemonic generation failed");
-    let passphrase = "".to_owned();
+    let passphrase = String::new();
 
     // Print the generated mnemonic phrase to the console
-    println!("Mnemonic phrase: {}", m);
+    println!("Mnemonic phrase: {m}");
 
     // Convert the mnemonic phrase into a seed for cryptographic operations
     let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(passphrase))?;

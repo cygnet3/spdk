@@ -3,20 +3,20 @@ use core::fmt;
 #[cfg(feature = "encode")]
 use core::str::FromStr;
 
-use crate::Error;
-use crate::Result;
-#[cfg(any(feature = "sending", feature = "receiving"))]
-use crate::utils::hash::SharedSecretHash;
 #[cfg(feature = "encode")]
-use bech32::{FromBase32, ToBase32};
+use bech32::{FromBase32 as _, ToBase32 as _};
 #[cfg(any(feature = "sending", feature = "receiving"))]
-use bitcoin_hashes::Hash;
+use bitcoin_hashes::Hash as _;
 use secp256k1::PublicKey;
 use secp256k1::constants::PUBLIC_KEY_SIZE;
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use secp256k1::{Scalar, Secp256k1, SecretKey};
 
-/// Struct representing an OutPoint type.
+#[cfg(any(feature = "sending", feature = "receiving"))]
+use crate::utils::hash::SharedSecretHash;
+use crate::{Error, Result};
+
+/// Struct representing an `OutPoint` type.
 ///
 /// This can be constructed from a rust-bitcoin outpoint:
 /// ```
@@ -48,13 +48,12 @@ pub struct OutPoint(pub(crate) [u8; 36]);
 impl OutPoint {
     /// Parse outpoin from a [String] txid and [u32] vout.
     /// This may fail if the txid is not a valid 32 byte hex string.
-    pub fn from_txid_and_vout(txid: String, vout: u32) -> Result<Self> {
-        let mut bytes: Vec<u8> = hex::decode(&txid)?;
+    pub fn from_txid_and_vout(txid: &str, vout: u32) -> Result<Self> {
+        let mut bytes: Vec<u8> = hex::decode(txid)?;
 
         if bytes.len() != 32 {
             return Err(Error::GenericError(format!(
-                "Invalid outpoint hex representation: {}",
-                txid
+                "Invalid outpoint hex representation: {txid}"
             )));
         }
 
@@ -69,7 +68,7 @@ impl OutPoint {
     }
 
     /// Parse outpoint from a txid byte array, and a vout as a u32.
-    /// Can be used to convert a rust-bitcoin OutPoint struct.
+    /// Can be used to convert a rust-bitcoin `OutPoint` struct.
     pub fn from_txid_bytes_and_vout(txid: [u8; 32], vout: u32) -> Self {
         let mut buf = [0u8; 36];
         buf[..32].copy_from_slice(&txid);
@@ -77,11 +76,11 @@ impl OutPoint {
         Self(buf)
     }
 
-    pub fn from_bytes(bytes: [u8; 36]) -> Self {
+    pub const fn from_bytes(bytes: [u8; 36]) -> Self {
         Self(bytes)
     }
 
-    pub fn to_bytes(&self) -> [u8; 36] {
+    pub const fn to_bytes(&self) -> [u8; 36] {
         self.0
     }
 }
@@ -121,7 +120,8 @@ pub enum Network {
 impl From<Network> for &str {
     fn from(value: Network) -> Self {
         match value {
-            Network::Mainnet => "bitcoin", // we use the same string as rust-bitcoin for compatibility
+            // we use the same string as rust-bitcoin for compatibility
+            Network::Mainnet => "bitcoin",
             Network::Regtest => "regtest",
             Network::Testnet => "testnet",
         }
@@ -136,7 +136,7 @@ impl TryFrom<&str> for Network {
             "bitcoin" | "main" => Self::Mainnet, // We also take the core style argument
             "regtest" => Self::Regtest,
             "testnet" | "signet" | "test" => Self::Testnet, // core arg
-            _ => return Err(Error::InvalidNetwork(value.to_string())),
+            _ => return Err(Error::InvalidNetwork(value.to_owned())),
         };
         Ok(res)
     }
@@ -162,7 +162,7 @@ impl TryFrom<u8> for SpVersion {
         match value {
             0 => Ok(Self::ZERO),
             _ => Err(Error::GenericError(
-                "Unknown silent payment version".to_string(),
+                "Unknown silent payment version".to_owned(),
             )),
         }
     }
@@ -188,7 +188,7 @@ impl SilentPaymentKeyMaterial {
     /// Create silent payment key material from version, scan pubkey, and `m` pubkey.
     ///
     /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
-    pub fn new(version: SpVersion, scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
+    pub const fn new(version: SpVersion, scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
         Self {
             version,
             scan_key,
@@ -199,7 +199,7 @@ impl SilentPaymentKeyMaterial {
     /// Create version-0 silent payment key material.
     ///
     /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
-    pub fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
+    pub const fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey) -> Self {
         Self::new(SpVersion::ZERO, scan_key, m_pubkey)
     }
 
@@ -209,18 +209,18 @@ impl SilentPaymentKeyMaterial {
         Ok(Self::new(SpVersion::ZERO, scan_key, m_pubkey))
     }
 
-    pub fn version(&self) -> SpVersion {
+    pub const fn version(&self) -> SpVersion {
         self.version
     }
 
-    pub fn scan_key(&self) -> PublicKey {
+    pub const fn scan_key(&self) -> PublicKey {
         self.scan_key
     }
 
     /// The spend pubkey (`B_m` in BIP352).
     ///
     /// This may be the unlabeled spend pubkey, or a labeled one (`B_spend + m·G`).
-    pub fn m_pubkey(&self) -> PublicKey {
+    pub const fn m_pubkey(&self) -> PublicKey {
         self.m_pubkey
     }
 }
@@ -249,7 +249,10 @@ pub struct SilentPaymentCode {
 
 #[cfg(feature = "encode")]
 impl SilentPaymentCode {
-    fn from_key_material(sp_key_material: SilentPaymentKeyMaterial, network: Network) -> Self {
+    const fn from_key_material(
+        sp_key_material: SilentPaymentKeyMaterial,
+        network: Network,
+    ) -> Self {
         Self {
             sp_key_material,
             network,
@@ -271,9 +274,8 @@ impl SilentPaymentCode {
     ///   - Mainnet: `"sp"`
     ///   - Testnet/Signet: `"tsp"`
     ///   - Regtest: `"sprt"`
-    /// - **Data**: a single 5-bit version digit, then the 66-byte payload
-    ///   `serP(B_scan) ‖ serP(B_m)` converted to 5-bit characters.
-    ///   `B_m` is the spend pubkey (labeled or not).
+    /// - **Data**: a single 5-bit version digit, then the 66-byte payload `serP(B_scan) ‖
+    ///   serP(B_m)` converted to 5-bit characters. `B_m` is the spend pubkey (labeled or not).
     ///
     /// # Example
     ///
@@ -297,7 +299,7 @@ impl SilentPaymentCode {
     /// ```
     ///
     /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
-    pub fn new(
+    pub const fn new(
         version: SpVersion,
         scan_key: PublicKey,
         m_pubkey: PublicKey,
@@ -312,26 +314,26 @@ impl SilentPaymentCode {
     /// Calls [`Self::new`] with version set to [`SpVersion::ZERO`].
     ///
     /// `m_pubkey` is the spend pubkey (`B_m`), which may be labeled or not.
-    pub fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey, network: Network) -> Self {
+    pub const fn new_v0(scan_key: PublicKey, m_pubkey: PublicKey, network: Network) -> Self {
         Self::new(SpVersion::ZERO, scan_key, m_pubkey, network)
     }
 
-    pub fn scan_key(&self) -> PublicKey {
+    pub const fn scan_key(&self) -> PublicKey {
         self.sp_key_material.scan_key()
     }
 
     /// The spend pubkey (`B_m` in BIP352).
     ///
     /// This may be the unlabeled spend pubkey, or a labeled one (`B_spend + m·G`).
-    pub fn m_pubkey(&self) -> PublicKey {
+    pub const fn m_pubkey(&self) -> PublicKey {
         self.sp_key_material.m_pubkey()
     }
 
-    pub fn network(&self) -> Network {
+    pub const fn network(&self) -> Network {
         self.network
     }
 
-    pub fn version(&self) -> SpVersion {
+    pub const fn version(&self) -> SpVersion {
         self.sp_key_material.version()
     }
 }
@@ -424,15 +426,15 @@ impl From<SilentPaymentCode> for String {
 pub(crate) struct NonEmptyArray<'a, T>(&'a [T]);
 
 impl<'a, T> NonEmptyArray<'a, T> {
-    pub fn new(arr: &'a [T]) -> crate::Result<Self> {
-        if !arr.is_empty() {
-            Ok(Self(arr))
-        } else {
+    pub const fn new(arr: &'a [T]) -> crate::Result<Self> {
+        if arr.is_empty() {
             Err(crate::Error::EmptyArray)
+        } else {
+            Ok(Self(arr))
         }
     }
 
-    pub fn as_inner(&'a self) -> &'a [T] {
+    pub const fn as_inner(&'a self) -> &'a [T] {
         self.0
     }
 }
@@ -448,9 +450,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
-    use bitcoin::{consensus::serialize, hashes::Hash};
+    use bitcoin::consensus::serialize;
+    use bitcoin::hashes::Hash as _;
 
     use crate::utils;
 
@@ -461,7 +464,7 @@ mod tests {
         let vout = 0;
 
         let sp_outpoint_from_txid_and_vout =
-            utils::OutPoint::from_txid_and_vout(txid.to_string(), vout).unwrap();
+            utils::OutPoint::from_txid_and_vout(txid, vout).unwrap();
 
         let outpoint = bitcoin::OutPoint::from_str(&format!("{txid}:{vout}")).unwrap();
         // consensus serialization of bitcoin outpoint struct to byte array

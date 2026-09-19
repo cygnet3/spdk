@@ -1,17 +1,14 @@
-use std::{collections::HashMap, io::Write};
-
-use bitcoin::{
-    Network, XOnlyPublicKey,
-    secp256k1::{PublicKey, Secp256k1, SecretKey},
-};
-use silentpayments::{Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion};
-use silentpayments::{bitcoin_hashes::Hash, utils as sp_utils};
-use silentpayments::{
-    bitcoin_hashes::sha256,
-    receiving::{Label, Receiver},
-};
+use std::collections::HashMap;
+use std::io::Write as _;
 
 use anyhow::{Error, Result};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::{Network, XOnlyPublicKey};
+use silentpayments::bitcoin_hashes::{Hash as _, sha256};
+use silentpayments::receiving::{Label, Receiver};
+use silentpayments::{
+    Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion, utils as sp_utils,
+};
 
 use super::SpendKey;
 
@@ -32,8 +29,7 @@ impl SpClient {
         let sp_network = match network {
             Network::Bitcoin => SpNetwork::Mainnet,
             Network::Regtest => SpNetwork::Regtest,
-            Network::Testnet | Network::Signet => SpNetwork::Testnet,
-            _ => unreachable!(),
+            Network::Testnet | Network::Signet | Network::Testnet4 => SpNetwork::Testnet,
         };
 
         let sp_receiver = Receiver::new(
@@ -52,7 +48,7 @@ impl SpClient {
         })
     }
 
-    pub fn receiving_code(&self) -> SilentPaymentCode {
+    pub const fn receiving_code(&self) -> SilentPaymentCode {
         self.sp_receiver.receiving_code()
     }
 
@@ -60,7 +56,7 @@ impl SpClient {
         self.sp_receiver.change_code()
     }
 
-    pub fn scan_key(&self) -> SecretKey {
+    pub const fn scan_key(&self) -> SecretKey {
         self.scan_sk
     }
 
@@ -68,7 +64,7 @@ impl SpClient {
         self.spend_key.clone()
     }
 
-    pub fn network(&self) -> Network {
+    pub const fn network(&self) -> Network {
         self.network
     }
 

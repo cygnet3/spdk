@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use anyhow::bail;
-use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height};
+use bitcoin::absolute::Height;
+use bitcoin::{Amount, BlockHash, Network, ScriptBuf, Txid, XOnlyPublicKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use spdk_core::chain::{SpentIndexData, UtxoData};
 
@@ -75,11 +76,12 @@ pub struct ForwardTxRequest {
 }
 
 impl ForwardTxRequest {
-    pub fn new(tx_hex: String) -> Self {
+    pub const fn new(tx_hex: String) -> Self {
         Self { data: tx_hex }
     }
 }
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Deserialize)]
 pub struct InfoResponse {
     #[serde(deserialize_with = "deserialize_network")]
