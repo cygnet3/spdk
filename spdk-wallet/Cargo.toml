@@ -29,3 +29,6 @@ serde_json.workspace = true
 
 [features]
 default = ["backend-blindbit-v1", "rayon"]
+
+[lints]
+workspace = true

@@ -21,8 +21,8 @@ pub trait ChainBackend {
     ) -> Pin<Box<dyn Stream<Item = Result<BoxedBlockData>> + Send>>;
 
     /// returns all spent outpoints from a provided list of outpoints at this height.
-    /// We also pass the block_hash here, to make sure the block data still matches the expected
-    /// block from get_block_data_for_range.
+    /// We also pass the `block_hash` here, to make sure the block data still matches the expected
+    /// block from `get_block_data_for_range`.
     async fn detect_spent_outpoints(
         &self,
         block_height: Height,
