@@ -2,30 +2,24 @@
 mod common;
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::io::Cursor;
+    use std::str::FromStr as _;
+
     use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
-    use silentpayments::{
-        Network, SilentPaymentCode,
-        receiving::Label,
-        utils::{
-            OutPoint,
-            receiving::{
-                calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
-            },
-            sending::calculate_partial_secret,
-        },
-    };
-    use std::{collections::HashSet, io::Cursor, str::FromStr as _};
-
-    use silentpayments::receiving::Receiver;
-
+    use silentpayments::receiving::{Label, Receiver};
     use silentpayments::sending::generate_recipient_pubkeys;
+    use silentpayments::utils::OutPoint;
+    use silentpayments::utils::receiving::{
+        calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
+    };
+    use silentpayments::utils::sending::calculate_partial_secret;
+    use silentpayments::{Network, SilentPaymentCode};
 
-    use crate::common::{
-        structs::TestData,
-        utils::{
-            self, decode_outputs_to_check, decode_recipients, deser_string_vector,
-            verify_and_calculate_signatures,
-        },
+    use crate::common::structs::TestData;
+    use crate::common::utils::{
+        self, decode_outputs_to_check, decode_recipients, deser_string_vector,
+        verify_and_calculate_signatures,
     };
 
     const NETWORK: Network = Network::Mainnet;
@@ -174,7 +168,9 @@ mod tests {
                 .scan_transaction(&ecdh_shared_secret, &outputs_to_check)
                 .unwrap();
 
-            let key_tweaks: Vec<Scalar> = scanned_outputs_received.into_values().flat_map(|map| {
+            let key_tweaks: Vec<Scalar> = scanned_outputs_received
+                .into_values()
+                .flat_map(|map| {
                     let mut ret: Vec<Scalar> = vec![];
                     for l in map.into_values() {
                         ret.push(l);

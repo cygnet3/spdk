@@ -1,11 +1,9 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-};
-
-use bitcoin::{BlockHash, OutPoint, absolute::Height};
-
+use bitcoin::absolute::Height;
+use bitcoin::{BlockHash, OutPoint};
 use spdk_core::updater::{DiscoveredOutput, Updater};
 
 pub struct UpdateResult {

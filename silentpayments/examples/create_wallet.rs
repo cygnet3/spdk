@@ -1,10 +1,10 @@
-use std::{error::Error, str::FromStr as _};
+use std::error::Error;
+use std::str::FromStr as _;
 
 // Import necessary libraries and modules
 use bip39::Mnemonic;
 use bitcoin::bip32::{DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
-
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::utils::{TEST_SCAN_PATH, TEST_SPEND_PATH};

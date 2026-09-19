@@ -60,9 +60,7 @@ impl BlindbitClient {
         block_height: Height,
         dust_limit: Amount,
     ) -> Result<Vec<PublicKey>> {
-        let url = self
-            .host_url
-            .join(&format!("tweak-index/{block_height}"))?;
+        let url = self.host_url.join(&format!("tweak-index/{block_height}"))?;
 
         let res = self
             .client
@@ -81,9 +79,7 @@ impl BlindbitClient {
     }
 
     pub async fn spent_index(&self, block_height: Height) -> Result<SpentIndexResponse> {
-        let url = self
-            .host_url
-            .join(&format!("spent-index/{block_height}"))?;
+        let url = self.host_url.join(&format!("spent-index/{block_height}"))?;
         let res = self.client.get(url).send().await?;
 
         Ok(serde_json::from_str(&res.text().await?)?)

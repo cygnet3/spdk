@@ -1,4 +1,6 @@
-use std::{env, error::Error, str::FromStr as _};
+use std::env;
+use std::error::Error;
+use std::str::FromStr as _;
 
 // Import necessary libraries and modules
 use bip39::Mnemonic;
@@ -7,14 +9,13 @@ use bitcoin::consensus::deserialize;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 use bitcoin::{Network, PrivateKey, ScriptBuf, Transaction};
 use bitcoin_hashes::hex::FromHex as _;
-
 use silentpayments::SpVersion;
-use silentpayments::utils::{OutPoint, TEST_SCAN_PATH, TEST_SPEND_PATH};
 // Import types from the silentpayments library
 use silentpayments::receiving::{Label, Receiver};
 use silentpayments::utils::receiving::{
     calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input,
 };
+use silentpayments::utils::{OutPoint, TEST_SCAN_PATH, TEST_SPEND_PATH};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Get the command-line arguments
@@ -26,13 +27,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the transaction hex string from the second command-line argument
     let tx_hex = args.get(2).unwrap();
 
-    // Parse the scriptpubkeys from the third command-line argument, split by whitespace and store them in a vector
+    // Parse the scriptpubkeys from the third command-line argument, split by whitespace and store
+    // them in a vector
     let spks: Vec<&str> = args.get(3).unwrap().split_whitespace().collect();
 
     // Deserialize the transaction hex string into a Transaction object
     let tx: Transaction = deserialize(Vec::from_hex(tx_hex)?.as_slice())?;
 
-    // Assert that the number of inputs in the transaction matches the number of scriptpubkeys provided
+    // Assert that the number of inputs in the transaction matches the number of scriptpubkeys
+    // provided
     assert!(tx.input.len() == spks.len());
 
     let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(""))?;
@@ -60,7 +63,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         silentpayments::Network::Testnet,
     )?;
 
-    // Extract outpoints (previous transaction outputs) from the transaction inputs and store them in a vector
+    // Extract outpoints (previous transaction outputs) from the transaction inputs and store them
+    // in a vector
     let outpoints: Vec<OutPoint> = tx
         .input
         .iter()
@@ -103,12 +107,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
 
-    // Scan the transaction for eligible outputs and store them in a vector with their corresponding labels and key maps
+    // Scan the transaction for eligible outputs and store them in a vector with their corresponding
+    // labels and key maps
     let my_outputs = receiver.scan_transaction(&ecdh_shared_secret, &pubkeys_to_check)?;
 
     println!("Found {} output(s)", my_outputs.len());
 
-    // Iterate through each found output and print the private key required to spend it along with its descriptor for importing into Bitcoin Core
+    // Iterate through each found output and print the private key required to spend it along with
+    // its descriptor for importing into Bitcoin Core
     for (label, key_map) in my_outputs {
         println!("Found {} output(s) with label {:?}", key_map.len(), label);
         for (xonly, sk) in key_map {

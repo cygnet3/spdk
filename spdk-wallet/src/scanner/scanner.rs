@@ -1,20 +1,17 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::RangeInclusive,
-    sync::atomic::AtomicBool,
-    time::Instant,
-};
+use std::collections::{HashMap, HashSet};
+use std::ops::RangeInclusive;
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 use anyhow::Result;
-use bitcoin::{
-    Amount, OutPoint, ScriptBuf, Txid, XOnlyPublicKey, absolute::Height, secp256k1::Scalar,
-};
+use bitcoin::absolute::Height;
+use bitcoin::secp256k1::Scalar;
+use bitcoin::{Amount, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use futures::{Stream, StreamExt as _, pin_mut};
 use log::info;
-use silentpayments::{
-    SharedSecret, receiving::Label, utils::receiving::generate_script_pubkey_from_output_key,
-};
-
+use silentpayments::SharedSecret;
+use silentpayments::receiving::Label;
+use silentpayments::utils::receiving::generate_script_pubkey_from_output_key;
 use spdk_core::chain::{BoxedBlockData, ChainBackend, UtxoData};
 use spdk_core::updater::{DiscoveredOutput, Updater};
 

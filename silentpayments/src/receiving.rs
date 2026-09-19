@@ -4,25 +4,22 @@
 //! This struct does not contain any private key information,
 //! so as to avoid having access to secret data.
 //!
-//! After creating a [`Receiver`] object, you can call [`scan_transaction`](Receiver::scan_transaction),
-//! to scan a specific transaction for outputs belonging to this receiver.
-//! For this, you need to have calculated the `ecdh_shared_secret` beforehand.
-//! To do so, you can use [`calculate_ecdh_shared_secret`](`crate::utils::receiving::calculate_ecdh_shared_secret`) from the `utils` module.
+//! After creating a [`Receiver`] object, you can call
+//! [`scan_transaction`](Receiver::scan_transaction), to scan a specific transaction for outputs
+//! belonging to this receiver. For this, you need to have calculated the `ecdh_shared_secret`
+//! beforehand. To do so, you can use
+//! [`calculate_ecdh_shared_secret`](`crate::utils::receiving::calculate_ecdh_shared_secret`) from
+//! the `utils` module.
 //!
 //! For a concrete example, have a look at the [test vectors](https://github.com/cygnet3/rust-silentpayments/blob/master/tests/vector_tests.rs).
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
-use crate::{
-    Error, Network, Result, SilentPaymentCode, SpVersion,
-    utils::{
-        common::{SharedSecret, calculate_P_n, calculate_t_n},
-        hash::LabelHash,
-    },
-};
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
+
+use crate::utils::common::{SharedSecret, calculate_P_n, calculate_t_n};
+use crate::utils::hash::LabelHash;
+use crate::{Error, Network, Result, SilentPaymentCode, SpVersion};
 
 /// A Silent payment receiving label.
 #[derive(Eq, PartialEq, Clone)]
@@ -100,9 +97,9 @@ impl From<Label> for Scalar {
 
 /// A struct representing a silent payment recipient.
 ///
-/// It can be used to scan for transaction outputs belonging to us by using the [`scan_transaction`](Receiver::scan_transaction) function.
-/// It optionally supports labels, which it manages internally.
-/// Labels can be added with [`add_label`](Receiver::add_label).
+/// It can be used to scan for transaction outputs belonging to us by using the
+/// [`scan_transaction`](Receiver::scan_transaction) function. It optionally supports labels, which
+/// it manages internally. Labels can be added with [`add_label`](Receiver::add_label).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receiver {
     version: SpVersion,
@@ -139,7 +136,8 @@ impl Receiver {
     }
 
     /// Takes a [Label] and adds it to the list of labels that this recipient uses.
-    /// Returns a bool on success, [true] if the label was new, [false] if it already existed in our list.
+    /// Returns a bool on success, [true] if the label was new, [false] if it already existed in our
+    /// list.
     pub fn add_label(&mut self, label: Label) -> Result<bool> {
         let secp = Secp256k1::signing_only();
 
@@ -216,19 +214,26 @@ impl Receiver {
     ///
     /// # Arguments
     ///
-    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
-    /// * `pubkeys_to_check` - A [`HashSet`] of public keys of all (unspent) taproot output of the transaction.
+    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient, the result of
+    ///   elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
+    /// * `pubkeys_to_check` - A [`HashSet`] of public keys of all (unspent) taproot output of the
+    ///   transaction.
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] of labels to a map of outputs to key tweaks (since the same label may have been paid multiple times in one transaction). The key tweaks can be added to the wallet's spending private key to produce a key that can spend the utxo. A resulting [`HashMap`] of length 0 implies none of the outputs are owned by us.
+    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] of labels to a map
+    /// of outputs to key tweaks (since the same label may have been paid multiple times in one
+    /// transaction). The key tweaks can be added to the wallet's spending private key to produce a
+    /// key that can spend the utxo. A resulting [`HashMap`] of length 0 implies none of the outputs
+    /// are owned by us.
     ///
     /// # Errors
     ///
     /// This function will return an error if:
     ///
     /// * One of the public keys to scan can't be parsed into a valid x-only public key.
-    /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
+    /// * An error occurs during elliptic curve computation. This may happen if a sender is being
+    ///   malicious.
     pub fn scan_transaction(
         &self,
         ecdh_shared_secret: &SharedSecret,
@@ -247,7 +252,8 @@ impl Receiver {
                 n_found += 1;
                 found.entry(None).or_default().insert(P_n_xonly, t_n.into());
             } else {
-                // We subtract P_n from each outputs to check and see if match a public key in our label list
+                // We subtract P_n from each outputs to check and see if match a public key in our
+                // label list
                 'outer: for p in pubkeys_to_check {
                     let even_output = p.public_key(Parity::Even);
                     let odd_output = p.public_key(Parity::Odd);
@@ -273,17 +279,21 @@ impl Receiver {
     }
 
     /// Get all the output keys for a given transaction shared secret.
-    /// This is useful when looking for candidate keys to match against a BIP157/BIP158 block filter.
+    /// This is useful when looking for candidate keys to match against a BIP157/BIP158 block
+    /// filter.
     ///
     /// This is not needed for the regular receive flow of scanning transactions.
     ///
     /// # Arguments
     ///
-    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient as a `PublicKey`, the result of elliptic-curve multiplication of `(input_hash * sum_inputs_pubkeys) * scan_private_key`.
+    /// * `ecdh_shared_secret` -  The ECDH shared secret between sender and recipient as a
+    ///   `PublicKey`, the result of elliptic-curve multiplication of `(input_hash *
+    ///   sum_inputs_pubkeys) * scan_private_key`.
     ///
     /// # Returns
     ///
-    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] that maps an optional [`Label`] to an output key.
+    /// If successful, the function returns a [`Result`] wrapping a [`HashMap`] that maps an
+    /// optional [`Label`] to an output key.
     ///
     /// This output key can be converted to a `ScriptPubKey` using
     /// [`generate_script_pubkey_from_output_key`](crate::utils::receiving::generate_script_pubkey_from_output_key)
@@ -292,7 +302,8 @@ impl Receiver {
     ///
     /// This function will return an error if:
     ///
-    /// * An error occurs during elliptic curve computation. This may happen if a sender is being malicious.
+    /// * An error occurs during elliptic curve computation. This may happen if a sender is being
+    ///   malicious.
     pub fn generate_output_keys_from_shared_secret(
         &self,
         ecdh_shared_secret: &SharedSecret,

@@ -1,15 +1,14 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, atomic::AtomicBool},
-};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
-use bitcoin::{Amount, BlockHash, Network, OutPoint, absolute::Height, secp256k1::SecretKey};
+use bitcoin::absolute::Height;
+use bitcoin::secp256k1::SecretKey;
+use bitcoin::{Amount, BlockHash, Network, OutPoint};
 use spdk_core::updater::{DiscoveredOutput, Updater};
-use spdk_wallet::{
-    client::{SpClient, SpendKey},
-    scanner::SpScanner,
-};
+use spdk_wallet::client::{SpClient, SpendKey};
+use spdk_wallet::scanner::SpScanner;
 
 // in this example, we use the public signet silentpayments.dev blindbit server
 const BLINDBIT_BACKEND_URL: &str = "https://silentpayments.dev/blindbit/signet";

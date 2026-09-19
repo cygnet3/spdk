@@ -16,10 +16,8 @@ use bitcoin::transaction::Version;
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, TapLeafHash, Transaction, TxIn, TxOut, Witness,
 };
-use silentpayments::Network as SpNetwork;
 use silentpayments::utils::sending::PartialSecret;
-use silentpayments::{SilentPaymentCode, utils as sp_utils};
-
+use silentpayments::{Network as SpNetwork, SilentPaymentCode, utils as sp_utils};
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
 use spdk_core::updater::DiscoveredOutput;
 
@@ -285,7 +283,8 @@ impl SpClient {
                         .ok_or(Error::msg("Unknown silent payment key material"))?;
 
                     // we currently only allow having 1 output per silent payment key material
-                    // note: when changing this, it should also be accounted for in 'create_new_transaction'
+                    // note: when changing this, it should also be accounted for in
+                    // 'create_new_transaction'
                     if pubkeys.len() == 1 {
                         let pubkey = pubkeys[0];
                         let script = ScriptBuf::new_p2tr_tweaked(pubkey.dangerous_assume_tweaked());
@@ -371,7 +370,9 @@ impl SpClient {
         // TODO check that we have aux_rand, at least that it's not all `0`s
         let b_spend = self.try_secret_spend_key()?;
 
-        let Some(to_sign) = unsigned_tx.unsigned_tx.as_ref() else { return Err(Error::msg("Missing unsigned transaction")) };
+        let Some(to_sign) = unsigned_tx.unsigned_tx.as_ref() else {
+            return Err(Error::msg("Missing unsigned transaction"));
+        };
 
         let mut signed = to_sign.clone();
 
