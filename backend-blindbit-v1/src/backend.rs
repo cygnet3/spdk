@@ -3,7 +3,7 @@ use std::{collections::HashSet, ops::RangeInclusive, pin::Pin};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use bitcoin::{Amount, BlockHash, OutPoint, absolute::Height};
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, StreamExt as _, stream};
 
 use spdk_core::chain::{BoxedBlockData, ChainBackend, SpentIndexData, UtxoData};
 
@@ -17,7 +17,7 @@ pub struct BlindbitBackend {
 }
 
 impl BlindbitBackend {
-    pub fn new(client: BlindbitClient) -> Self {
+    pub const fn new(client: BlindbitClient) -> Self {
         Self { client }
     }
 }
@@ -45,9 +45,10 @@ impl ChainBackend for BlindbitBackend {
 
                 async move {
                     let blkheight = Height::from_consensus(n)?;
-                    let tweaks = match with_cutthrough {
-                        true => client.tweaks(blkheight, dust_limit).await?,
-                        false => client.tweak_index(blkheight, dust_limit).await?,
+                    let tweaks = if with_cutthrough {
+                        client.tweaks(blkheight, dust_limit).await?
+                    } else {
+                        client.tweak_index(blkheight, dust_limit).await?
                     };
                     let new_utxo_filter = client.filter_new_utxos(blkheight).await?;
                     let spent_filter = client.filter_spent(blkheight).await?;

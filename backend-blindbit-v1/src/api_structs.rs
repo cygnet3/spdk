@@ -75,11 +75,12 @@ pub struct ForwardTxRequest {
 }
 
 impl ForwardTxRequest {
-    pub fn new(tx_hex: String) -> Self {
+    pub const fn new(tx_hex: String) -> Self {
         Self { data: tx_hex }
     }
 }
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Deserialize)]
 pub struct InfoResponse {
     #[serde(deserialize_with = "deserialize_network")]

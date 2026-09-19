@@ -45,31 +45,31 @@ impl BlockData for BlindbitV1BlockData {
 
     fn check_match_outputs(&self, candidate_keys: Vec<XOnlyPublicKey>) -> anyhow::Result<bool> {
         // note: match will always return true for an empty query!
-        if !candidate_keys.is_empty() {
-            // check output scripts
-            let mut key_bytes_iter = candidate_keys.into_iter().map(|key| key.serialize());
-
-            let filter = BlockFilter::new(&self.new_utxo_filter.data);
-
-            Ok(filter.match_any(&self.blkhash, &mut key_bytes_iter)?)
-        } else {
-            Ok(false)
+        if candidate_keys.is_empty() {
+            return Ok(false);
         }
+
+        // check output scripts
+        let mut key_bytes_iter = candidate_keys.into_iter().map(|key| key.serialize());
+
+        let filter = BlockFilter::new(&self.new_utxo_filter.data);
+
+        Ok(filter.match_any(&self.blkhash, &mut key_bytes_iter)?)
     }
 
     // Check if this block contains relevant transactions
     fn check_match_inputs(&self, owned_outpoints: &HashSet<OutPoint>) -> anyhow::Result<bool> {
         let input_hashes_map = input_hashes_map(owned_outpoints, self.blkhash)?;
 
-        let input_hashes: Vec<[u8; 8]> = input_hashes_map.keys().cloned().collect();
+        let input_hashes: Vec<[u8; 8]> = input_hashes_map.keys().copied().collect();
 
         // note: match will always return true for an empty query!
-        if !input_hashes.is_empty() {
-            let filter = BlockFilter::new(&self.spent_filter.data);
-
-            Ok(filter.match_any(&self.blkhash, &mut input_hashes.into_iter())?)
-        } else {
-            Ok(false)
+        if input_hashes.is_empty() {
+            return Ok(false);
         }
+
+        let filter = BlockFilter::new(&self.spent_filter.data);
+
+        Ok(filter.match_any(&self.blkhash, &mut input_hashes.into_iter())?)
     }
 }
