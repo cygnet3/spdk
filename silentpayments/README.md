@@ -67,11 +67,13 @@ You can test the code using the test vectors by running `cargo test`.
 
 <summary>Expand</summary>
 
-### vx.x.x
+### v0.8.0
 
 - Change `script_pubkeys_from_shared_secret` to return an output key instead, and rename to [`generate_output_keys_from_shared_secret`](crate::receiving::Receiver::generate_output_keys_from_shared_secret)
 - Add [`generate_script_pubkey_from_output_key`](crate::utils::receiving::generate_script_pubkey_from_output_key) utility function
 - Remove the `serde` feature and all `Serialize`/`Deserialize` implementations (`Receiver`, `Label`, `SilentPaymentCode`, `Network`)
+- Replace `String` function arguments with `&str` where applicable
+- Add `const` to functions where possible
 
 ### v0.7.1
 
