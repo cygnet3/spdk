@@ -1,8 +1,9 @@
 [package]
 name = "spdk-wallet"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 repository.workspace = true
+publish = false
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
