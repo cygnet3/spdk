@@ -50,37 +50,41 @@ fn pool_from_utxos(utxos: &[(OutPoint, TxOut)]) -> Result<(Vec<OutPoint>, Vec<Ca
     Ok((outpoints, candidates))
 }
 
-/// Returns the output weight in weight units for the given recipient address.
-///
-/// For silent-payment recipients the actual script pubkey is not known yet (the key is derived in
-/// [`finalize_transaction`]), but the output is always P2TR (`OP_PUSHNUM_1` + 32-byte key = 34
-/// bytes). We build a zero-byte placeholder script of that exact shape and call
-/// [`TxOut::weight`] so the bitcoin library owns the arithmetic.
-pub(crate) fn recipient_output_weight(address: &RecipientAddress) -> u64 {
-    let spk: ScriptBuf = match address {
-        // SP outputs are always P2TR; placeholder key is all-zeros.
-        RecipientAddress::SpCode(_) => ScriptBuf::from_bytes(
-            [0x51u8, 0x20] // OP_PUSHNUM_1, OP_PUSHBYTES_32
-                .into_iter()
-                .chain([0u8; 32])
-                .collect(),
-        ),
-        RecipientAddress::LegacyAddress(addr) => addr.assume_checked_ref().script_pubkey(),
-        RecipientAddress::Data(data) => {
-            let data_len = data.len().min(DATA_CARRIER_SIZE);
-            let mut buf = PushBytesBuf::with_capacity(data_len);
-            // DATA_CARRIER_SIZE (205) is well within the PushBytes limit (520).
-            buf.extend_from_slice(&data[..data_len])
-                .expect("DATA_CARRIER_SIZE is within PushBytes limits");
-            ScriptBuf::new_op_return(buf)
+impl Recipient {
+    /// Returns the output weight in weight units for this recipient.
+    ///
+    /// For silent-payment recipients the actual script pubkey is not known yet (the key is derived in
+    /// [`finalize_transaction`]), but the output is always P2TR (`OP_PUSHNUM_1` + 32-byte key = 34
+    /// bytes). We build a zero-byte placeholder script of that exact shape and call
+    /// [`TxOut::weight`] so the bitcoin library owns the arithmetic.
+    ///
+    /// [`finalize_transaction`]: super::SpClient::finalize_transaction
+    pub(crate) fn output_weight(&self) -> u64 {
+        let spk: ScriptBuf = match &self.address {
+            // SP outputs are always P2TR; placeholder key is all-zeros.
+            RecipientAddress::SpCode(_) => ScriptBuf::from_bytes(
+                [0x51u8, 0x20] // OP_PUSHNUM_1, OP_PUSHBYTES_32
+                    .into_iter()
+                    .chain([0u8; 32])
+                    .collect(),
+            ),
+            RecipientAddress::LegacyAddress(addr) => addr.assume_checked_ref().script_pubkey(),
+            RecipientAddress::Data(data) => {
+                let data_len = data.len().min(DATA_CARRIER_SIZE);
+                let mut buf = PushBytesBuf::with_capacity(data_len);
+                // DATA_CARRIER_SIZE (205) is well within the PushBytes limit (520).
+                buf.extend_from_slice(&data[..data_len])
+                    .expect("DATA_CARRIER_SIZE is within PushBytes limits");
+                ScriptBuf::new_op_return(buf)
+            }
+        };
+        TxOut {
+            value: Amount::ZERO,
+            script_pubkey: spk,
         }
-    };
-    TxOut {
-        value: Amount::ZERO,
-        script_pubkey: spk,
+        .weight()
+        .to_wu()
     }
-    .weight()
-    .to_wu()
 }
 
 #[derive(Debug)]
@@ -182,7 +186,7 @@ pub fn select_all_utxos_for_fee_rate(
     let n_outputs = recipients.len();
     let output_weight: u64 = recipients
         .iter()
-        .map(|r| recipient_output_weight(&r.address))
+        .map(Recipient::output_weight)
         .sum();
 
     let drain_output = DrainWeights {
@@ -463,7 +467,7 @@ fn pick_utxos(
         outputs: TargetOutputs::fund_outputs(
             recipients
                 .iter()
-                .map(|r| (recipient_output_weight(&r.address), r.amount.to_sat())),
+                .map(|r| (r.output_weight(), r.amount.to_sat())),
         ),
     };
 
