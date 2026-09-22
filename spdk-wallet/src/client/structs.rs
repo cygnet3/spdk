@@ -11,7 +11,7 @@ use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentCode;
 use silentpayments::utils::sending::PartialSecret;
-use spdk_core::updater::DiscoveredOutput;
+use spdk_core::scanner::DiscoveredOutput;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {

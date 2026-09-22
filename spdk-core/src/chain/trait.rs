@@ -13,6 +13,8 @@ use super::structs::UtxoData;
 
 pub type BoxedBlockData = Box<dyn BlockData + Send + Sync>;
 
+pub type BoxedChainBackend = Box<dyn ChainBackend + Send + Sync>;
+
 #[async_trait]
 pub trait ChainBackend {
     fn get_block_data_for_range(
