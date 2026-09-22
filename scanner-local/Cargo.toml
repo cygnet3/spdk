@@ -1,0 +1,31 @@
+[package]
+name = "scanner-local"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+spdk-core.workspace = true
+silentpayments.workspace = true
+
+anyhow.workspace = true
+bitcoin.workspace = true
+futures.workspace = true
+log.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+spdk-wallet.workspace = true
+backend-blindbit-v1.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+
+[features]
+default = ["rayon"]
+
+[lints]
+workspace = true

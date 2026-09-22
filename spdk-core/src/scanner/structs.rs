@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use bitcoin::absolute::Height;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Amount, ScriptBuf};
+use bitcoin::{BlockHash, OutPoint, TxOut};
 use silentpayments::receiving::Label;
-
-use bitcoin::{BlockHash, OutPoint, absolute::Height};
 
 #[derive(Debug)]
 pub struct ScanResult {
@@ -16,8 +15,7 @@ pub struct ScanResult {
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredOutput {
+    pub txout: TxOut,
     pub tweak: Scalar,
-    pub value: Amount,
-    pub script_pubkey: ScriptBuf,
     pub label: Option<Label>,
 }
