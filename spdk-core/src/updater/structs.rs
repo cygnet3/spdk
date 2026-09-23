@@ -1,11 +1,10 @@
+use bitcoin::TxOut;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Amount, ScriptBuf};
 use silentpayments::receiving::Label;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredOutput {
+    pub txout: TxOut,
     pub tweak: Scalar,
-    pub value: Amount,
-    pub script_pubkey: ScriptBuf,
     pub label: Option<Label>,
 }

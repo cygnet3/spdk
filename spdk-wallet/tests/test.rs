@@ -186,9 +186,12 @@ async fn scan_single_block_with_output() {
 
     assert!(discovered_output.is_some());
 
-    assert_eq!(discovered_output.unwrap().script_pubkey, expected_script);
+    assert_eq!(
+        discovered_output.unwrap().txout.script_pubkey,
+        expected_script
+    );
     assert_eq!(discovered_output.unwrap().tweak, expected_tweak);
-    assert_eq!(discovered_output.unwrap().value, expected_value);
+    assert_eq!(discovered_output.unwrap().txout.value, expected_value);
     assert_eq!(discovered_output.unwrap().label, expected_label);
 }
 
