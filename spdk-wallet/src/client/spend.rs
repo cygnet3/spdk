@@ -98,7 +98,7 @@ impl SpClient {
         // as a silent payment wallet, we only spend taproot outputs
         let candidates: Vec<Candidate> = available_utxos
             .iter()
-            .map(|(_, o)| Candidate::new_tr_keyspend(o.value.to_sat()))
+            .map(|(_, o)| Candidate::new_tr_keyspend(o.txout.value.to_sat()))
             .collect();
 
         let mut coin_selector = CoinSelector::new(&candidates);
@@ -205,7 +205,7 @@ impl SpClient {
         // as a silent payment wallet, we only spend taproot outputs
         let candidates: Vec<Candidate> = available_utxos
             .iter()
-            .map(|(_, o)| Candidate::new_tr_keyspend(o.value.to_sat()))
+            .map(|(_, o)| Candidate::new_tr_keyspend(o.txout.value.to_sat()))
             .collect();
 
         let mut coin_selector = CoinSelector::new(&candidates);
@@ -381,10 +381,7 @@ impl SpClient {
         let prevouts: Vec<_> = unsigned_tx
             .selected_utxos
             .iter()
-            .map(|(_, output)| TxOut {
-                value: output.value,
-                script_pubkey: output.script_pubkey.clone(),
-            })
+            .map(|(_, output)| output.txout.clone())
             .collect();
 
         let secp = Secp256k1::signing_only();

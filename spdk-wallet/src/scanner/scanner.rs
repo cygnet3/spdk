@@ -6,7 +6,7 @@ use std::time::Instant;
 use anyhow::Result;
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Amount, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use futures::{Stream, StreamExt as _, pin_mut};
 use log::info;
 use silentpayments::SharedSecret;
@@ -155,11 +155,14 @@ impl<'a> SpScanner<'a> {
                         };
 
                         let spk_bytes = generate_script_pubkey_from_output_key(utxo.output_key);
+                        let script_pubkey = ScriptBuf::from_bytes(spk_bytes.to_vec());
 
                         let out = DiscoveredOutput {
                             tweak,
-                            value: utxo.value,
-                            script_pubkey: ScriptBuf::from_bytes(spk_bytes.to_vec()),
+                            txout: TxOut {
+                                value: utxo.value,
+                                script_pubkey,
+                            },
                             label,
                         };
 
