@@ -1,14 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
 
 use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Amount, BlockHash, Network, OutPoint};
-use spdk_core::updater::{DiscoveredOutput, Updater};
+use local_scanner::SpScanner;
+use spdk_core::scanner::{DiscoveredOutput, Scanner as _};
 use spdk_wallet::client::{SpClient, SpendKey};
-use spdk_wallet::scanner::SpScanner;
 
 // in this example, we use the public signet silentpayments.dev blindbit server
 const BLINDBIT_BACKEND_URL: &str = "https://silentpayments.dev/blindbit/signet";
@@ -25,6 +24,8 @@ const WITH_CUTTHROUGH: bool = true;
 const SCAN_SK_BYTES: [u8; 32] = [0x01; 32];
 const SPEND_SK_BYTES: [u8; 32] = [0x02; 32];
 
+static KEEP_SCANNING: AtomicBool = AtomicBool::new(true);
+
 #[derive(Debug)]
 pub struct UpdateResult {
     pub blkheight: Height,
@@ -33,82 +34,38 @@ pub struct UpdateResult {
     pub discovered_outputs: HashMap<OutPoint, DiscoveredOutput>,
 }
 
-#[derive(Clone)]
-struct InMemoryUpdater {
-    received_updates: Arc<Mutex<Vec<UpdateResult>>>,
-}
-
-impl InMemoryUpdater {
-    fn new() -> Self {
-        Self {
-            received_updates: Arc::default(),
-        }
-    }
-
-    fn print_results(&self) {
-        let updates = self.received_updates.lock().unwrap();
-
-        for update in updates.iter() {
-            println!("{update:#?}");
-        }
-    }
-}
-
-impl Updater for InMemoryUpdater {
-    fn record_block_scan_result(
-        &mut self,
-        blkheight: Height,
-        blkhash: BlockHash,
-        discovered_inputs: HashSet<OutPoint>,
-        discovered_outputs: HashMap<OutPoint, DiscoveredOutput>,
-    ) -> anyhow::Result<()> {
-        self.received_updates.lock().unwrap().push(UpdateResult {
-            blkheight,
-            blkhash,
-            discovered_inputs,
-            discovered_outputs,
-        });
-
-        Ok(())
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scan_sk = SecretKey::from_slice(&SCAN_SK_BYTES)?;
     let spend_sk = SecretKey::from_slice(&SPEND_SK_BYTES)?;
 
-    // for a real scan, we can set this bool to false to interrupt the scan process
-    // in this example, we keep it set to true
-    let keep_scanning = AtomicBool::new(true);
-
     let backend = BlindbitBackend::new(BlindbitClient::new(BLINDBIT_BACKEND_URL)?);
 
-    // we use a simple in-memory updater struct that stores all received updates in a vector
-    let updater = InMemoryUpdater::new();
-
     let client = SpClient::new(scan_sk, SpendKey::Secret(spend_sk), NETWORK)?;
+    let sp_receiver = client.receiver();
 
     println!("Receiving code for this key pair + network:");
     println!("{}", client.receiving_code());
 
-    let mut scanner = SpScanner::new(
-        client,
-        Box::new(updater.clone()),
+    let scanner = SpScanner::new(
         Box::new(backend),
+        scan_sk,
+        sp_receiver,
         HashSet::new(),
-        &keep_scanning,
+        DUST_LIMIT,
+        WITH_CUTTHROUGH,
+        &KEEP_SCANNING,
     );
 
     let start = Height::from_consensus(SCAN_START_HEIGHT)?;
     let end = Height::from_consensus(SCAN_END_HEIGHT)?;
 
-    scanner
-        .scan_blocks(start..=end, DUST_LIMIT, WITH_CUTTHROUGH)
-        .await?;
+    let mut rx = scanner.scan_blocks(start..=end);
 
-    // print all received updates
-    updater.print_results();
+    while let Ok(update) = rx.recv().await {
+        // print all received updates
+        println!("{update:#?}");
+    }
 
     Ok(())
 }

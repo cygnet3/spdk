@@ -19,7 +19,7 @@ use bitcoin::{
 use silentpayments::utils::sending::PartialSecret;
 use silentpayments::{Network as SpNetwork, SilentPaymentCode, utils as sp_utils};
 use spdk_core::constants::{DATA_CARRIER_SIZE, NUMS};
-use spdk_core::updater::DiscoveredOutput;
+use spdk_core::scanner::DiscoveredOutput;
 
 use super::{FeeRate, Recipient, RecipientAddress, SilentPaymentUnsignedTransaction, SpClient};
 
