@@ -1,5 +1,5 @@
 [package]
-name = "scanner-local"
+name = "local-scanner"
 version = "0.0.0"
 publish = false
 edition.workspace = true

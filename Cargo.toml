@@ -1,10 +1,10 @@
 [workspace]
 members = [
   "spdk-core",
-  "backend-blindbit-v1",
+  "backends/blindbit-v1",
   "spdk-wallet",
   "silentpayments",
-  "scanner-local",
+  "scanners/local",
 ]
 resolver = "3"
 
@@ -13,8 +13,8 @@ resolver = "3"
 spdk-core = { path = "spdk-core" }
 spdk-wallet = { path = "spdk-wallet" }
 silentpayments = { path = "silentpayments" }
-backend-blindbit-v1 = { path = "backend-blindbit-v1" }
-scanner-local = { path = "scanner-local" }
+backend-blindbit-v1 = { path = "backends/blindbit-v1" }
+local-scanner = { path = "scanners/local" }
 
 # Core dependencies - shared across crates
 anyhow = "1.0"
