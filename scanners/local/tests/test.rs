@@ -6,7 +6,7 @@ use bitcoin::hex::FromHex as _;
 use bitcoin::secp256k1::{Scalar, SecretKey};
 use bitcoin::{Amount, BlockHash, Network, OutPoint, ScriptBuf};
 use futures::StreamExt as _;
-use scanner_local::SpScanner;
+use local_scanner::SpScanner;
 use silentpayments::receiving::Label;
 use spdk_core::scanner::Scanner as _;
 use spdk_wallet::client::{SpClient, SpendKey};

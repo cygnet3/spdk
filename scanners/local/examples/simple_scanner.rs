@@ -5,7 +5,7 @@ use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Amount, BlockHash, Network, OutPoint};
-use scanner_local::SpScanner;
+use local_scanner::SpScanner;
 use spdk_core::scanner::{DiscoveredOutput, Scanner as _};
 use spdk_wallet::client::{SpClient, SpendKey};
 
