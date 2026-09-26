@@ -6,9 +6,8 @@ use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoin::{Network, XOnlyPublicKey};
 use silentpayments::bitcoin_hashes::{Hash as _, sha256};
 use silentpayments::receiving::{Label, Receiver};
-use silentpayments::{
-    Network as SpNetwork, SharedSecret, SilentPaymentCode, SpVersion, utils as sp_utils,
-};
+use silentpayments::utils::receiving::PublicTweakData;
+use silentpayments::{Network as SpNetwork, SilentPaymentCode, SpVersion, TransactionSharedSecret};
 
 use super::SpendKey;
 
@@ -78,12 +77,13 @@ impl SpClient {
     pub fn output_key_to_secret_map(
         &self,
         tweak_data_vec: Vec<PublicKey>,
-    ) -> Result<HashMap<XOnlyPublicKey, SharedSecret>> {
+    ) -> Result<HashMap<XOnlyPublicKey, TransactionSharedSecret>> {
         // if using rayon feature, import the preludes
         #[cfg(feature = "rayon")]
         use rayon::prelude::*;
 
         let b_scan = &self.scan_key();
+        let secp = Secp256k1::signing_only();
 
         // parallel iterator using rayon
         #[cfg(feature = "rayon")]
@@ -95,7 +95,12 @@ impl SpClient {
 
         let items: Result<Vec<_>> = tweak_data_iterator
             .map(|tweak| {
-                let secret = sp_utils::receiving::calculate_ecdh_shared_secret(&tweak, b_scan);
+                let public_tweak = PublicTweakData::new_unchecked(tweak);
+                let secret = TransactionSharedSecret::new_from_public_tweak_data(
+                    &secp,
+                    &public_tweak,
+                    b_scan,
+                )?;
                 let output_keys = self
                     .sp_receiver
                     .generate_output_keys_from_shared_secret(&secret)?;
