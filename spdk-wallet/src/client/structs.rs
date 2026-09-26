@@ -13,6 +13,8 @@ use silentpayments::SilentPaymentCode;
 use silentpayments::utils::sending::PartialSecret;
 use spdk_core::updater::DiscoveredOutput;
 
+use super::coin_select::Strategy;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {
     LegacyAddress(Address<NetworkUnchecked>),
@@ -59,6 +61,14 @@ pub struct SilentPaymentUnsignedTransaction {
     pub partial_secret: PartialSecret,
     pub unsigned_tx: Option<Transaction>,
     pub network: Network,
+    /// Wallet change amount (zero for drain / changeless selections).
+    pub change: Amount,
+    /// Index into `recipients` of the change output, if any.
+    pub change_index: Option<usize>,
+    pub fee: Amount,
+    pub actual_fee_rate: FeeRate,
+    /// Coin-selection strategy used for a payment; `None` for drain transactions.
+    pub strategy: Option<Strategy>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
