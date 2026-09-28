@@ -5,6 +5,7 @@ use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Amount, BlockHash, Network, OutPoint};
+use futures::StreamExt as _;
 use local_scanner::SpScanner;
 use spdk_core::scanner::{DiscoveredOutput, Scanner as _};
 use spdk_wallet::client::{SpClient, SpendKey};
@@ -62,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rx = scanner.scan_blocks(start..=end);
 
-    while let Ok(update) = rx.recv().await {
+    while let Some(update) = rx.next().await {
         // print all received updates
         println!("{update:#?}");
     }
