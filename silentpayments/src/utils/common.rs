@@ -4,6 +4,8 @@ use core::fmt;
 use core::str::FromStr;
 
 #[cfg(feature = "encode")]
+use bech32::Variant;
+#[cfg(feature = "encode")]
 use bech32::{FromBase32 as _, ToBase32 as _};
 #[cfg(any(feature = "sending", feature = "receiving"))]
 use bitcoin_hashes::Hash as _;
@@ -350,7 +352,11 @@ impl FromStr for SilentPaymentCode {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        let (hrp, data, _variant) = bech32::decode(s)?;
+        let (hrp, data, variant) = bech32::decode(s)?;
+
+        if variant != Variant::Bech32m {
+            return Err(Error::InvalidCode("Encoding must be bech32m".to_owned()));
+        }
 
         if data.len() != 107 {
             return Err(Error::InvalidCode("Code length is wrong".to_owned()));
