@@ -9,7 +9,8 @@ pub use bitcoin;
 // re-export local scanner if enabled
 #[cfg(feature = "local-scanner")]
 pub use local_scanner::SpScanner;
-pub use psbt;
+// BIP-375 extensions. The PSBT type and upstream roles come from psbt_v2.
+pub use psbt::{extractor, signer};
+pub use psbt_v2;
 pub use silentpayments;
-pub use spdk_core::constants::DATA_CARRIER_SIZE;
 pub use spdk_core::{chain, scanner};

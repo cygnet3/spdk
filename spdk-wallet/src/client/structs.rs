@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr as _;
 
 use anyhow::Error;
@@ -8,15 +7,9 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
+use bitcoin::{Address, Amount};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentCode;
-use silentpayments::TransactionSharedSecret;
-use silentpayments::secp256k1::PublicKey as SpPublicKey;
-
-use spdk_core::scanner::DiscoveredOutput;
-
-use super::coin_select::Strategy;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {
@@ -54,24 +47,6 @@ impl From<RecipientAddress> for String {
 pub struct Recipient {
     pub address: RecipientAddress, // either old school or silent payment
     pub amount: Amount,            // must be 0 if address is Data.
-}
-
-#[derive(Debug, Clone)]
-// this will be replaced by a proper psbt as soon as sp support is standardised
-pub struct SilentPaymentUnsignedTransaction {
-    pub selected_utxos: Vec<(OutPoint, DiscoveredOutput)>,
-    pub recipients: Vec<Recipient>,
-    pub shared_secrets: HashMap<SpPublicKey, TransactionSharedSecret>,
-    pub unsigned_tx: Option<Transaction>,
-    pub network: Network,
-    /// Wallet change amount (zero for drain / changeless selections).
-    pub change: Amount,
-    /// Index into `recipients` of the change output, if any.
-    pub change_index: Option<usize>,
-    pub fee: Amount,
-    pub actual_fee_rate: FeeRate,
-    /// Coin-selection strategy used for a payment; `None` for drain transactions.
-    pub strategy: Option<Strategy>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

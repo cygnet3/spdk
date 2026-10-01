@@ -4,3 +4,5 @@
 //! - `roles`: PSBT role implementations (signer, finalizer, extractor)
 
 pub mod roles;
+
+pub use psbt_v2::Psbt;
