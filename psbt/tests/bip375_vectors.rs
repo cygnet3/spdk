@@ -7,8 +7,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use bitcoin::base64::prelude::{BASE64_STANDARD, Engine as _};
-use psbt::roles::SpSignerExt;
-use psbt_v2::{Psbt, SilentPaymentState};
+use psbt::extractor::{SpExtractorError, SpExtractorExt};
+use psbt::signer::SpSignerExt;
+use psbt_v2::{Finalizer, Psbt, SilentPaymentState};
 use secp256k1::Secp256k1;
 use serde::Deserialize;
 
@@ -213,4 +214,66 @@ fn test_bip375_vectors_match_task() {
         "{} BIP-375 vector(s) failed",
         failures.len()
     );
+}
+
+/// BIP-375 has the Transaction Extractor verify every silent payment output script against the
+/// ECDH shares and DLEQ proofs. Each finalize vector must extract once its inputs are finalized,
+/// and must not extract once a silent payment output script is tampered with.
+#[test]
+fn test_bip375_extractor_verifies_sp_output_scripts() {
+    let secp = Secp256k1::new();
+    let vectors = load_vectors();
+    let mut failures = Vec::new();
+
+    for vector in vectors
+        .valid
+        .iter()
+        .filter(|v| v.supplementary.task == Task::Finalize)
+    {
+        let psbt =
+            parse_psbt(&vector.psbt).expect("valid vector must deserialize through rust-psbt");
+        let finalized = match Finalizer::new(psbt)
+            .map_err(|e| format!("{e:?}"))
+            .and_then(|finalizer| finalizer.finalize(&secp).map_err(|e| format!("{e:?}")))
+        {
+            Ok(finalized) => finalized,
+            Err(e) => {
+                failures.push(format!("{}: finalize failed: {e}", vector.description));
+                continue;
+            }
+        };
+
+        if let Err(e) = finalized.clone().extract_tx(&secp) {
+            failures.push(format!("{}: extract failed: {e}", vector.description));
+            continue;
+        }
+
+        let mut tampered = finalized;
+        let Some(sp_index) = tampered.outputs.iter().position(|o| o.sp_v0_info.is_some()) else {
+            continue;
+        };
+        let other = (sp_index + 1) % tampered.outputs.len();
+        if other == sp_index {
+            // A single output has nothing to swap with; replace the script instead.
+            tampered.outputs[sp_index].script_pubkey = bitcoin::ScriptBuf::from_hex(
+                "51201111111111111111111111111111111111111111111111111111111111111111",
+            )
+            .unwrap();
+        } else {
+            let script = tampered.outputs[other].script_pubkey.clone();
+            tampered.outputs[sp_index].script_pubkey = script;
+        }
+        let result = tampered.extract_tx(&secp);
+        if !matches!(result, Err(SpExtractorError::OutputScriptMismatch { .. })) {
+            failures.push(format!(
+                "{}: tampered output script must fail with OutputScriptMismatch, got {result:?}",
+                vector.description
+            ));
+        }
+    }
+
+    for failure in &failures {
+        println!("FAILED: {failure}");
+    }
+    assert!(failures.is_empty(), "{} vector(s) failed", failures.len());
 }
