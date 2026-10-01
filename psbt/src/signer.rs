@@ -1,6 +1,6 @@
 //! PSBT Signer Role
 //!
-//! This module extends the upstream [`psbt_v2::Signer`] with the two pieces of
+//! This module extends the upstream `psbt_v2::Signer` with the two pieces of
 //! the BIP-375 signer role it does not implement:
 //!
 //! - **ECDH share generation** ([`SpSignerExt::add_ecdh_shares`]): global shares for a single
@@ -57,9 +57,9 @@ pub enum SpSignerError {
     /// Structurally malformed input (e.g. `sp_tweak` set on a non-P2TR input).
     MalformedInput { vin: usize, detail: &'static str },
     /// [`ShareMode::Global`]: an eligible input's key could not be resolved from the
-    /// provided [`GetKey`], so the global share cannot cover every input.
+    /// provided `psbt_v2::GetKey`, so the global share cannot cover every input.
     KeyResolution { vin: usize },
-    /// The [`GetKey`] backend errored during a lookup.
+    /// The `psbt_v2::GetKey` backend errored during a lookup.
     GetKey { vin: usize, error: String },
     /// [`ShareMode::Partial`]: none of the inputs are owned by the provided keys.
     NoOwnedInputs,
@@ -361,22 +361,13 @@ impl SpSignerExt for Psbt {
     where
         C: Signing + Verification,
     {
-        // Recipient key material per SP output. `generate_recipient_pubkeys` assigns
-        // the BIP-352 n-counter within each scan-key group in the order entries are
-        // given, and the reference vectors expect that order to be the outputs sorted
-        // by `sp_v0_info` (ties broken by output index) — not raw output order. This
-        // matters when one scan key is paid with different labels.
-        let sp_outputs = collect_sp_v0_keys(self);
-        if sp_outputs.is_empty() {
+        if self
+            .outputs
+            .iter()
+            .all(|output| output.sp_v0_info.is_none())
+        {
             return Ok(Vec::new());
         }
-
-        let sorted_materials: Vec<SilentPaymentKeyMaterial> = sp_outputs
-            .iter()
-            .map(|(_, sp_info)| sp_info_to_key_material(sp_info))
-            .collect();
-
-        let scan_keys = collect_scan_keys(&sp_outputs);
 
         // The BIP-352 input set, exactly as the receiver rebuilds it.
         let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count);
@@ -392,106 +383,8 @@ impl SpSignerExt for Psbt {
             }
             transaction_inputs.push(outpoint, spk, pubkey);
         }
-        let eligible_vins = transaction_inputs.eligible_vins();
 
-        // Aggregate of every eligible input's partial share for one scan key.
-        // Primary source when no global share exists, fallback when the global
-        // share fails verification (see below).
-        let partials_secret =
-            |ck: CompressedPublicKey| -> Result<TransactionSharedSecret, SpSignerError> {
-                // Every eligible input must provide a partial share with its proof.
-                let mut partials = Vec::with_capacity(eligible_vins.len());
-                for &vin in &eligible_vins {
-                    let input = &self.inputs[vin];
-                    let share = input
-                        .sp_ecdh_shares
-                        .get(&ck)
-                        .ok_or(SpSignerError::MissingShare { scan_key: ck, vin })?;
-                    let proof =
-                        input
-                            .sp_dleq_proofs
-                            .get(&ck)
-                            .ok_or(SpSignerError::MissingDleqProof {
-                                scan_key: ck,
-                                vin: Some(vin),
-                            })?;
-                    partials.push(PartialSenderEcdhShare::new_unchecked(
-                        ck.0,
-                        vin,
-                        share.0,
-                        to_rust_dleq(*proof),
-                    ));
-                }
-                Ok(TransactionSharedSecret::new_from_partial_shares(
-                    secp,
-                    ck.0,
-                    NonEmptyArray::new(&partials)?,
-                    &transaction_inputs,
-                )?)
-            };
-
-        // One transaction shared secret per scan key. DLEQ proofs are verified
-        // inside the `TransactionSharedSecret` constructors.
-        let mut shared_secrets: HashMap<PublicKey, TransactionSharedSecret> =
-            HashMap::with_capacity(scan_keys.len());
-        for ck in scan_keys {
-            // A global share takes precedence (BIP-375 "Computing the Output
-            // Scripts": use PSBT_GLOBAL_SP_ECDH_SHARE "if available"). Combiners
-            // can legitimately produce PSBTs that also carry per-input shares for
-            // the same scan key — the official vectors treat that state as valid
-            // — so coexisting partials never replace a *verifiable* global share.
-            // We never *produce* the overlap ourselves: `add_ecdh_shares` rejects
-            // it.
-            //
-            // Fallback: when the global share fails verification, complete partial
-            // coverage is tried before giving up. This is sound because a verified
-            // partial DLEQ proof binds its share to the input's prevout pubkey,
-            // so fully verified partials determine the one correct secret — the
-            // fallback can only recover that value or fail, never commit to a
-            // wrong one. If the fallback fails too, the original global error is
-            // reported. A *missing* global proof does not fall back: BIP-375
-            // lists it as an invalid state.
-            let scan_key = ck.0;
-            let shared_secret = if let Some(share) = self.global.sp_ecdh_shares.get(&ck) {
-                let proof =
-                    self.global
-                        .sp_dleq_proofs
-                        .get(&ck)
-                        .ok_or(SpSignerError::MissingDleqProof {
-                            scan_key: ck,
-                            vin: None,
-                        })?;
-                let global =
-                    GlobalSenderEcdhShare::new_unchecked(scan_key, share.0, to_rust_dleq(*proof));
-                TransactionSharedSecret::new_from_global_share(secp, &global, &transaction_inputs)
-                    .or_else(|global_err| partials_secret(ck).map_err(|_| global_err))?
-            } else {
-                partials_secret(ck)?
-            };
-            shared_secrets.insert(scan_key, shared_secret);
-        }
-
-        let mut derived = generate_recipient_pubkeys(secp, sorted_materials, &shared_secrets)?;
-
-        // Assign back in output-index order: within one key material the sorted
-        // order coincides with index order, so popping per material is exact.
-        let mut scripts = Vec::with_capacity(sp_outputs.len());
-        for (index, sp_info) in sp_outputs {
-            let key_material = sp_info_to_key_material(&sp_info);
-            let keys = derived
-                .get_mut(&key_material)
-                .expect("every submitted recipient is derived");
-            let xonly = keys
-                .first()
-                .copied()
-                .expect("one derived key per submitted recipient");
-            keys.remove(0);
-            scripts.push((
-                index,
-                ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly)),
-            ));
-        }
-        Ok(scripts)
+        derive_sp_output_scripts_from_inputs(self, secp, &transaction_inputs)
     }
 
     fn commit_sp_outputs<C>(&mut self, secp: &Secp256k1<C>) -> Result<(), SpSignerError>
@@ -507,6 +400,138 @@ impl SpSignerExt for Psbt {
         *self = signer.psbt();
         Ok(())
     }
+}
+
+/// Derives the silent payment output scripts from the PSBT's ECDH shares.
+///
+/// Verifies each share's DLEQ proof against the input public keys in `transaction_inputs`, so
+/// the caller decides where those keys come from: the Updater's fields while signing, or the
+/// final scriptSig and witness once the inputs are finalized.
+pub(crate) fn derive_sp_output_scripts_from_inputs<C>(
+    psbt: &Psbt,
+    secp: &Secp256k1<C>,
+    transaction_inputs: &TransactionInputs,
+) -> Result<Vec<(usize, ScriptBuf)>, SpSignerError>
+where
+    C: Signing + Verification,
+{
+    // Recipient key material per SP output. `generate_recipient_pubkeys` assigns
+    // the BIP-352 n-counter within each scan-key group in the order entries are
+    // given, and the reference vectors expect that order to be the outputs sorted
+    // by `sp_v0_info` (ties broken by output index) — not raw output order. This
+    // matters when one scan key is paid with different labels.
+    let sp_outputs = collect_sp_v0_keys(psbt);
+    if sp_outputs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let sorted_materials: Vec<SilentPaymentKeyMaterial> = sp_outputs
+        .iter()
+        .map(|(_, sp_info)| sp_info_to_key_material(sp_info))
+        .collect();
+
+    let scan_keys = collect_scan_keys(&sp_outputs);
+
+    let eligible_vins = transaction_inputs.eligible_vins();
+
+    // Aggregate of every eligible input's partial share for one scan key.
+    // Primary source when no global share exists, fallback when the global
+    // share fails verification (see below).
+    let partials_secret =
+        |ck: CompressedPublicKey| -> Result<TransactionSharedSecret, SpSignerError> {
+            // Every eligible input must provide a partial share with its proof.
+            let mut partials = Vec::with_capacity(eligible_vins.len());
+            for &vin in &eligible_vins {
+                let input = &psbt.inputs[vin];
+                let share = input
+                    .sp_ecdh_shares
+                    .get(&ck)
+                    .ok_or(SpSignerError::MissingShare { scan_key: ck, vin })?;
+                let proof =
+                    input
+                        .sp_dleq_proofs
+                        .get(&ck)
+                        .ok_or(SpSignerError::MissingDleqProof {
+                            scan_key: ck,
+                            vin: Some(vin),
+                        })?;
+                partials.push(PartialSenderEcdhShare::new_unchecked(
+                    ck.0,
+                    vin,
+                    share.0,
+                    to_rust_dleq(*proof),
+                ));
+            }
+            Ok(TransactionSharedSecret::new_from_partial_shares(
+                secp,
+                ck.0,
+                NonEmptyArray::new(&partials)?,
+                transaction_inputs,
+            )?)
+        };
+
+    // One transaction shared secret per scan key. DLEQ proofs are verified
+    // inside the `TransactionSharedSecret` constructors.
+    let mut shared_secrets: HashMap<PublicKey, TransactionSharedSecret> =
+        HashMap::with_capacity(scan_keys.len());
+    for ck in scan_keys {
+        // A global share takes precedence (BIP-375 "Computing the Output
+        // Scripts": use PSBT_GLOBAL_SP_ECDH_SHARE "if available"). Combiners
+        // can legitimately produce PSBTs that also carry per-input shares for
+        // the same scan key — the official vectors treat that state as valid
+        // — so coexisting partials never replace a *verifiable* global share.
+        // We never *produce* the overlap ourselves: `add_ecdh_shares` rejects
+        // it.
+        //
+        // Fallback: when the global share fails verification, complete partial
+        // coverage is tried before giving up. This is sound because a verified
+        // partial DLEQ proof binds its share to the input's prevout pubkey,
+        // so fully verified partials determine the one correct secret — the
+        // fallback can only recover that value or fail, never commit to a
+        // wrong one. If the fallback fails too, the original global error is
+        // reported. A *missing* global proof does not fall back: BIP-375
+        // lists it as an invalid state.
+        let scan_key = ck.0;
+        let shared_secret = if let Some(share) = psbt.global.sp_ecdh_shares.get(&ck) {
+            let proof =
+                psbt.global
+                    .sp_dleq_proofs
+                    .get(&ck)
+                    .ok_or(SpSignerError::MissingDleqProof {
+                        scan_key: ck,
+                        vin: None,
+                    })?;
+            let global =
+                GlobalSenderEcdhShare::new_unchecked(scan_key, share.0, to_rust_dleq(*proof));
+            TransactionSharedSecret::new_from_global_share(secp, &global, transaction_inputs)
+                .or_else(|global_err| partials_secret(ck).map_err(|_| global_err))?
+        } else {
+            partials_secret(ck)?
+        };
+        shared_secrets.insert(scan_key, shared_secret);
+    }
+
+    let mut derived = generate_recipient_pubkeys(secp, sorted_materials, &shared_secrets)?;
+
+    // Assign back in output-index order: within one key material the sorted
+    // order coincides with index order, so popping per material is exact.
+    let mut scripts = Vec::with_capacity(sp_outputs.len());
+    for (index, sp_info) in sp_outputs {
+        let key_material = sp_info_to_key_material(&sp_info);
+        let keys = derived
+            .get_mut(&key_material)
+            .expect("every submitted recipient is derived");
+        let xonly = keys
+            .first()
+            .copied()
+            .expect("one derived key per submitted recipient");
+        keys.remove(0);
+        scripts.push((
+            index,
+            ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly)),
+        ));
+    }
+    Ok(scripts)
 }
 
 /// Distinct scan keys among the SP outputs. It must be called with the output of `collect_sp_v0_keys`

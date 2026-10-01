@@ -44,7 +44,7 @@ impl Recipient {
     /// Returns the output weight in weight units for this recipient.
     ///
     /// For silent-payment recipients the actual script pubkey is not known yet (the key is derived in
-    /// [`finalize_transaction`]), but the output is always P2TR (`OP_PUSHNUM_1` + 32-byte key = 34
+    /// [`commit_sp_outputs`]), but the output is always P2TR (`OP_PUSHNUM_1` + 32-byte key = 34
     /// bytes). We build a zero-byte placeholder script of that exact shape and call
     /// [`TxOut::weight`] so the bitcoin library owns the arithmetic.
     ///

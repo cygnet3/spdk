@@ -13,6 +13,7 @@ spdk-core.workspace = true
 backend-blindbit-v1 = { workspace = true, optional = true }
 local-scanner = { workspace = true, optional = true, features = ["rayon"] }
 psbt.workspace = true
+psbt-v2.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true

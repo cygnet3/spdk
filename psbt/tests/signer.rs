@@ -21,8 +21,7 @@ use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::{
     Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, TxOut, Txid, XOnlyPublicKey,
 };
-use psbt::roles::signer::extract_eligible_input_pubkey;
-use psbt::roles::{ShareMode, SpSignerExt};
+use psbt::signer::{ShareMode, SpSignerExt, extract_eligible_input_pubkey};
 use psbt_v2::{
     Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt, Signer,
     SpV0Info,
