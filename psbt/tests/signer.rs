@@ -23,8 +23,7 @@ use bitcoin::{
     Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxOut, Txid,
     XOnlyPublicKey,
 };
-use psbt::roles::signer::extract_eligible_input_pubkey;
-use psbt::roles::{ShareMode, SpSignerExt};
+use psbt::signer::{ShareMode, SpSignerExt, extract_eligible_input_pubkey};
 use psbt_v2::{
     Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt, Signer,
     SpV0Info,
@@ -176,15 +175,12 @@ fn sp_p2tr_input(
 /// Sign input 0 as a BIP-376 silent payment input and write the signature.
 fn sign_sp_input(psbt: Psbt, spend_sk: &SecretKey, secp: &Secp256k1<secp256k1::All>) -> Psbt {
     let mut signer = Signer::new(psbt).unwrap();
-    let sigs = {
-        let mut session = signer.session();
-        let input = session.signable_input(0).unwrap();
-        vec![
-            session
-                .get_silent_payment_sigs(&input, spend_sk, secp)
-                .unwrap(),
-        ]
-    };
+    let sigs = signer.session(|mut session| {
+        let inputs = session.signable_inputs().unwrap();
+        vec![session
+            .get_silent_payment_sigs(&inputs, 0, spend_sk, secp)
+            .unwrap()]
+    });
     signer.apply(sigs).unwrap()
 }
 
