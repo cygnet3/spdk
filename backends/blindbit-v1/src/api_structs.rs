@@ -44,29 +44,25 @@ impl TryFrom<UtxoResponse> for UtxoData {
 #[derive(Debug, Deserialize)]
 pub struct SpentIndexResponse {
     pub block_hash: BlockHash,
-    pub data: Vec<MyHex>,
+    pub data: Vec<Hex>,
 }
 
 impl From<SpentIndexResponse> for SpentIndexData {
     fn from(value: SpentIndexResponse) -> Self {
         Self {
-            data: value.data.into_iter().map(|x| x.hex).collect(),
+            data: value.data.into_iter().map(|x| x.0).collect(),
         }
     }
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(transparent)]
-pub struct MyHex {
-    #[serde(with = "hex::serde")]
-    pub hex: Vec<u8>,
-}
+pub struct Hex(#[serde(with = "hex::serde")] pub Vec<u8>);
 
 #[derive(Debug, Deserialize)]
 pub struct FilterResponse {
     pub block_hash: BlockHash,
     pub block_height: Height,
-    pub data: MyHex,
+    pub data: Hex,
     pub filter_type: i32,
 }
 
