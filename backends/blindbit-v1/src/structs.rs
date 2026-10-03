@@ -26,7 +26,7 @@ impl From<FilterResponse> for FilterData {
     fn from(value: FilterResponse) -> Self {
         Self {
             block_hash: value.block_hash,
-            data: value.data.hex,
+            data: value.data.0,
         }
     }
 }
