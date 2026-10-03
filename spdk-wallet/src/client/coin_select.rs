@@ -7,7 +7,6 @@ use bdk_coin_select::{
     BnbMetric, Candidate, ChangePolicy, CoinSelector, Drain, DrainWeights, FeeRate,
     TR_DUST_RELAY_MIN_VALUE, Target, TargetFee, TargetOutputs,
 };
-use bitcoin::script::PushBytesBuf;
 use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut};
 
 use crate::client::{Recipient, RecipientAddress};
@@ -58,7 +57,7 @@ impl Recipient {
     /// [`TxOut::weight`] so the bitcoin library owns the arithmetic.
     ///
     /// [`finalize_transaction`]: super::SpClient::finalize_transaction
-    pub(crate) fn output_weight(&self) -> Result<u64> {
+    pub(crate) fn output_weight(&self) -> u64 {
         let spk: ScriptBuf = match &self.address {
             // SP outputs are always P2TR; placeholder key is all-zeros.
             RecipientAddress::SpCode(_) => ScriptBuf::from_bytes(
@@ -68,19 +67,14 @@ impl Recipient {
                     .collect(),
             ),
             RecipientAddress::LegacyAddress(addr) => addr.assume_checked_ref().script_pubkey(),
-            RecipientAddress::Data(data) => {
-                let mut buf = PushBytesBuf::with_capacity(data.len());
-                buf.extend_from_slice(data)
-                    .map_err(|e| Error::msg(e.to_string()))?;
-                ScriptBuf::new_op_return(buf)
-            }
+            RecipientAddress::Data(data) => ScriptBuf::new_op_return(data),
         };
-        Ok(TxOut {
+        TxOut {
             value: Amount::ZERO,
             script_pubkey: spk,
         }
         .weight()
-        .to_wu())
+        .to_wu()
     }
 }
 
@@ -181,10 +175,7 @@ pub fn select_all_utxos_for_fee_rate(
     let mut coin_selector = CoinSelector::new(&candidates);
 
     let n_outputs = recipients.len();
-    let output_weight: u64 = recipients
-        .iter()
-        .map(Recipient::output_weight)
-        .sum::<Result<_>>()?;
+    let output_weight: u64 = recipients.iter().map(Recipient::output_weight).sum();
 
     let drain_output = DrainWeights {
         output_weight,
@@ -464,8 +455,7 @@ fn pick_utxos(
         outputs: TargetOutputs::fund_outputs(
             recipients
                 .iter()
-                .map(|r| r.output_weight().map(|weight| (weight, r.amount.to_sat())))
-                .collect::<Result<Vec<_>>>()?,
+                .map(|r| (r.output_weight(), r.amount.to_sat())),
         ),
     };
 

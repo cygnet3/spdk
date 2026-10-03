@@ -6,6 +6,7 @@ pub use bdk_coin_select::FeeRate;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::key::Secp256k1;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ use super::coin_select::Strategy;
 pub enum RecipientAddress {
     LegacyAddress(Address<NetworkUnchecked>),
     SpCode(SilentPaymentCode),
-    Data(Vec<u8>), // OpReturn output
+    Data(PushBytesBuf), // OpReturn output
 }
 
 impl TryFrom<String> for RecipientAddress {
@@ -30,7 +31,10 @@ impl TryFrom<String> for RecipientAddress {
         } else if let Ok(legacy_address) = Address::from_str(&value) {
             Ok(Self::LegacyAddress(legacy_address))
         } else if let Ok(data) = Vec::from_hex(&value) {
-            Ok(Self::Data(data))
+            let mut buf = PushBytesBuf::new();
+            buf.extend_from_slice(&data)?;
+
+            Ok(Self::Data(buf))
         } else {
             Err(anyhow::Error::msg("Unknown recipient address type"))
         }
@@ -42,7 +46,7 @@ impl From<RecipientAddress> for String {
         match value {
             RecipientAddress::LegacyAddress(address) => address.assume_checked().to_string(),
             RecipientAddress::SpCode(sp_code) => sp_code.to_string(),
-            RecipientAddress::Data(data) => data.to_lower_hex_string(),
+            RecipientAddress::Data(data) => data.as_bytes().to_lower_hex_string(),
         }
     }
 }
