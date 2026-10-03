@@ -7,11 +7,9 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
+use bitcoin::{Address, Amount};
 use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentCode;
-use silentpayments::utils::sending::PartialSecret;
-use spdk_core::scanner::DiscoveredOutput;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipientAddress {
@@ -49,16 +47,6 @@ impl From<RecipientAddress> for String {
 pub struct Recipient {
     pub address: RecipientAddress, // either old school or silent payment
     pub amount: Amount,            // must be 0 if address is Data.
-}
-
-#[derive(Debug, Clone)]
-// this will be replaced by a proper psbt as soon as sp support is standardised
-pub struct SilentPaymentUnsignedTransaction {
-    pub selected_utxos: Vec<(OutPoint, DiscoveredOutput)>,
-    pub recipients: Vec<Recipient>,
-    pub partial_secret: PartialSecret,
-    pub unsigned_tx: Option<Transaction>,
-    pub network: Network,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
