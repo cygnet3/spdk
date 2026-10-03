@@ -14,7 +14,6 @@ use bitcoin::{
 };
 use silentpayments::utils::sending::PartialSecret;
 use silentpayments::{Network as SpNetwork, SilentPaymentCode, utils as sp_utils};
-use spdk_core::constants::DATA_CARRIER_SIZE;
 use spdk_core::scanner::DiscoveredOutput;
 
 use super::coin_select::{pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate};
@@ -181,7 +180,7 @@ impl SpClient {
         let total_recipients_weights: u64 = recipients
             .iter()
             .map(Recipient::output_weight)
-            .sum();
+            .sum::<Result<_>>()?;
 
         if selection.weight_sum() != total_recipients_weights {
             return Err(Error::msg("Recipients and inputs selection mismatch"));
@@ -238,7 +237,7 @@ impl SpClient {
         let total_recipients_weights: u64 = recipients
             .iter()
             .map(Recipient::output_weight)
-            .sum();
+            .sum::<Result<_>>()?;
 
         if selection.weight_sum() != total_recipients_weights {
             return Err(Error::msg("Recipients and inputs selection mismatch"));
@@ -330,13 +329,7 @@ impl SpClient {
                     if recipient.amount > Amount::from_sat(0) {
                         return Err(Error::msg("Data output must have an amount of 0!"));
                     }
-                    let data_len = data.len();
-                    if data_len > DATA_CARRIER_SIZE {
-                        return Err(Error::msg(format!(
-                            "Can't embed data of length {data_len}. Max length: {DATA_CARRIER_SIZE}"
-                        )));
-                    }
-                    let mut op_return = PushBytesBuf::with_capacity(data_len);
+                    let mut op_return = PushBytesBuf::with_capacity(data.len());
                     op_return.extend_from_slice(data)?;
                     let script = ScriptBuf::new_op_return(op_return);
                     Ok(TxOut {

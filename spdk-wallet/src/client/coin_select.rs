@@ -9,7 +9,6 @@ use bdk_coin_select::{
 };
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut};
-use spdk_core::constants::DATA_CARRIER_SIZE;
 
 use crate::client::{Recipient, RecipientAddress};
 
@@ -59,7 +58,7 @@ impl Recipient {
     /// [`TxOut::weight`] so the bitcoin library owns the arithmetic.
     ///
     /// [`finalize_transaction`]: super::SpClient::finalize_transaction
-    pub(crate) fn output_weight(&self) -> u64 {
+    pub(crate) fn output_weight(&self) -> Result<u64> {
         let spk: ScriptBuf = match &self.address {
             // SP outputs are always P2TR; placeholder key is all-zeros.
             RecipientAddress::SpCode(_) => ScriptBuf::from_bytes(
@@ -70,20 +69,18 @@ impl Recipient {
             ),
             RecipientAddress::LegacyAddress(addr) => addr.assume_checked_ref().script_pubkey(),
             RecipientAddress::Data(data) => {
-                let data_len = data.len().min(DATA_CARRIER_SIZE);
-                let mut buf = PushBytesBuf::with_capacity(data_len);
-                // DATA_CARRIER_SIZE (205) is well within the PushBytes limit (520).
-                buf.extend_from_slice(&data[..data_len])
-                    .expect("DATA_CARRIER_SIZE is within PushBytes limits");
+                let mut buf = PushBytesBuf::with_capacity(data.len());
+                buf.extend_from_slice(data)
+                    .map_err(|e| Error::msg(e.to_string()))?;
                 ScriptBuf::new_op_return(buf)
             }
         };
-        TxOut {
+        Ok(TxOut {
             value: Amount::ZERO,
             script_pubkey: spk,
         }
         .weight()
-        .to_wu()
+        .to_wu())
     }
 }
 
@@ -187,7 +184,7 @@ pub fn select_all_utxos_for_fee_rate(
     let output_weight: u64 = recipients
         .iter()
         .map(Recipient::output_weight)
-        .sum();
+        .sum::<Result<_>>()?;
 
     let drain_output = DrainWeights {
         output_weight,
@@ -467,7 +464,8 @@ fn pick_utxos(
         outputs: TargetOutputs::fund_outputs(
             recipients
                 .iter()
-                .map(|r| (r.output_weight(), r.amount.to_sat())),
+                .map(|r| r.output_weight().map(|weight| (weight, r.amount.to_sat())))
+                .collect::<Result<Vec<_>>>()?,
         ),
     };
 
