@@ -4,7 +4,6 @@ use anyhow::{Error, Result};
 use bitcoin::absolute::LockTime;
 use bitcoin::hashes::Hash as _;
 use bitcoin::key::TapTweak as _;
-use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{Keypair, Message, Secp256k1};
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::Signature;
@@ -177,10 +176,7 @@ impl SpClient {
             ));
         }
 
-        let total_recipients_weights: u64 = recipients
-            .iter()
-            .map(Recipient::output_weight)
-            .sum::<Result<_>>()?;
+        let total_recipients_weights: u64 = recipients.iter().map(Recipient::output_weight).sum();
 
         if selection.weight_sum() != total_recipients_weights {
             return Err(Error::msg("Recipients and inputs selection mismatch"));
@@ -234,10 +230,7 @@ impl SpClient {
             ));
         }
 
-        let total_recipients_weights: u64 = recipients
-            .iter()
-            .map(Recipient::output_weight)
-            .sum::<Result<_>>()?;
+        let total_recipients_weights: u64 = recipients.iter().map(Recipient::output_weight).sum();
 
         if selection.weight_sum() != total_recipients_weights {
             return Err(Error::msg("Recipients and inputs selection mismatch"));
@@ -329,9 +322,7 @@ impl SpClient {
                     if recipient.amount > Amount::from_sat(0) {
                         return Err(Error::msg("Data output must have an amount of 0!"));
                     }
-                    let mut op_return = PushBytesBuf::with_capacity(data.len());
-                    op_return.extend_from_slice(data)?;
-                    let script = ScriptBuf::new_op_return(op_return);
+                    let script = ScriptBuf::new_op_return(data);
                     Ok(TxOut {
                         value: recipient.amount,
                         script_pubkey: script,
