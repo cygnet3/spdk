@@ -63,3 +63,4 @@ missing_errors_doc = { level = "allow", priority = 1 }
 missing_panics_doc = { level = "allow", priority = 1 }
 # Probably shouldn't annotate every (public) pure fn with '#[must_use]', so too many false positives:
 must_use_candidate = { level = "allow", priority = 1 }
+implicit_hasher = { level = "allow", priority = 1 }
