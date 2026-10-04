@@ -23,7 +23,7 @@ pub enum Strategy {
     Greedy, // Fallback
 }
 
-fn candidate_from_txout(txout: &TxOut) -> Result<Candidate> {
+fn validate_and_convert_to_candidate(txout: &TxOut) -> Result<Candidate> {
     if !txout.script_pubkey.is_p2tr() {
         return Err(anyhow::Error::msg(
             "unsupported input script for coin selection",
@@ -42,8 +42,10 @@ fn pool_from_utxos(utxos: &[(OutPoint, TxOut)]) -> Result<(Vec<OutPoint>, Vec<Ca
             return Err(Error::msg(format!("duplicate outpoint: {outpoint}")));
         }
         outpoints.push(*outpoint);
-        candidates
-            .push(candidate_from_txout(txout).map_err(|e| Error::msg(format!("{e}: {outpoint}")))?);
+        candidates.push(
+            validate_and_convert_to_candidate(txout)
+                .map_err(|e| Error::msg(format!("{e}: {outpoint}")))?,
+        );
     }
     Ok((outpoints, candidates))
 }

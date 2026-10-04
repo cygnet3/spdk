@@ -29,7 +29,9 @@ const fn sp_network_from_network(network: Network) -> SpNetwork {
     }
 }
 
-fn prevouts(available_utxos: &[(OutPoint, DiscoveredOutput)]) -> Result<Vec<(OutPoint, TxOut)>> {
+fn validate_and_convert_to_txout(
+    available_utxos: &[(OutPoint, DiscoveredOutput)],
+) -> Result<Vec<(OutPoint, TxOut)>> {
     let mut seen = HashSet::with_capacity(available_utxos.len());
     let mut result = Vec::with_capacity(available_utxos.len());
     for (outpoint, o) in available_utxos {
@@ -54,7 +56,7 @@ pub fn propose_coin_selections(
     recipients: &[Recipient],
     fee_rate: FeeRate,
 ) -> Result<Vec<InputSelection>> {
-    let utxos = prevouts(available_utxos)?;
+    let utxos = validate_and_convert_to_txout(available_utxos)?;
     pick_utxos_for_fee_rate(&utxos, recipients, fee_rate)
 }
 
@@ -76,7 +78,7 @@ pub fn propose_drain_selection(
         return Err(Error::msg("Draining to OP_RETURN not allowed"));
     }
 
-    let utxos = prevouts(available_utxos)?;
+    let utxos = validate_and_convert_to_txout(available_utxos)?;
 
     // Amount::ZERO is a placeholder — only the output weight matters for fee
     // estimation here; the real amount is filled in by the caller.
@@ -88,7 +90,7 @@ pub fn propose_drain_selection(
 }
 
 impl SpClient {
-    fn check_recipient_networks(recipients: &[Recipient], network: Network) -> Result<()> {
+    fn validate_recipient_networks(recipients: &[Recipient], network: Network) -> Result<()> {
         let sp_network = sp_network_from_network(network);
         for r in recipients {
             if let RecipientAddress::SpCode(sp_address) = &r.address
@@ -136,7 +138,7 @@ impl SpClient {
         actual_fee_rate: FeeRate,
         strategy: Option<Strategy>,
     ) -> Result<SilentPaymentUnsignedTransaction> {
-        Self::check_recipient_networks(&recipients, network)?;
+        Self::validate_recipient_networks(&recipients, network)?;
         let selected_utxos = Self::resolve_selected_utxos(available_utxos, selected_outpoints)?;
         let partial_secret = self.partial_secret_for_selected_utxos(&selected_utxos)?;
         Ok(SilentPaymentUnsignedTransaction {
