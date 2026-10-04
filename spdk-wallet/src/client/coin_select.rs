@@ -23,23 +23,17 @@ pub enum Strategy {
     Greedy, // Fallback
 }
 
-fn validate_and_convert_to_candidate(txout: &TxOut) -> Result<Candidate> {
-    if !txout.script_pubkey.is_p2tr() {
-        return Err(anyhow::Error::msg(
-            "unsupported input script for coin selection",
-        ));
-    }
-    // Keyspend only. Script-path satisfaction is not visible on the TxOut.
-    Ok(Candidate::new_tr_keyspend(txout.value.to_sat()))
-}
-
 fn pool_from_utxos(utxos: &HashMap<OutPoint, TxOut>) -> Result<(Vec<OutPoint>, Vec<Candidate>)> {
     let res: Result<Vec<_>> = utxos
         .iter()
         .map(|(outpoint, txout)| {
-            let candidate = validate_and_convert_to_candidate(txout)?;
+            if txout.script_pubkey.is_p2tr() {
+                let candidate = Candidate::new_tr_keyspend(txout.value.to_sat());
 
-            Ok((*outpoint, candidate))
+                Ok((*outpoint, candidate))
+            } else {
+                Err(Error::msg("Unsupported input script for coin selection"))
+            }
         })
         .collect();
 
