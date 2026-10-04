@@ -180,7 +180,7 @@ mod tests {
                 .collect();
 
             let res = verify_and_calculate_signatures(key_tweaks, b_spend).unwrap();
-            assert!(expected.outputs.len() == res.len());
+            assert_eq!(expected.outputs.len(), res.len());
             assert!(res.iter().all(|output| expected.outputs.contains(output)));
         }
     }
