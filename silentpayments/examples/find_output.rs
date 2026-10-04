@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Assert that the number of inputs in the transaction matches the number of scriptpubkeys
     // provided
-    assert!(tx.input.len() == spks.len());
+    assert_eq!(tx.input.len(), spks.len());
 
     let master_key = Xpriv::new_master(bitcoin::Network::Signet, &m.to_seed(""))?;
 

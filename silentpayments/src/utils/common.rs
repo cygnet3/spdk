@@ -370,8 +370,7 @@ impl FromStr for SilentPaymentCode {
             "sprt" => Network::Regtest,
             _ => {
                 return Err(Error::InvalidCode(format!(
-                    "Wrong prefix, expected \"sp\", \"tsp\", or \"sprt\", got \"{}\"",
-                    &hrp
+                    "Wrong prefix, expected \"sp\", \"tsp\", or \"sprt\", got \"{hrp}\""
                 )));
             }
         };
