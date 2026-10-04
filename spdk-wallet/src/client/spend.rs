@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use anyhow::{Error, Result};
 use bitcoin::absolute::LockTime;
@@ -29,20 +29,6 @@ const fn sp_network_from_network(network: Network) -> SpNetwork {
     }
 }
 
-fn validate_and_convert_to_txout(
-    available_utxos: &[(OutPoint, DiscoveredOutput)],
-) -> Result<Vec<(OutPoint, TxOut)>> {
-    let mut seen = HashSet::with_capacity(available_utxos.len());
-    let mut result = Vec::with_capacity(available_utxos.len());
-    for (outpoint, o) in available_utxos {
-        if !seen.insert(*outpoint) {
-            return Err(Error::msg(format!("duplicate outpoint: {outpoint}")));
-        }
-        result.push((*outpoint, o.txout.clone()));
-    }
-    Ok(result)
-}
-
 /// Proposes coin selections for a normal (non-drain) transaction.
 ///
 /// Runs the `Changeless`, `LowestFee`, and `FeeRateCap` strategies independently
@@ -52,11 +38,14 @@ fn validate_and_convert_to_txout(
 /// The caller picks the preferred selection and hands it to
 /// [`SpClient::create_transaction_from_selection`].
 pub fn propose_coin_selections(
-    available_utxos: &[(OutPoint, DiscoveredOutput)],
+    available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
 ) -> Result<Vec<InputSelection>> {
-    let utxos = validate_and_convert_to_txout(available_utxos)?;
+    let utxos = available_utxos
+        .iter()
+        .map(|(outpoint, output)| (*outpoint, output.txout.clone()))
+        .collect();
     pick_utxos_for_fee_rate(&utxos, recipients, fee_rate)
 }
 
@@ -70,7 +59,7 @@ pub fn propose_coin_selections(
 /// let unsigned = client.create_drain_transaction_from_selection(&utxos, recipients, &sel, network)?;
 /// ```
 pub fn propose_drain_selection(
-    available_utxos: &[(OutPoint, DiscoveredOutput)],
+    available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
     recipient: &RecipientAddress,
     fee_rate: FeeRate,
 ) -> Result<DrainSelection> {
@@ -78,7 +67,10 @@ pub fn propose_drain_selection(
         return Err(Error::msg("Draining to OP_RETURN not allowed"));
     }
 
-    let utxos = validate_and_convert_to_txout(available_utxos)?;
+    let utxos = available_utxos
+        .iter()
+        .map(|(outpoint, output)| (*outpoint, output.txout.clone()))
+        .collect();
 
     // Amount::ZERO is a placeholder — only the output weight matters for fee
     // estimation here; the real amount is filled in by the caller.
@@ -105,19 +97,19 @@ impl SpClient {
     }
 
     fn resolve_selected_utxos(
-        available_utxos: &[(OutPoint, DiscoveredOutput)],
+        available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
         selected: &[OutPoint],
     ) -> Result<Vec<(OutPoint, DiscoveredOutput)>> {
         selected
             .iter()
-            .map(|sel| {
-                available_utxos
-                    .iter()
-                    .find(|(avail, _)| avail == sel)
-                    .map(|(outpoint, output)| (*outpoint, output.clone()))
-                    .ok_or_else(|| {
-                        Error::msg(format!("outpoint {sel} not found in available_utxos"))
-                    })
+            .map(|outpoint| {
+                if let Some(output) = available_utxos.get(outpoint) {
+                    Ok((*outpoint, output.clone()))
+                } else {
+                    Err(Error::msg(format!(
+                        "outpoint {outpoint} not found in available_utxos"
+                    )))
+                }
             })
             .collect()
     }
@@ -128,7 +120,7 @@ impl SpClient {
     )]
     fn assemble_unsigned(
         &self,
-        available_utxos: &[(OutPoint, DiscoveredOutput)],
+        available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
         selected_outpoints: &[OutPoint],
         recipients: Vec<Recipient>,
         network: Network,
@@ -166,7 +158,7 @@ impl SpClient {
     /// `selection.n_sent_outputs()`.
     pub fn create_transaction_from_selection(
         &self,
-        available_utxos: &[(OutPoint, DiscoveredOutput)],
+        available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
         mut recipients: Vec<Recipient>,
         selection: &InputSelection,
         network: Network,
@@ -220,7 +212,7 @@ impl SpClient {
     /// `selection.sent()`. No change output is appended.
     pub fn create_drain_transaction_from_selection(
         &self,
-        available_utxos: &[(OutPoint, DiscoveredOutput)],
+        available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
         recipients: Vec<Recipient>,
         selection: &DrainSelection,
         network: Network,
@@ -484,7 +476,7 @@ mod tests {
         }
     }
 
-    fn wallet_utxos(values: &[u64]) -> Vec<(OutPoint, DiscoveredOutput)> {
+    fn wallet_utxos(values: &[u64]) -> HashMap<OutPoint, DiscoveredOutput> {
         values
             .iter()
             .enumerate()

@@ -1,6 +1,6 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use bdk_coin_select::float::Ordf32;
 use bdk_coin_select::metrics::{Changeless, LowestFee};
 use bdk_coin_select::{
@@ -33,21 +33,17 @@ fn validate_and_convert_to_candidate(txout: &TxOut) -> Result<Candidate> {
     Ok(Candidate::new_tr_keyspend(txout.value.to_sat()))
 }
 
-fn pool_from_utxos(utxos: &[(OutPoint, TxOut)]) -> Result<(Vec<OutPoint>, Vec<Candidate>)> {
-    let mut seen: HashSet<OutPoint> = HashSet::with_capacity(utxos.len());
-    let mut outpoints = Vec::with_capacity(utxos.len());
-    let mut candidates = Vec::with_capacity(utxos.len());
-    for (outpoint, txout) in utxos {
-        if !seen.insert(*outpoint) {
-            return Err(Error::msg(format!("duplicate outpoint: {outpoint}")));
-        }
-        outpoints.push(*outpoint);
-        candidates.push(
-            validate_and_convert_to_candidate(txout)
-                .map_err(|e| Error::msg(format!("{e}: {outpoint}")))?,
-        );
-    }
-    Ok((outpoints, candidates))
+fn pool_from_utxos(utxos: &HashMap<OutPoint, TxOut>) -> Result<(Vec<OutPoint>, Vec<Candidate>)> {
+    let res: Result<Vec<_>> = utxos
+        .iter()
+        .map(|(outpoint, txout)| {
+            let candidate = validate_and_convert_to_candidate(txout)?;
+
+            Ok((*outpoint, candidate))
+        })
+        .collect();
+
+    Ok(res?.into_iter().unzip())
 }
 
 impl Recipient {
@@ -168,7 +164,7 @@ impl DrainSelection {
 }
 
 pub fn select_all_utxos_for_fee_rate(
-    available_utxos: &[(OutPoint, TxOut)],
+    available_utxos: &HashMap<OutPoint, TxOut>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
 ) -> Result<DrainSelection> {
@@ -434,7 +430,7 @@ fn run_all_strategies(ctx: &SelectionContext<'_>) -> Vec<InputSelection> {
 /// Returns every `BnB` strategy that found a valid selection. If none of them succeed,
 /// falls back to `Greedy`. Errors only when that fallback also fails.
 pub fn pick_utxos_for_fee_rate(
-    available_utxos: &[(OutPoint, TxOut)],
+    available_utxos: &HashMap<OutPoint, TxOut>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
 ) -> Result<Vec<InputSelection>> {
@@ -442,7 +438,7 @@ pub fn pick_utxos_for_fee_rate(
 }
 
 fn pick_utxos(
-    available_utxos: &[(OutPoint, TxOut)],
+    available_utxos: &HashMap<OutPoint, TxOut>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
     bnb_max_rounds: usize,
@@ -529,28 +525,27 @@ mod tests {
         }
     }
 
-    fn many_utxos(count: usize, value_sat: u64) -> Vec<(OutPoint, TxOut)> {
+    fn many_utxos(count: usize, value_sat: u64) -> HashMap<OutPoint, TxOut> {
         (0..u32::try_from(count).expect("count fits in u32"))
             .map(|vout| utxo(value_sat, vout))
             .collect()
     }
 
-    fn selected_input_sum(utxos: &[(OutPoint, TxOut)], selection: &InputSelection) -> u64 {
+    fn selected_input_sum(utxos: &HashMap<OutPoint, TxOut>, selection: &InputSelection) -> u64 {
         selection
             .selected_utxos()
             .iter()
             .map(|op| {
                 utxos
-                    .iter()
-                    .find(|(outpoint, _)| outpoint == op)
-                    .map(|(_, txout)| txout.value.to_sat())
+                    .get(op)
+                    .map(|txout| txout.value.to_sat())
                     .expect("selected outpoint must exist in pool")
             })
             .sum()
     }
 
     fn assert_selection_balances(
-        utxos: &[(OutPoint, TxOut)],
+        utxos: &HashMap<OutPoint, TxOut>,
         selection: &InputSelection,
         payment_sat: u64,
     ) {
@@ -575,7 +570,7 @@ mod tests {
 
     #[test]
     fn select_all_utxos_uses_every_input() {
-        let utxos = vec![utxo(100_000, 0), utxo(200_000, 1)];
+        let utxos = HashMap::from([utxo(100_000, 0), utxo(200_000, 1)]);
         let outpoints: Vec<_> = utxos.iter().map(|output| output.0).collect();
 
         let selection =
@@ -583,7 +578,7 @@ mod tests {
 
         assert_eq!(selection.selected_utxos().len(), 2);
         for op in outpoints {
-            assert!(selection.selected_utxos().contains(&op));
+            assert!(selection.selected_utxos().contains(op));
         }
         assert!(selection.fee() > Amount::ZERO);
         // Drain: everything left after fees is sendable, there is no change.
@@ -597,7 +592,7 @@ mod tests {
 
     #[test]
     fn select_all_utxos_accounts_for_output_weight() {
-        let utxos = vec![utxo(500_000, 0)];
+        let utxos = HashMap::from([utxo(500_000, 0)]);
         let recipient = payment_recipient(0);
 
         let without_outputs =
@@ -617,20 +612,19 @@ mod tests {
 
     #[test]
     fn select_all_utxos_empty_inputs_fails() {
-        let err =
-            select_all_utxos_for_fee_rate(&[], &[], test_fee_rate()).expect_err("expected error");
+        let err = select_all_utxos_for_fee_rate(&HashMap::new(), &[], test_fee_rate())
+            .expect_err("expected error");
         assert_eq!(err.to_string(), "No funds available");
     }
 
     #[test]
     fn pick_utxos_prefers_single_input_when_sufficient() {
         let large = utxo(500_000, 0);
-        let small = utxo(100_000, 1);
+        let utxos = HashMap::from([large.clone(), utxo(100_000, 1)]);
         let payment = payment_recipient(50_000);
 
         let selections =
-            pick_utxos_for_fee_rate(&[large.clone(), small], &[payment], test_fee_rate())
-                .expect("selection");
+            pick_utxos_for_fee_rate(&utxos, &[payment], test_fee_rate()).expect("selection");
         let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert_eq!(selection.selected_utxos(), &[large.0]);
@@ -641,11 +635,11 @@ mod tests {
     fn pick_utxos_combines_inputs_when_one_is_not_enough() {
         let a = utxo(30_000, 0);
         let b = utxo(30_000, 1);
+        let utxos = HashMap::from([a.clone(), b.clone()]);
         let payment = payment_recipient(50_000);
 
         let selections =
-            pick_utxos_for_fee_rate(&[a.clone(), b.clone()], &[payment], test_fee_rate())
-                .expect("selection");
+            pick_utxos_for_fee_rate(&utxos, &[payment], test_fee_rate()).expect("selection");
         let selection = selection_by_strategy(&selections, Strategy::LowestFee);
 
         assert_eq!(selection.selected_utxos().len(), 2);
@@ -659,7 +653,7 @@ mod tests {
 
     #[test]
     fn pick_utxos_emits_change_above_dust_threshold() {
-        let utxos = vec![utxo(500_000, 0)];
+        let utxos = HashMap::from([utxo(500_000, 0)]);
         let payment = payment_recipient(50_000);
 
         let selections =
@@ -695,7 +689,7 @@ mod tests {
         let second_sat = 2_500;
 
         let payment = payment_recipient(payment_sat);
-        let pool = vec![utxo(primary_sat, 0), utxo(second_sat, 1)];
+        let pool = HashMap::from([utxo(primary_sat, 0), utxo(second_sat, 1)]);
 
         let low_sels =
             pick_utxos_for_fee_rate(&pool, std::slice::from_ref(&payment), low).expect("low fee");
@@ -706,7 +700,7 @@ mod tests {
 
         assert!(
             pick_utxos_for_fee_rate(
-                &[utxo(primary_sat, 0)],
+                &[utxo(primary_sat, 0)].into(),
                 std::slice::from_ref(&payment),
                 high,
             )
@@ -730,7 +724,7 @@ mod tests {
         let exact_sat = (payment_sat..payment_sat + 5_000)
             .find(|&value_sat| {
                 pick_utxos_for_fee_rate(
-                    &[utxo(value_sat, 0), utxo(1_000_000, 1)],
+                    &[utxo(value_sat, 0), utxo(1_000_000, 1)].into(),
                     &[payment_recipient(payment_sat)],
                     fee_rate,
                 )
@@ -747,7 +741,7 @@ mod tests {
             .expect("a changeless single-input fixture must exist");
 
         let selections = pick_utxos_for_fee_rate(
-            &[utxo(exact_sat, 0), utxo(1_000_000, 1)],
+            &[utxo(exact_sat, 0), utxo(1_000_000, 1)].into(),
             &[payment_recipient(payment_sat)],
             fee_rate,
         )
@@ -765,7 +759,7 @@ mod tests {
 
     #[test]
     fn pick_utxos_insufficient_funds() {
-        let utxos = vec![utxo(1_000, 0)];
+        let utxos = HashMap::from([utxo(1_000, 0)]);
         let payment = payment_recipient(1_000_000);
 
         assert!(pick_utxos_for_fee_rate(&utxos, &[payment], test_fee_rate(),).is_err());
@@ -775,7 +769,7 @@ mod tests {
     fn pick_utxos_many_utxos_one_large_covers_payment() {
         let mut utxos = many_utxos(250, 10_000);
         let whale = utxo(10_000_000, 250);
-        utxos.push(whale.clone());
+        utxos.insert(whale.0, whale.1);
         let payment = payment_recipient(100_000);
 
         let selections =
@@ -829,7 +823,7 @@ mod tests {
 
     #[test]
     fn pick_utxos_returns_one_selection_per_successful_strategy() {
-        let utxos = vec![utxo(500_000, 0), utxo(100_000, 1)];
+        let utxos = HashMap::from([utxo(500_000, 0), utxo(100_000, 1)]);
         let payment = payment_recipient(50_000);
 
         let selections =
@@ -859,7 +853,7 @@ mod tests {
 
     #[test]
     fn greedy_fallback_when_bnb_is_not_allowed_any_rounds() {
-        let utxos = vec![utxo(500_000, 0), utxo(100_000, 1)];
+        let utxos = HashMap::from([utxo(500_000, 0), utxo(100_000, 1)]);
         let payment = payment_recipient(50_000);
 
         let with_bnb = pick_utxos(
@@ -887,7 +881,7 @@ mod tests {
         (payment_sat..payment_sat + 5_000)
             .find(|&value_sat| {
                 pick_utxos_for_fee_rate(
-                    &[utxo(value_sat, 0)],
+                    &[utxo(value_sat, 0)].into(),
                     std::slice::from_ref(payment),
                     fee_rate,
                 )
@@ -914,7 +908,7 @@ mod tests {
         let overpay_sat = single_input_overpay_sat(&payment, fee_rate);
 
         let extra = utxo(10_000, 1);
-        let pool = vec![utxo(overpay_sat, 0), extra.clone()];
+        let pool = HashMap::from([utxo(overpay_sat, 0), extra.clone()]);
         let selections = pick_utxos_for_fee_rate(&pool, &[payment], fee_rate).expect("selection");
         let cap = selection_by_strategy(&selections, Strategy::FeeRateCap);
 
@@ -956,7 +950,7 @@ mod tests {
         let payment = payment_recipient(50_000);
         let overpay_sat = single_input_overpay_sat(&payment, fee_rate);
 
-        let pool = vec![utxo(overpay_sat, 0)];
+        let pool = HashMap::from([utxo(overpay_sat, 0)]);
         let selections = pick_utxos_for_fee_rate(&pool, &[payment], fee_rate).expect("selection");
 
         assert!(
@@ -969,7 +963,7 @@ mod tests {
 
     #[test]
     fn select_all_utxos_many_inputs() {
-        let utxos: Vec<_> = (0..400).map(|vout| utxo(25_000, vout)).collect();
+        let utxos: HashMap<_, _> = (0..400).map(|vout| utxo(25_000, vout)).collect();
         let outpoints: Vec<_> = utxos.iter().map(|output| output.0).collect();
 
         let selection =
@@ -977,7 +971,7 @@ mod tests {
 
         assert_eq!(selection.selected_utxos().len(), 400);
         for op in outpoints {
-            assert!(selection.selected_utxos().contains(&op));
+            assert!(selection.selected_utxos().contains(op));
         }
         assert_eq!(
             selection.sent() + selection.fee(),
