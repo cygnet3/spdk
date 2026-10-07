@@ -13,10 +13,14 @@ silentpayments.workspace = true
 
 bitcoin.workspace = true
 futures.workspace = true
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
 log.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+spdk-wallet.workspace = true
+env_logger = "0.11"
 
 [lints]
 workspace = true
