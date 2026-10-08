@@ -24,6 +24,18 @@ impl PartialSecret {
     }
 }
 
+impl From<SecretKey> for PartialSecret {
+    fn from(value: SecretKey) -> Self {
+        Self(value)
+    }
+}
+
+impl From<PartialSecret> for SecretKey {
+    fn from(value: PartialSecret) -> Self {
+        value.0
+    }
+}
+
 /// Calculate the partial secret that is needed for generating the recipient pubkeys.
 ///
 /// # Arguments
