@@ -2,6 +2,9 @@
 #![allow(dead_code, non_snake_case)]
 mod error;
 
+#[cfg(doc)]
+use std::str::FromStr;
+
 #[cfg(feature = "receiving")]
 pub mod receiving;
 #[cfg(feature = "sending")]
