@@ -1,6 +1,6 @@
 [package]
 name = "silentpayments"
-version = "0.8.0"
+version = "0.8.1"
 authors.workspace = true
 license.workspace = true
 repository = "https://github.com/cygnet3/spdk/tree/master/silentpayments"
