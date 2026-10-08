@@ -69,6 +69,7 @@ You can test the code using the test vectors by running `cargo test`.
 
 ### v0.8.1
 
+- Bug fix: enforce bech32m-encoding on [`SilentPaymentCode::from_str`] (fail if using regular bech32-encoding).
 - Add conversion to/from inner key material for [`SharedSecret`] and [`PartialSecret`](utils::sending::PartialSecret).
 
 ### v0.8.0
