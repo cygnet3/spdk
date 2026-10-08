@@ -24,7 +24,7 @@ If you only need the type definitions ([`Network`] and [`SilentPaymentKeyMateria
 
 ```toml
 [dependencies]
-silentpayments = { version = "0.7", default-features = false }
+silentpayments = { version = "0.8", default-features = false }
 ```
 
 This will only pull `secp256k1` as a dependency, giving you access to the core types without any encoding or protocol functionality.
