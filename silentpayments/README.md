@@ -67,6 +67,10 @@ You can test the code using the test vectors by running `cargo test`.
 
 <summary>Expand</summary>
 
+### v0.8.1
+
+- Add conversion to/from inner key material for [`SharedSecret`] and [`PartialSecret`](utils::sending::PartialSecret).
+
 ### v0.8.0
 
 - Change `script_pubkeys_from_shared_secret` to return an output key instead, and rename to [`generate_output_keys_from_shared_secret`](crate::receiving::Receiver::generate_output_keys_from_shared_secret)
