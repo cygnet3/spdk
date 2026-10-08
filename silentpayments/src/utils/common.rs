@@ -91,6 +91,18 @@ impl OutPoint {
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SharedSecret(pub(crate) PublicKey);
 
+impl From<PublicKey> for SharedSecret {
+    fn from(value: PublicKey) -> Self {
+        Self(value)
+    }
+}
+
+impl From<SharedSecret> for PublicKey {
+    fn from(value: SharedSecret) -> Self {
+        value.0
+    }
+}
+
 #[cfg(any(feature = "sending", feature = "receiving"))]
 pub(crate) fn calculate_t_n(ecdh_shared_secret: &SharedSecret, k: u32) -> Result<SecretKey> {
     let hash = SharedSecretHash::from_ecdh_and_k(ecdh_shared_secret, k).to_byte_array();
