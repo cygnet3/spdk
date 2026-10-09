@@ -1,9 +1,7 @@
-use anyhow::Error;
-use bitcoin::key::Secp256k1;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
-use serde::{Deserialize, Serialize};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+/// A spend key that can be either a secret key (full wallet) or a public key (watch-only).
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SpendKey {
     Secret(SecretKey),
     Public(PublicKey),
@@ -17,16 +15,6 @@ impl Drop for SpendKey {
             // array is private); non_secure_erase() is the zeroize-documented
             // erase path (volatile C-level memset, cannot be optimized away).
             sk.non_secure_erase();
-        }
-    }
-}
-
-impl TryInto<SecretKey> for SpendKey {
-    type Error = anyhow::Error;
-    fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
-        match self {
-            Self::Secret(k) => Ok(k),
-            Self::Public(_) => Err(Error::msg("Can't take SecretKey from Public")),
         }
     }
 }
