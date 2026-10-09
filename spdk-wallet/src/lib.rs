@@ -8,6 +8,8 @@ pub use backend_blindbit_v1;
 pub use bip321;
 pub use bitcoin;
 // re-export local scanner if enabled
+#[cfg(feature = "bip392")]
+pub use bip392;
 #[cfg(feature = "local-scanner")]
 pub use local_scanner::SpScanner;
 pub use silentpayments;

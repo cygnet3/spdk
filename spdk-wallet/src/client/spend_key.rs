@@ -36,3 +36,13 @@ impl From<SpendKey> for PublicKey {
         (&value).into()
     }
 }
+
+#[cfg(feature = "bip392")]
+impl From<&bip392::Sp> for SpendKey {
+    fn from(descriptor: &bip392::Sp) -> Self {
+        match descriptor.spend_secret() {
+            Some(secret) => Self::Secret(secret),
+            None => Self::Public(descriptor.spend_pubkey()),
+        }
+    }
+}
