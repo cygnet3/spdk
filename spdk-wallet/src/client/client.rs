@@ -45,6 +45,20 @@ impl SpClient {
         })
     }
 
+    /// Builds a client from an `sp()` descriptor.
+    ///
+    /// `network` must be mainnet when the descriptor is mainnet, and a non-mainnet
+    /// network otherwise. The descriptor cannot tell regtest, signet, and testnet apart.
+    #[cfg(feature = "bip392")]
+    pub fn from_descriptor(descriptor: &bip392::Sp, network: Network) -> Result<Self> {
+        if descriptor.is_mainnet() != matches!(network, Network::Bitcoin) {
+            return Err(Error::msg(
+                "descriptor network does not match the wallet network",
+            ));
+        }
+        Self::new(descriptor.scan_key(), SpendKey::from(descriptor), network)
+    }
+
     pub fn receiver(&self) -> Receiver {
         self.sp_receiver.clone()
     }
@@ -100,5 +114,43 @@ impl Drop for SpClient {
         // Erase the scan key before dropping; the spend key is erased
         // by SpendKey's own Drop impl.
         self.scan_sk.non_secure_erase();
+    }
+}
+
+#[cfg(all(test, feature = "bip392"))]
+mod tests {
+    use std::str::FromStr as _;
+
+    use bip392::Sp;
+
+    use super::{Network, SpClient, SpendKey};
+
+    const WIF: &str = "L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1";
+    const SPEND_PUB: &str = "0260b2003c386519fc9eadf2b5cf124dd8eea4c4e68d5e154050a9346ea98ce600";
+
+    #[test]
+    fn descriptor_spend_pubkey_wraps_into_client() {
+        let descriptor = Sp::from_str(&format!("sp({WIF},{SPEND_PUB})")).unwrap();
+        let SpendKey::Public(pk) = SpendKey::from(&descriptor) else {
+            panic!("watch-only descriptor");
+        };
+        assert_eq!(pk, descriptor.spend_pubkey());
+        assert!(descriptor.spend_secret().is_none());
+
+        let client = SpClient::from_descriptor(&descriptor, Network::Bitcoin).unwrap();
+        assert!(client.try_secret_spend_key().is_err());
+        assert!(SpClient::from_descriptor(&descriptor, Network::Signet).is_err());
+    }
+
+    #[test]
+    fn descriptor_spend_secret_wraps_into_client() {
+        let descriptor = Sp::from_str(&format!("sp({WIF},{WIF})")).unwrap();
+        let SpendKey::Secret(sk) = SpendKey::from(&descriptor) else {
+            panic!("descriptor with spend secret");
+        };
+        assert_eq!(Some(sk), descriptor.spend_secret());
+
+        let client = SpClient::from_descriptor(&descriptor, Network::Bitcoin).unwrap();
+        assert_eq!(client.try_secret_spend_key().unwrap(), sk);
     }
 }
