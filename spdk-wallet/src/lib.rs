@@ -8,8 +8,10 @@ pub use backend_blindbit_v1;
 // re-export libraries for consumers
 pub use bip321;
 pub use bip321_parsing::{SpUriExtension, SpUriParseError, parse_sp, parse_tsp};
-pub use bitcoin;
 // re-export local scanner if enabled
+#[cfg(feature = "bip392")]
+pub use bip392;
+pub use bitcoin;
 #[cfg(feature = "local-scanner")]
 pub use local_scanner::SpScanner;
 pub use silentpayments;
