@@ -289,7 +289,8 @@ impl SpClient {
                         .ok_or(Error::msg("Unknown silent payment key material"))?;
 
                     // we currently only allow having 1 output per silent payment address
-                    // note: when changing this, it should also be accounted for in 'create_transaction_from_selection'
+                    // note: when changing this, it should also be accounted for in
+                    // 'create_transaction_from_selection'
                     if pubkeys.len() == 1 {
                         let pubkey = pubkeys[0];
                         let script = ScriptBuf::new_p2tr_tweaked(pubkey.dangerous_assume_tweaked());
@@ -448,10 +449,10 @@ impl SpClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bitcoin::secp256k1::{Scalar, SecretKey};
     use bitcoin::{Address, Txid};
 
+    use super::*;
     use crate::client::SpendKey;
 
     fn test_client() -> SpClient {
