@@ -71,7 +71,7 @@ impl Recipient {
 }
 
 #[derive(Debug)]
-pub struct InputSelection {
+pub struct CoinSelectProposal {
     selected_utxos: Vec<OutPoint>,
     sent: Amount,
     n_sent_outputs: usize,
@@ -83,7 +83,7 @@ pub struct InputSelection {
 }
 
 #[expect(clippy::missing_const_for_fn)]
-impl InputSelection {
+impl CoinSelectProposal {
     pub fn selected_utxos(&self) -> &[OutPoint] {
         &self.selected_utxos
     }
@@ -226,7 +226,7 @@ fn finalize_selection(
     ctx: &SelectionContext<'_>,
     coin_selector: &CoinSelector<'_>,
     strategy: Strategy,
-) -> Result<InputSelection> {
+) -> Result<CoinSelectProposal> {
     let selected_utxos = coin_selector
         .selected_indices()
         .iter()
@@ -247,7 +247,7 @@ fn finalize_selection(
         .implied_feerate(ctx.target.outputs, change)
         .ok_or_else(|| anyhow::Error::msg("cannot compute effective feerate for selection"))?;
 
-    Ok(InputSelection {
+    Ok(CoinSelectProposal {
         selected_utxos,
         sent: Amount::from_sat(outputs_value),
         n_sent_outputs: ctx.target.outputs.n_outputs,
@@ -262,7 +262,7 @@ fn finalize_selection(
 fn try_changeless_selection(
     ctx: &SelectionContext<'_>,
     mut coin_selector: CoinSelector<'_>,
-) -> Result<InputSelection> {
+) -> Result<CoinSelectProposal> {
     coin_selector.run_bnb(
         Changeless {
             target: ctx.target,
@@ -276,7 +276,7 @@ fn try_changeless_selection(
 fn try_lowest_fee_selection(
     ctx: &SelectionContext<'_>,
     mut coin_selector: CoinSelector<'_>,
-) -> Result<InputSelection> {
+) -> Result<CoinSelectProposal> {
     coin_selector.run_bnb(
         LowestFee {
             target: ctx.target,
@@ -369,7 +369,7 @@ impl BnbMetric for FeeRateCapMetric {
 fn try_fee_rate_cap_selection(
     ctx: &SelectionContext<'_>,
     mut coin_selector: CoinSelector<'_>,
-) -> Result<InputSelection> {
+) -> Result<CoinSelectProposal> {
     for (index, candidate) in ctx.candidates.iter().enumerate() {
         if candidate.effective_value(ctx.fee_rate) <= 0.0 {
             coin_selector.ban(index);
@@ -389,14 +389,14 @@ fn try_fee_rate_cap_selection(
 fn try_greedy_selection(
     ctx: &SelectionContext<'_>,
     mut coin_selector: CoinSelector<'_>,
-) -> Result<InputSelection> {
+) -> Result<CoinSelectProposal> {
     coin_selector
         .select_until_target_met(ctx.target)
         .map_err(|e| anyhow::Error::msg(e.to_string()))?;
     finalize_selection(ctx, &coin_selector, Strategy::Greedy)
 }
 
-fn run_all_strategies(ctx: &SelectionContext<'_>) -> Vec<InputSelection> {
+fn run_all_strategies(ctx: &SelectionContext<'_>) -> Vec<CoinSelectProposal> {
     let base_selector = CoinSelector::new(ctx.candidates);
 
     let mut selections = Vec::new();
@@ -427,7 +427,7 @@ pub fn pick_utxos_for_fee_rate(
     available_utxos: &HashMap<OutPoint, TxOut>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
-) -> Result<Vec<InputSelection>> {
+) -> Result<Vec<CoinSelectProposal>> {
     pick_utxos(available_utxos, recipients, fee_rate, BNB_MAX_ROUNDS)
 }
 
@@ -436,7 +436,7 @@ fn pick_utxos(
     recipients: &[Recipient],
     fee_rate: FeeRate,
     bnb_max_rounds: usize,
-) -> Result<Vec<InputSelection>> {
+) -> Result<Vec<CoinSelectProposal>> {
     let (outpoints, candidates) = pool_from_utxos(available_utxos)?;
 
     let change_policy =
@@ -525,7 +525,7 @@ mod tests {
             .collect()
     }
 
-    fn selected_input_sum(utxos: &HashMap<OutPoint, TxOut>, selection: &InputSelection) -> u64 {
+    fn selected_input_sum(utxos: &HashMap<OutPoint, TxOut>, selection: &CoinSelectProposal) -> u64 {
         selection
             .selected_utxos()
             .iter()
@@ -540,7 +540,7 @@ mod tests {
 
     fn assert_selection_balances(
         utxos: &HashMap<OutPoint, TxOut>,
-        selection: &InputSelection,
+        selection: &CoinSelectProposal,
         payment_sat: u64,
     ) {
         let input_sum = selected_input_sum(utxos, selection);
@@ -551,14 +551,17 @@ mod tests {
         );
     }
 
-    fn selection_by_strategy(selections: &[InputSelection], strategy: Strategy) -> &InputSelection {
+    fn selection_by_strategy(
+        selections: &[CoinSelectProposal],
+        strategy: Strategy,
+    ) -> &CoinSelectProposal {
         selections
             .iter()
             .find(|selection| selection.strategy() == strategy)
             .unwrap_or_else(|| panic!("missing {strategy:?} selection"))
     }
 
-    fn dumps_leftover_to_fee(selection: &InputSelection, requested: FeeRate) -> bool {
+    fn dumps_leftover_to_fee(selection: &CoinSelectProposal, requested: FeeRate) -> bool {
         selection.change() == Amount::ZERO && selection.actual_fee_rate() > requested
     }
 

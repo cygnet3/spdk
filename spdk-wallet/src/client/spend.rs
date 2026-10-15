@@ -17,7 +17,7 @@ use spdk_core::scanner::DiscoveredOutput;
 
 use super::coin_select::{pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate};
 use super::{
-    DrainSelection, FeeRate, InputSelection, Recipient, RecipientAddress,
+    CoinSelectProposal, DrainSelection, FeeRate, Recipient, RecipientAddress,
     SilentPaymentUnsignedTransaction, SpClient, Strategy,
 };
 
@@ -41,7 +41,7 @@ pub fn propose_coin_selections(
     available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
     recipients: &[Recipient],
     fee_rate: FeeRate,
-) -> Result<Vec<InputSelection>> {
+) -> Result<Vec<CoinSelectProposal>> {
     let utxos = available_utxos
         .iter()
         .map(|(outpoint, output)| (*outpoint, output.txout.clone()))
@@ -156,11 +156,11 @@ impl SpClient {
     /// The passed `recipients` must be the ones the selection was computed for:
     /// their total amount must equal `selection.sent()` and their count
     /// `selection.n_sent_outputs()`.
-    pub fn create_transaction_from_selection(
+    pub fn create_transaction_from_proposal(
         &self,
         available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
         mut recipients: Vec<Recipient>,
-        selection: &InputSelection,
+        selection: &CoinSelectProposal,
         network: Network,
     ) -> Result<SilentPaymentUnsignedTransaction> {
         let total_outputs_amt: Amount = recipients.iter().map(|r| r.amount).sum();
@@ -527,7 +527,7 @@ mod tests {
             .expect("a selection with change");
 
         let unsigned = client
-            .create_transaction_from_selection(
+            .create_transaction_from_proposal(
                 &utxos,
                 recipients.clone(),
                 &selection,
@@ -549,7 +549,7 @@ mod tests {
             propose_coin_selections(&utxos, &recipients, test_fee_rate()).expect("selection");
 
         let err = client
-            .create_transaction_from_selection(
+            .create_transaction_from_proposal(
                 &utxos,
                 vec![payment_recipient(49_999)],
                 &selections[0],
@@ -569,7 +569,7 @@ mod tests {
 
         // Same total amount as the selection, but split over two outputs.
         let err = client
-            .create_transaction_from_selection(
+            .create_transaction_from_proposal(
                 &utxos,
                 vec![payment_recipient(25_000), payment_recipient(25_000)],
                 &selections[0],
