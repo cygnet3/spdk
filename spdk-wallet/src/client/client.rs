@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::io::Write as _;
 
 use anyhow::{Error, Result};
-use bitcoin::Network;
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::{Network, XOnlyPublicKey};
 use silentpayments::bitcoin_hashes::{Hash as _, sha256};
 use silentpayments::receiving::{Label, Receiver};
-use silentpayments::{Network as SpNetwork, SilentPaymentCode, SpVersion};
+use silentpayments::utils::receiving::PublicTweakData;
+use silentpayments::{Network as SpNetwork, SilentPaymentCode, SpVersion, TransactionSharedSecret};
 
 use super::SpendKey;
 
@@ -74,6 +76,50 @@ impl SpClient {
             SpendKey::Public(_) => Err(Error::msg("Don't have secret key")),
             SpendKey::Secret(sk) => Ok(sk),
         }
+    }
+
+    pub fn output_key_to_secret_map(
+        &self,
+        tweak_data_vec: Vec<PublicKey>,
+    ) -> Result<HashMap<XOnlyPublicKey, TransactionSharedSecret>> {
+        // if using rayon feature, import the preludes
+        #[cfg(feature = "rayon")]
+        use rayon::prelude::*;
+
+        let b_scan = &self.scan_key();
+        let secp = Secp256k1::signing_only();
+
+        // parallel iterator using rayon
+        #[cfg(feature = "rayon")]
+        let tweak_data_iterator = tweak_data_vec.into_par_iter();
+
+        // regular iterator
+        #[cfg(not(feature = "rayon"))]
+        let tweak_data_iterator = tweak_data_vec.into_iter();
+
+        let items: Result<Vec<_>> = tweak_data_iterator
+            .map(|tweak| {
+                let public_tweak = PublicTweakData::new_unchecked(tweak);
+                let secret = TransactionSharedSecret::new_from_public_tweak_data(
+                    &secp,
+                    &public_tweak,
+                    b_scan,
+                )?;
+                let output_keys = self
+                    .sp_receiver
+                    .generate_output_keys_from_shared_secret(&secret)?;
+
+                Ok((secret, output_keys.into_values()))
+            })
+            .collect();
+
+        let mut res = HashMap::new();
+        for (secret, spks) in items? {
+            for spk in spks {
+                res.insert(spk, secret);
+            }
+        }
+        Ok(res)
     }
 
     pub fn client_fingerprint(&self) -> Result<[u8; 8]> {
