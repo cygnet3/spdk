@@ -12,6 +12,8 @@ crate-type = ["lib", "staticlib", "cdylib"]
 spdk-core.workspace = true
 backend-blindbit-v1 = { workspace = true, optional = true }
 local-scanner = { workspace = true, optional = true, features = ["rayon"] }
+psbt.workspace = true
+psbt-v2.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
@@ -21,6 +23,7 @@ silentpayments.workspace = true
 log.workspace = true
 bdk_coin_select.workspace = true
 bip321.workspace = true
+rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio.workspace = true
@@ -29,7 +32,7 @@ serde_json.workspace = true
 
 
 [features]
-default = ["backend-blindbit-v1", "local-scanner"]
+default = ["backend-blindbit-v1", "local-scanner", "rayon"]
 
 [lints]
 workspace = true
