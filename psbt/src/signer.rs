@@ -12,7 +12,9 @@
 //! Signing itself is *not* re-implemented here: open an upstream `Signer::session`,
 //! produce signatures with `SigningSession::get_input_sigs` (ECDSA and plain taproot
 //! key spends) or `SigningSession::get_silent_payment_sigs` (BIP-376 inputs), then
-//! write them with `Signer::apply`.
+//! write them with `Signer::apply`. Call [`SpSignerExt::verify_before_signing`] on the
+//! PSBT first: upstream signing does not check that the output scripts follow from the
+//! shares.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -21,7 +23,7 @@ use bitcoin::key::TweakedPublicKey;
 use bitcoin::{CompressedPublicKey, ScriptBuf, XOnlyPublicKey};
 use psbt_v2::{
     CommitSilentPaymentOutputsError, DetermineLockTimeError, FundingUtxoError, GetKey, Input,
-    KeyRequest, Psbt, Signer as UpstreamSigner, SpV0Info,
+    KeyRequest, Psbt, SilentPaymentVerifier, Signer as UpstreamSigner, SpV0Info,
 };
 use secp256k1::rand::{CryptoRng, RngCore};
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, Signing, Verification};
@@ -44,6 +46,14 @@ pub enum SpSignerError {
     /// will learn it from the finalized witness, so deriving without it would
     /// commit to the wrong input set.
     MissingInputPubkey { vin: usize },
+    /// A P2SH input has no `redeem_script`. Whether it is P2SH-P2WPKH, and so contributes to the
+    /// ECDH, is only knowable from the redeem script, which the receiver reads from the final
+    /// scriptSig.
+    MissingRedeemScript { vin: usize },
+    /// The declared `redeem_script` does not hash to the P2SH funding script. The receiver uses
+    /// the redeem script from the final scriptSig, so a declared script that does not match the
+    /// prevout cannot be used to decide whether the input contributes.
+    RedeemScriptMismatch { vin: usize },
     /// No ECDH share for this scan key on the given input.
     MissingShare {
         scan_key: CompressedPublicKey,
@@ -81,6 +91,12 @@ pub enum SpSignerError {
     DetermineLockTime(DetermineLockTimeError),
     /// Upstream `commit_silent_payment_outputs` rejected the derived scripts.
     CommitOutputs(CommitSilentPaymentOutputsError),
+    /// A silent payment output script is empty or differs from the one derived from the
+    /// verified ECDH shares.
+    OutputScriptMismatch { index: usize },
+    /// Another signer's funding output is only known from `witness_utxo`, and none of the inputs
+    /// being signed is P2TR, so no signature would commit to its script.
+    UnverifiedPrevout { vin: usize },
 }
 
 impl fmt::Display for SpSignerError {
@@ -91,6 +107,14 @@ impl fmt::Display for SpSignerError {
             E::MissingInputPubkey { vin } => write!(
                 f,
                 "input {vin}: BIP-352 eligible but its pubkey cannot be named from the PSBT"
+            ),
+            E::MissingRedeemScript { vin } => write!(
+                f,
+                "input {vin}: P2SH without a redeem script, cannot tell whether it is P2SH-P2WPKH"
+            ),
+            E::RedeemScriptMismatch { vin } => write!(
+                f,
+                "input {vin}: redeem script does not hash to the P2SH funding script"
             ),
             E::MissingShare { scan_key, vin } => {
                 write!(f, "no ECDH share for scan key {scan_key} on input {vin}")
@@ -126,6 +150,14 @@ impl fmt::Display for SpSignerError {
             E::Secp256k1(e) => write!(f, "secp256k1 error: {e}"),
             E::DetermineLockTime(e) => write!(f, "cannot determine lock time: {e}"),
             E::CommitOutputs(e) => write!(f, "failed to commit silent payment outputs: {e}"),
+            E::OutputScriptMismatch { index } => write!(
+                f,
+                "output {index}: silent payment script does not match the verified ECDH shares"
+            ),
+            E::UnverifiedPrevout { vin } => write!(
+                f,
+                "input {vin}: funding output unverified and not committed to by any signed input"
+            ),
         }
     }
 }
@@ -232,6 +264,35 @@ pub trait SpSignerExt {
     fn commit_sp_outputs<C>(&mut self, secp: &Secp256k1<C>) -> Result<(), SpSignerError>
     where
         C: Signing + Verification;
+
+    /// BIP-375 signer gate: checks that the silent payment output scripts can be signed.
+    ///
+    /// Must run on the exact PSBT passed to `Signer::new`. Upstream signing only checks that the
+    /// scripts are set, not that they follow from the shares.
+    ///
+    /// `signed_vins` are the inputs about to be signed. The other signers' funding outputs are
+    /// claims, and a legacy or SegWit v0 signature only commits to its own input's script. A
+    /// P2TR signature with `SIGHASH_DEFAULT` or `SIGHASH_ALL` (the only types BIP-375 allows)
+    /// commits to every prevout script, so an unverifiable funding output of another signer is
+    /// accepted only when one of `signed_vins` is P2TR.
+    ///
+    /// No-op when the PSBT has no SP outputs.
+    ///
+    /// # Errors
+    ///
+    /// - Any error of [`Self::derive_sp_output_scripts`], including a failed DLEQ proof.
+    /// - [`SpSignerError::OutputScriptMismatch`] if an SP output script is empty or differs from
+    ///   the derived one.
+    /// - [`SpSignerError::UnverifiedPrevout`] if an input outside `signed_vins` has no
+    ///   `non_witness_utxo` and none of `signed_vins` is P2TR.
+    /// - [`SpSignerError::MalformedInput`] if a signed index is out of range.
+    fn verify_before_signing<C>(
+        &self,
+        secp: &Secp256k1<C>,
+        signed_vins: &[usize],
+    ) -> Result<(), SpSignerError>
+    where
+        C: Signing + Verification;
 }
 
 impl SpSignerExt for Psbt {
@@ -278,7 +339,7 @@ impl SpSignerExt for Psbt {
                 let mut summed_keys: Vec<NormalizedSecretKey> =
                     Vec::with_capacity(self.inputs.len());
                 for (vin, input) in self.inputs.iter().enumerate() {
-                    if !is_ecdh_contributing(input)? {
+                    if !is_ecdh_contributing(input, vin)? {
                         continue;
                     }
                     let input_key = resolve_owned_eligible_key(secp, input, vin, keys)?
@@ -379,8 +440,8 @@ impl SpSignerExt for Psbt {
                 input.spent_output_index,
             )?;
             let spk = funding_output(input)?.script_pubkey.to_bytes();
-            let pubkey = extract_eligible_input_pubkey(input)?;
-            if pubkey.is_none() && is_ecdh_contributing(input)? {
+            let pubkey = extract_eligible_input_pubkey(input, vin)?;
+            if pubkey.is_none() && is_ecdh_contributing(input, vin)? {
                 return Err(SpSignerError::MissingInputPubkey { vin });
             }
             transaction_inputs.push(outpoint, spk, pubkey);
@@ -401,6 +462,62 @@ impl SpSignerExt for Psbt {
         signer.commit_silent_payment_outputs(scripts)?;
         *self = signer.psbt();
         Ok(())
+    }
+
+    fn verify_before_signing<C>(
+        &self,
+        secp: &Secp256k1<C>,
+        signed_vins: &[usize],
+    ) -> Result<(), SpSignerError>
+    where
+        C: Signing + Verification,
+    {
+        if self
+            .outputs
+            .iter()
+            .all(|output| output.sp_v0_info.is_none())
+        {
+            return Ok(());
+        }
+
+        for (index, script) in self.derive_sp_output_scripts(secp)? {
+            if self.outputs[index].script_pubkey != script {
+                return Err(SpSignerError::OutputScriptMismatch { index });
+            }
+        }
+
+        let mut signs_p2tr = false;
+        for &vin in signed_vins {
+            let input = self.inputs.get(vin).ok_or(SpSignerError::MalformedInput {
+                vin,
+                detail: "signed input index out of range",
+            })?;
+            signs_p2tr |= funding_output(input)?.script_pubkey.is_p2tr();
+        }
+        if !signs_p2tr {
+            // The claimed script type is itself unverified, so a witness-only P2TR claim counts.
+            if let Some(vin) = (0..self.inputs.len()).find(|vin| {
+                !signed_vins.contains(vin) && self.inputs[*vin].non_witness_utxo.is_none()
+            }) {
+                return Err(SpSignerError::UnverifiedPrevout { vin });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// [`SilentPaymentVerifier`] for [`psbt_v2::Signer::session`].
+///
+/// Runs [`SpSignerExt::verify_before_signing`] for the inputs the session will sign.
+pub struct SpOutputVerifier<'a, C: Signing + Verification> {
+    pub secp: &'a Secp256k1<C>,
+}
+
+impl<C: Signing + Verification> SilentPaymentVerifier for SpOutputVerifier<'_, C> {
+    type Error = SpSignerError;
+
+    fn verify(&self, psbt: &Psbt, signed_inputs: &[usize]) -> Result<(), Self::Error> {
+        psbt.verify_before_signing(self.secp, signed_inputs)
     }
 }
 
@@ -601,7 +718,8 @@ fn collect_sp_v0_keys(psbt: &Psbt) -> Vec<(usize, SpV0Info)> {
 ///   `tap_merkle_root` retweaks that key to the funding scriptPubKey (BIP-352 §3). A NUMS claim
 ///   that does not reproduce the prevout is still eligible. SP inputs (`sp_tweak` set) always have
 ///   a key path, so the exception does not apply to them.
-/// - **P2WPKH / P2PKH**: reads from `bip32_derivations`.
+/// - **P2WPKH / P2PKH**: reads from `bip32_derivations`. Only a compressed key is returned: a
+///   P2PKH output committing to an uncompressed key does not contribute (BIP-352).
 /// - **P2SH-P2WPKH**: checks that `redeem_script` is P2WPKH, then reads from `bip32_derivations`.
 ///
 /// Returns `Ok(None)` when the input does not contribute to the ECDH, when the required
@@ -609,8 +727,17 @@ fn collect_sp_v0_keys(psbt: &Psbt) -> Vec<(usize, SpV0Info)> {
 /// funding script. Callers that require a pubkey for every contributing input (share
 /// generation in [`ShareMode::Global`], output derivation) must turn that `None` into an
 /// error themselves.
-pub fn extract_eligible_input_pubkey(input: &Input) -> Result<Option<PublicKey>, SpSignerError> {
-    if !is_ecdh_contributing(input)? {
+///
+/// # Errors
+///
+/// [`SpSignerError::MissingRedeemScript`] for a P2SH input without `redeem_script`.
+/// [`SpSignerError::RedeemScriptMismatch`] when `redeem_script` does not hash to the P2SH
+/// funding script.
+pub fn extract_eligible_input_pubkey(
+    input: &Input,
+    vin: usize,
+) -> Result<Option<PublicKey>, SpSignerError> {
+    if !is_ecdh_contributing(input, vin)? {
         return Ok(None);
     }
 
@@ -651,15 +778,36 @@ pub fn extract_eligible_input_pubkey(input: &Input) -> Result<Option<PublicKey>,
 /// key path.
 ///
 /// P2SH contributes only as P2SH-P2WPKH, which is only knowable from the redeem
-/// script — a bare P2SH input (or one without `redeem_script` set yet) is
-/// treated as non-contributing.
-fn is_ecdh_contributing(input: &Input) -> Result<bool, SpSignerError> {
+/// script. A P2SH input without `redeem_script` is an error: the signer needs the
+/// redeem script to know whether the input contributes. A redeem script that does
+/// not hash to the funding script is also an error. The receiver uses the redeem
+/// script pushed in the final scriptSig, which has to match the prevout.
+///
+/// A P2PKH output committing to an uncompressed key does not contribute. The script
+/// hash alone does not reveal the key encoding, so this is only known when
+/// `bip32_derivations` declares the uncompressed key that matches the script.
+fn is_ecdh_contributing(input: &Input, vin: usize) -> Result<bool, SpSignerError> {
     let spk = &funding_output(input)?.script_pubkey;
     if !is_eligible(spk.as_bytes()) {
         return Ok(false);
     }
     if spk.is_p2sh() {
-        return Ok(input.redeem_script.as_ref().is_some_and(|r| r.is_p2wpkh()));
+        let redeem_script = input
+            .redeem_script
+            .as_ref()
+            .ok_or(SpSignerError::MissingRedeemScript { vin })?;
+        if ScriptBuf::new_p2sh(&redeem_script.script_hash()) != *spk {
+            return Err(SpSignerError::RedeemScriptMismatch { vin });
+        }
+        return Ok(redeem_script.is_p2wpkh());
+    }
+    if spk.is_p2pkh()
+        && input
+            .bip32_derivations
+            .keys()
+            .any(|pk| !pk.compressed && ScriptBuf::new_p2pkh(&pk.pubkey_hash()) == *spk)
+    {
+        return Ok(false);
     }
     if spk.is_p2tr() && input.sp_tweak.is_none() && is_nums_script_path_only(input, spk) {
         return Ok(false);
@@ -842,7 +990,7 @@ fn pubkey_matches_funding_script(
             .is_ok_and(|h| ScriptBuf::new_p2wpkh(&h) == *spk);
     }
     if spk.is_p2pkh() {
-        return ScriptBuf::new_p2pkh(&pubkey.pubkey_hash()) == *spk;
+        return pubkey.compressed && ScriptBuf::new_p2pkh(&pubkey.pubkey_hash()) == *spk;
     }
     if spk.is_p2sh() {
         let Some(redeem) = redeem_script else {

@@ -12,6 +12,8 @@
 //!      input.
 //!   7. Receiver-verified end-to-end: the recipient can scan the derived SP outputs (single-signer
 //!      with an SP input, and two-party multi-signer aggregation).
+//!   8. Inputs the signer and the receiver disagree on: an uncompressed P2PKH key, and a non-P2TR
+//!      funding UTXO given only as `witness_utxo`.
 
 use std::collections::HashSet;
 
@@ -23,14 +25,16 @@ use bitcoin::{
     Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxOut, Txid,
     XOnlyPublicKey,
 };
-use psbt::signer::{ShareMode, SpSignerExt, extract_eligible_input_pubkey};
+use psbt::signer::{
+    ShareMode, SpOutputVerifier, SpSignerError, SpSignerExt, extract_eligible_input_pubkey,
+};
 use psbt_v2::{
-    Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt, Signer,
-    SpV0Info,
+    Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt,
+    SignError, Signer, SpV0Info,
 };
 use secp256k1::{Message, Parity, PublicKey, Scalar, Secp256k1, SecretKey, rand};
 use silentpayments::receiving::{Label, Receiver};
-use silentpayments::utils::receiving::PublicTweakData;
+use silentpayments::utils::receiving::{PublicTweakData, get_pubkey_from_input};
 use silentpayments::utils::{NUMS_H, OutPoint as SpOutPoint};
 use silentpayments::{Network, SpVersion, TransactionInputs, TransactionSharedSecret};
 
@@ -123,6 +127,89 @@ fn p2wpkh_input(secp: &Secp256k1<secp256k1::All>, outpoint: OutPoint, secret: &S
     input
 }
 
+/// Build a P2PKH `Input` funded to the compressed encoding of `secret`'s public key.
+fn p2pkh_input(
+    secp: &Secp256k1<secp256k1::All>,
+    outpoint: OutPoint,
+    secret: &SecretKey,
+) -> Input {
+    let public = bitcoin::PublicKey::new(secret.public_key(secp));
+    let mut input = Input::new(&outpoint);
+    input.sequence = Some(Sequence::MAX);
+    set_verified_funding_utxo(
+        &mut input,
+        TxOut {
+            value: Amount::from_sat(20_000),
+            script_pubkey: ScriptBuf::new_p2pkh(&public.pubkey_hash()),
+        },
+    );
+    input
+        .bip32_derivations
+        .insert(public, (Fingerprint::default(), DerivationPath::default()));
+    input
+}
+
+/// Build a P2SH-P2WPKH `Input`: the funding script commits to a P2WPKH redeem script for `secret`.
+fn p2sh_p2wpkh_input(
+    secp: &Secp256k1<secp256k1::All>,
+    outpoint: OutPoint,
+    secret: &SecretKey,
+) -> Input {
+    let redeem_script = p2wpkh_script(secp, secret);
+    let mut input = Input::new(&outpoint);
+    input.sequence = Some(Sequence::MAX);
+    set_verified_funding_utxo(
+        &mut input,
+        TxOut {
+            value: Amount::from_sat(20_000),
+            script_pubkey: ScriptBuf::new_p2sh(&redeem_script.script_hash()),
+        },
+    );
+    input.bip32_derivations.insert(
+        bitcoin::PublicKey::new(secret.public_key(secp)),
+        (Fingerprint::default(), DerivationPath::default()),
+    );
+    input.redeem_script = Some(redeem_script);
+    input
+}
+
+/// Build a P2PKH `Input` funded to the *uncompressed* encoding of `secret`'s public key, with
+/// that uncompressed key in `bip32_derivations`.
+fn p2pkh_uncompressed_input(
+    secp: &Secp256k1<secp256k1::All>,
+    outpoint: OutPoint,
+    secret: &SecretKey,
+) -> Input {
+    let public = bitcoin::PublicKey::new_uncompressed(secret.public_key(secp));
+    let mut input = Input::new(&outpoint);
+    input.sequence = Some(Sequence::MAX);
+    set_verified_funding_utxo(
+        &mut input,
+        TxOut {
+            value: Amount::from_sat(20_000),
+            script_pubkey: ScriptBuf::new_p2pkh(&public.pubkey_hash()),
+        },
+    );
+    input
+        .bip32_derivations
+        .insert(public, (Fingerprint::default(), DerivationPath::default()));
+    input
+}
+
+/// A `scriptSig` spending [`p2pkh_uncompressed_input`]: a placeholder signature and the
+/// uncompressed key. BIP-352 key extraction does not check the signature.
+fn p2pkh_uncompressed_script_sig(
+    secp: &Secp256k1<secp256k1::All>,
+    secret: &SecretKey,
+) -> ScriptBuf {
+    ScriptBuf::builder()
+        .push_slice([0u8; 71])
+        .push_key(&bitcoin::PublicKey::new_uncompressed(
+            secret.public_key(secp),
+        ))
+        .into_script()
+}
+
 fn outpoint(vout: u32) -> OutPoint {
     OutPoint::new(
         Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros()),
@@ -175,19 +262,22 @@ fn sp_p2tr_input(
 /// Sign input 0 as a BIP-376 silent payment input and write the signature.
 fn sign_sp_input(psbt: Psbt, spend_sk: &SecretKey, secp: &Secp256k1<secp256k1::All>) -> Psbt {
     let mut signer = Signer::new(psbt).unwrap();
-    let sigs = signer.session(|mut session| {
-        let inputs = session.signable_inputs().unwrap();
-        vec![session
-            .get_silent_payment_sigs(&inputs, 0, spend_sk, secp)
-            .unwrap()]
-    });
+    let verifier = SpOutputVerifier { secp };
+    let sigs = signer
+        .session(&verifier, &[0], |mut session| {
+            let inputs = session.signable_inputs().unwrap();
+            vec![session
+                .get_silent_payment_sigs(&inputs, 0, spend_sk, secp)
+                .unwrap()]
+        })
+        .unwrap();
     signer.apply(sigs).unwrap()
 }
 
 /// Rebuild the sender-side `TransactionInputs` exactly as `compute_sp_outputs` does.
 fn transaction_inputs_for(psbt: &Psbt) -> TransactionInputs {
     let mut inputs = TransactionInputs::with_capacity(psbt.global.input_count);
-    for input in psbt.inputs.iter() {
+    for (vin, input) in psbt.inputs.iter().enumerate() {
         let outpoint = SpOutPoint::from_txid_and_vout(
             &input.previous_txid.to_string(),
             input.spent_output_index,
@@ -198,7 +288,7 @@ fn transaction_inputs_for(psbt: &Psbt) -> TransactionInputs {
             .unwrap()
             .script_pubkey
             .to_bytes();
-        let pubkey = extract_eligible_input_pubkey(input).unwrap();
+        let pubkey = extract_eligible_input_pubkey(input, vin).unwrap();
         inputs.push(outpoint, spk, pubkey);
     }
     inputs
@@ -214,7 +304,19 @@ fn assert_receiver_scan_finds_outputs(
     spend_pk: &PublicKey,
 ) {
     let inputs = transaction_inputs_for(psbt);
-    let tweak_data = PublicTweakData::new(secp, &inputs).unwrap();
+    assert_receiver_scan_finds_outputs_from(secp, psbt, &inputs, scan_sk, spend_pk);
+}
+
+/// Like [`assert_receiver_scan_finds_outputs`], with the receiver's input set supplied by the
+/// caller instead of rebuilt from the PSBT fields the signer reads.
+fn assert_receiver_scan_finds_outputs_from(
+    secp: &Secp256k1<secp256k1::All>,
+    psbt: &Psbt,
+    inputs: &TransactionInputs,
+    scan_sk: &SecretKey,
+    spend_pk: &PublicKey,
+) {
+    let tweak_data = PublicTweakData::new(secp, inputs).unwrap();
     let shared_secret =
         TransactionSharedSecret::new_from_public_tweak_data(secp, &tweak_data, scan_sk).unwrap();
     let receiver = Receiver::new(
@@ -494,7 +596,7 @@ fn test_extract_p2wpkh_with_derivation_returns_pubkey() {
         (Fingerprint::default(), DerivationPath::default()),
     );
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert_eq!(result, Some(public));
 }
 
@@ -514,7 +616,7 @@ fn test_extract_p2wpkh_missing_derivation_returns_none() {
         },
     );
     // Deliberately omit bip32_derivations.
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert!(
         result.is_none(),
         "must return None when bip32_derivations is absent for a P2WPKH input"
@@ -538,7 +640,7 @@ fn test_extract_p2tr_nums_h_internal_key_returns_none() {
     input.tap_internal_key = Some(nums);
     input.tap_merkle_root = Some(merkle_root);
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert!(
         result.is_none(),
         "a NUMS_H script-path output must be non-contributing"
@@ -557,7 +659,7 @@ fn test_extract_non_eligible_script_returns_none() {
         },
     );
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert!(result.is_none());
 }
 
@@ -580,17 +682,17 @@ fn test_extract_p2sh_non_wpkh_redeem_returns_none() {
     );
     input.redeem_script = Some(non_wpkh_redeem);
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert!(
         result.is_none(),
         "P2SH with non-P2WPKH redeem must be ineligible"
     );
 }
 
-/// P2SH input with no redeem script set → must return `Ok(None)` (field not
-/// populated yet).
+/// P2SH input with no redeem script set → must error: it may be P2SH-P2WPKH, which the
+/// receiver counts once it reads the redeem script from the final scriptSig.
 #[test]
-fn test_extract_p2sh_missing_redeem_script_returns_none() {
+fn test_extract_p2sh_missing_redeem_script_errors() {
     let secp = secp();
     let secret = sk(1);
     let p2wpkh = p2wpkh_script(&secp, &secret);
@@ -606,8 +708,37 @@ fn test_extract_p2sh_missing_redeem_script_returns_none() {
     );
     // redeem_script intentionally absent.
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
-    assert!(result.is_none());
+    let result = extract_eligible_input_pubkey(&input, 3);
+    assert!(
+        matches!(result, Err(SpSignerError::MissingRedeemScript { vin: 3 })),
+        "got {result:?}"
+    );
+}
+
+/// The funding script is P2SH-P2WPKH, but the declared redeem script is something else and is not
+/// P2WPKH. Without a hash check this input is skipped; the receiver spends the real redeem script
+/// and counts the key.
+#[test]
+fn test_extract_p2sh_mismatched_redeem_script_errors() {
+    let secp = secp();
+    let secret = sk(1);
+    let p2sh_script = ScriptBuf::new_p2sh(&p2wpkh_script(&secp, &secret).script_hash());
+
+    let mut input = Input::new(&outpoint(0));
+    set_verified_funding_utxo(
+        &mut input,
+        TxOut {
+            value: Amount::from_sat(1_000),
+            script_pubkey: p2sh_script,
+        },
+    );
+    input.redeem_script = Some(p2tr_script(&secp, &sk(2)));
+
+    let result = extract_eligible_input_pubkey(&input, 2);
+    assert!(
+        matches!(result, Err(SpSignerError::RedeemScriptMismatch { vin: 2 })),
+        "got {result:?}"
+    );
 }
 
 #[test]
@@ -668,7 +799,7 @@ fn test_extract_p2tr_sp_tweak_reads_output_key_from_prevout() {
         (Fingerprint::default(), DerivationPath::default()),
     );
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert_eq!(result, Some(xonly.public_key(Parity::Even)));
 }
 
@@ -690,7 +821,7 @@ fn test_extract_p2tr_sp_tweak_without_derivation_map() {
     });
     input.sp_tweak = Some(sk(2).secret_bytes());
 
-    let result = extract_eligible_input_pubkey(&input).unwrap();
+    let result = extract_eligible_input_pubkey(&input, 0).unwrap();
     assert_eq!(result, Some(xonly.public_key(Parity::Even)));
 }
 
@@ -948,5 +1079,505 @@ fn test_invalid_global_share_falls_back_to_partials() {
         psbt_mixed.derive_sp_output_scripts(&secp).unwrap(),
         expected,
         "fallback to verified partials must recover the same scripts"
+    );
+}
+
+// ── 8. Signer/receiver disagreement ──────────────────────────────────────────
+
+/// BIP-352 only takes compressed keys from P2PKH inputs. A P2PKH output committing to an
+/// uncompressed key does not contribute to the ECDH, so the signer must not return a key for it.
+#[test]
+fn test_extract_p2pkh_uncompressed_key_is_not_contributing() {
+    let secp = secp();
+    let secret = sk(1);
+    let input = p2pkh_uncompressed_input(&secp, outpoint(0), &secret);
+
+    assert_eq!(
+        extract_eligible_input_pubkey(&input, 0).unwrap(),
+        None,
+        "an uncompressed P2PKH key must not be added to the input key sum"
+    );
+}
+
+/// Alice spends a P2WPKH input and Bob an uncompressed P2PKH input; each adds a partial share
+/// for their own input. The receiver reads Bob's key from his finalized `scriptSig` and skips it,
+/// so the outputs committed before signing must be derived from Alice's key alone.
+#[test]
+fn test_uncompressed_p2pkh_cosigner_receiver_can_scan() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let bob_keys = bitcoin::PrivateKey::new_uncompressed(bob_sk, bitcoin::NetworkKind::Test);
+    let scan_sk = sk(2);
+    let scan_pk = scan_sk.public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+
+    let base = {
+        let mut psbt = new_psbt(
+            vec![sp_output(&scan_pk, &spend_pk)],
+            vec![outpoint(0), outpoint(1)],
+        );
+        psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &alice_sk);
+        psbt.inputs[1] = p2pkh_uncompressed_input(&secp, outpoint(1), &bob_sk);
+        psbt
+    };
+
+    let mut psbt = base.clone();
+    psbt.add_ecdh_shares(&secp, &mut rng(), &alice_sk, ShareMode::Partial)
+        .unwrap();
+    let mut psbt_bob = base;
+    // Bob's input does not contribute, so an uncompressed key yields no share.
+    let _ = psbt_bob.add_ecdh_shares(&secp, &mut rng(), &bob_keys, ShareMode::Partial);
+    psbt.inputs[1].sp_ecdh_shares = psbt_bob.inputs[1].sp_ecdh_shares.clone();
+    psbt.inputs[1].sp_dleq_proofs = psbt_bob.inputs[1].sp_dleq_proofs.clone();
+
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    let mut receiver_inputs = TransactionInputs::with_capacity(2);
+    let alice = &psbt.inputs[0];
+    receiver_inputs.push(
+        SpOutPoint::from_txid_and_vout(&alice.previous_txid.to_string(), alice.spent_output_index)
+            .unwrap(),
+        p2wpkh_script(&secp, &alice_sk).to_bytes(),
+        Some(alice_sk.public_key(&secp)),
+    );
+    let bob = &psbt.inputs[1];
+    let bob_spk = bob.witness_utxo.as_ref().unwrap().script_pubkey.clone();
+    let bob_key = get_pubkey_from_input(
+        p2pkh_uncompressed_script_sig(&secp, &bob_sk).as_bytes(),
+        &[],
+        bob_spk.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(bob_key, None, "receiver skips an uncompressed P2PKH key");
+    receiver_inputs.push(
+        SpOutPoint::from_txid_and_vout(&bob.previous_txid.to_string(), bob.spent_output_index)
+            .unwrap(),
+        bob_spk.to_bytes(),
+        bob_key,
+    );
+
+    assert_receiver_scan_finds_outputs_from(&secp, &psbt, &receiver_inputs, &scan_sk, &spend_pk);
+}
+
+/// Bob's input is P2SH-P2WPKH but he leaves out `redeem_script` and adds no share. The receiver
+/// will read the redeem script from his final scriptSig and count his key, so deriving the outputs
+/// from Alice's share alone must fail.
+#[test]
+fn test_derive_rejects_p2sh_cosigner_without_redeem_script() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(
+        vec![sp_output(&scan_pk, &spend_pk)],
+        vec![outpoint(0), outpoint(1)],
+    );
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &alice_sk);
+    let mut bob = Input::new(&outpoint(1));
+    bob.sequence = Some(Sequence::MAX);
+    set_verified_funding_utxo(
+        &mut bob,
+        TxOut {
+            value: Amount::from_sat(20_000),
+            script_pubkey: ScriptBuf::new_p2sh(&p2wpkh_script(&secp, &bob_sk).script_hash()),
+        },
+    );
+    psbt.inputs[1] = bob;
+
+    psbt.add_ecdh_shares(&secp, &mut rng(), &alice_sk, ShareMode::Partial)
+        .unwrap();
+
+    let result = psbt.derive_sp_output_scripts(&secp);
+    assert!(
+        matches!(result, Err(SpSignerError::MissingRedeemScript { vin: 1 })),
+        "got {result:?}"
+    );
+}
+
+/// Same as a missing redeem script, except Bob declares a redeem script that does not hash to his
+/// P2SH output and is not P2WPKH. Deriving from Alice's share alone must fail.
+#[test]
+fn test_derive_rejects_p2sh_cosigner_with_mismatched_redeem_script() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(
+        vec![sp_output(&scan_pk, &spend_pk)],
+        vec![outpoint(0), outpoint(1)],
+    );
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &alice_sk);
+    let mut bob = Input::new(&outpoint(1));
+    bob.sequence = Some(Sequence::MAX);
+    set_verified_funding_utxo(
+        &mut bob,
+        TxOut {
+            value: Amount::from_sat(20_000),
+            script_pubkey: ScriptBuf::new_p2sh(&p2wpkh_script(&secp, &bob_sk).script_hash()),
+        },
+    );
+    bob.redeem_script = Some(p2tr_script(&secp, &sk(5)));
+    psbt.inputs[1] = bob;
+
+    psbt.add_ecdh_shares(&secp, &mut rng(), &alice_sk, ShareMode::Partial)
+        .unwrap();
+
+    let result = psbt.derive_sp_output_scripts(&secp);
+    assert!(
+        matches!(result, Err(SpSignerError::RedeemScriptMismatch { vin: 1 })),
+        "got {result:?}"
+    );
+}
+
+/// Alice and Bob each add a partial share for their own input, and the outputs are committed.
+fn committed_two_party_psbt(
+    secp: &Secp256k1<secp256k1::All>,
+    alice: (Input, &SecretKey),
+    bob: (Input, &SecretKey),
+) -> Psbt {
+    let scan_pk = pk(secp, 2);
+    let spend_pk = pk(secp, 3);
+    let mut base = new_psbt(
+        vec![sp_output(&scan_pk, &spend_pk)],
+        vec![outpoint(0), outpoint(1)],
+    );
+    base.inputs[0] = alice.0;
+    base.inputs[1] = bob.0;
+
+    let mut psbt = base.clone();
+    psbt.add_ecdh_shares(secp, &mut rng(), alice.1, ShareMode::Partial)
+        .unwrap();
+    let mut psbt_bob = base;
+    psbt_bob
+        .add_ecdh_shares(secp, &mut rng(), bob.1, ShareMode::Partial)
+        .unwrap();
+    psbt.inputs[1].sp_ecdh_shares = psbt_bob.inputs[1].sp_ecdh_shares.clone();
+    psbt.inputs[1].sp_dleq_proofs = psbt_bob.inputs[1].sp_dleq_proofs.clone();
+    psbt.commit_sp_outputs(secp).unwrap();
+    psbt
+}
+
+/// Bob's P2WPKH funding output is only given as `witness_utxo`. Alice signs a SegWit v0 input,
+/// whose signature does not commit to Bob's script, so she must refuse. Bob vouches for his own
+/// input, so signing both is accepted.
+#[test]
+fn test_verify_before_signing_rejects_unverified_prevout() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let mut bob = p2wpkh_input(&secp, outpoint(1), &bob_sk);
+    bob.non_witness_utxo = None;
+    let psbt = committed_two_party_psbt(
+        &secp,
+        (p2wpkh_input(&secp, outpoint(0), &alice_sk), &alice_sk),
+        (bob, &bob_sk),
+    );
+
+    let result = psbt.verify_before_signing(&secp, &[0]);
+    assert!(
+        matches!(result, Err(SpSignerError::UnverifiedPrevout { vin: 1 })),
+        "got {result:?}"
+    );
+    psbt.verify_before_signing(&secp, &[0, 1]).unwrap();
+}
+
+/// Same unverified funding output for Bob, but Alice signs a P2TR input: her signature commits to
+/// every prevout script, so a misreported script only invalidates it.
+#[test]
+fn test_verify_before_signing_accepts_unverified_prevout_when_signing_p2tr() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let mut bob = p2wpkh_input(&secp, outpoint(1), &bob_sk);
+    bob.non_witness_utxo = None;
+    let psbt = committed_two_party_psbt(
+        &secp,
+        (
+            sp_p2tr_input(&secp, outpoint(0), &alice_sk, sk(7).secret_bytes()),
+            &alice_sk,
+        ),
+        (bob, &bob_sk),
+    );
+
+    psbt.verify_before_signing(&secp, &[0]).unwrap();
+}
+
+/// A PSBT that comes back with a silent payment output script that does not follow from the
+/// shares must not be signed.
+#[test]
+fn test_verify_before_signing_rejects_tampered_output_script() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+    psbt.verify_before_signing(&secp, &[0]).unwrap();
+
+    psbt.outputs[0].script_pubkey = p2tr_script(&secp, &sk(9));
+    let result = psbt.verify_before_signing(&secp, &[0]);
+    assert!(
+        matches!(
+            result,
+            Err(SpSignerError::OutputScriptMismatch { index: 0 })
+        ),
+        "got {result:?}"
+    );
+}
+
+/// A compressed P2PKH key matches its script and is what the receiver extracts from the scriptSig.
+#[test]
+fn test_compressed_p2pkh_contributes_and_receiver_can_scan() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_sk = sk(2);
+    let scan_pk = scan_sk.public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+    let input = p2pkh_input(&secp, outpoint(0), &spend_sk);
+
+    assert_eq!(
+        extract_eligible_input_pubkey(&input, 0).unwrap(),
+        Some(spend_sk.public_key(&secp))
+    );
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = input;
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    let spk = psbt.inputs[0]
+        .witness_utxo
+        .as_ref()
+        .unwrap()
+        .script_pubkey
+        .clone();
+    let script_sig = ScriptBuf::builder()
+        .push_slice([0u8; 71])
+        .push_key(&bitcoin::PublicKey::new(spend_sk.public_key(&secp)))
+        .into_script();
+    let pubkey = get_pubkey_from_input(script_sig.as_bytes(), &[], spk.as_bytes()).unwrap();
+    assert_eq!(pubkey, Some(spend_sk.public_key(&secp)));
+
+    let mut inputs = TransactionInputs::with_capacity(1);
+    inputs
+        .push(
+            SpOutPoint::from_txid_and_vout(
+                &psbt.inputs[0].previous_txid.to_string(),
+                psbt.inputs[0].spent_output_index,
+            )
+            .unwrap(),
+            spk.to_bytes(),
+            pubkey,
+        );
+    assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
+}
+
+/// A P2SH-P2WPKH input contributes its compressed key, and the receiver recovers the same key
+/// from the redeem script and witness.
+#[test]
+fn test_p2sh_p2wpkh_contributes_and_receiver_can_scan() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_sk = sk(2);
+    let scan_pk = scan_sk.public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+    let input = p2sh_p2wpkh_input(&secp, outpoint(0), &spend_sk);
+
+    assert_eq!(
+        extract_eligible_input_pubkey(&input, 0).unwrap(),
+        Some(spend_sk.public_key(&secp))
+    );
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = input;
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    let redeem = psbt.inputs[0].redeem_script.clone().unwrap();
+    let spk = psbt.inputs[0]
+        .witness_utxo
+        .as_ref()
+        .unwrap()
+        .script_pubkey
+        .clone();
+    let script_sig = ScriptBuf::builder()
+        .push_slice(<&bitcoin::script::PushBytes>::try_from(redeem.as_bytes()).unwrap())
+        .into_script();
+    let witness = vec![
+        vec![0u8; 72],
+        spend_sk.public_key(&secp).serialize().to_vec(),
+    ];
+    let pubkey = get_pubkey_from_input(script_sig.as_bytes(), &witness, spk.as_bytes()).unwrap();
+    assert_eq!(pubkey, Some(spend_sk.public_key(&secp)));
+
+    let mut inputs = TransactionInputs::with_capacity(1);
+    inputs
+        .push(
+            SpOutPoint::from_txid_and_vout(
+                &psbt.inputs[0].previous_txid.to_string(),
+                psbt.inputs[0].spent_output_index,
+            )
+            .unwrap(),
+            spk.to_bytes(),
+            pubkey,
+        );
+    assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
+}
+
+/// The signer owns both inputs. Global mode must leave the uncompressed P2PKH key out of the sum,
+/// which is what the receiver does when it reads that scriptSig.
+#[test]
+fn test_global_share_skips_owned_uncompressed_p2pkh() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let uncompressed_sk = sk(4);
+    let scan_sk = sk(2);
+    let scan_pk = scan_sk.public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(
+        vec![sp_output(&scan_pk, &spend_pk)],
+        vec![outpoint(0), outpoint(1)],
+    );
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
+    psbt.inputs[1] = p2pkh_uncompressed_input(&secp, outpoint(1), &uncompressed_sk);
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    let mut inputs = TransactionInputs::with_capacity(2);
+    let eligible = &psbt.inputs[0];
+    inputs
+        .push(
+            SpOutPoint::from_txid_and_vout(
+                &eligible.previous_txid.to_string(),
+                eligible.spent_output_index,
+            )
+            .unwrap(),
+            p2wpkh_script(&secp, &spend_sk).to_bytes(),
+            Some(spend_sk.public_key(&secp)),
+        );
+    let skipped = &psbt.inputs[1];
+    let skipped_spk = skipped
+        .witness_utxo
+        .as_ref()
+        .unwrap()
+        .script_pubkey
+        .clone();
+    let skipped_key = get_pubkey_from_input(
+        p2pkh_uncompressed_script_sig(&secp, &uncompressed_sk).as_bytes(),
+        &[],
+        skipped_spk.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(skipped_key, None);
+    inputs
+        .push(
+            SpOutPoint::from_txid_and_vout(
+                &skipped.previous_txid.to_string(),
+                skipped.spent_output_index,
+            )
+            .unwrap(),
+            skipped_spk.to_bytes(),
+            skipped_key,
+        );
+    assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
+}
+
+/// An uncompressed P2PKH input is the only one. Global mode has no key to sum.
+#[test]
+fn test_global_share_rejects_only_uncompressed_p2pkh() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = p2pkh_uncompressed_input(&secp, outpoint(0), &spend_sk);
+
+    let result = psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global);
+    assert!(result.is_err(), "got {result:?}");
+    assert!(psbt.global.sp_ecdh_shares.is_empty());
+}
+
+/// An empty silent-payment script has not been derived, so it must not be signed.
+#[test]
+fn test_verify_before_signing_rejects_empty_output_script() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+    psbt.outputs[0].script_pubkey = ScriptBuf::new();
+
+    let result = psbt.verify_before_signing(&secp, &[0]);
+    assert!(
+        matches!(
+            result,
+            Err(SpSignerError::OutputScriptMismatch { index: 0 })
+        ),
+        "got {result:?}"
+    );
+}
+
+/// A signed-input index past the end of the PSBT is rejected.
+#[test]
+fn test_verify_before_signing_rejects_out_of_range_index() {
+    let secp = secp();
+    let spend_sk = sk(1);
+    let scan_pk = pk(&secp, 2);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
+    psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    let result = psbt.verify_before_signing(&secp, &[9]);
+    assert!(
+        matches!(result, Err(SpSignerError::MalformedInput { vin: 9, .. })),
+        "got {result:?}"
+    );
+}
+
+/// The session was opened for input 0 only. Minting a signable input 1 must fail.
+#[test]
+fn test_session_rejects_signing_outside_declared_inputs() {
+    let secp = secp();
+    let alice_sk = sk(1);
+    let bob_sk = sk(4);
+    let psbt = committed_two_party_psbt(
+        &secp,
+        (p2wpkh_input(&secp, outpoint(0), &alice_sk), &alice_sk),
+        (p2wpkh_input(&secp, outpoint(1), &bob_sk), &bob_sk),
+    );
+    let mut signer = Signer::new(psbt).unwrap();
+    let verifier = SpOutputVerifier { secp: &secp };
+    let result = signer.session(&verifier, &[0], |session| {
+        session.signable_input(1).map(|_| ())
+    });
+    assert!(
+        matches!(
+            result,
+            Ok(Err(SignError::NotInSignedInputs { index: 1 }))
+        ),
+        "got {result:?}"
     );
 }
