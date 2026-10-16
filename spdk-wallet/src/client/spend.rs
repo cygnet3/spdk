@@ -10,7 +10,7 @@ use bitcoin::{
     Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxOut,
 };
 use psbt::extractor::SpExtractorExt as _;
-use psbt::signer::{ShareMode, SpSignerExt as _};
+use psbt::signer::{ShareMode, SpOutputVerifier, SpSignerExt as _};
 use psbt_v2::{
     Constructor, Extractor, Finalizer, Input, Modifiable, Output, Psbt, Signer, SpV0Info,
 };
@@ -249,6 +249,10 @@ impl SpClient {
     /// Adds a global ECDH share (this wallet owns every input) when none is
     /// present, then commits the scripts. A PSBT with no silent-payment outputs
     /// is returned unchanged. Requires the spend secret when shares are missing.
+    ///
+    /// When every silent-payment output already has a script, the scripts are
+    /// checked against the shares instead of being trusted. This wallet signs
+    /// every input, so that is the set passed to the check.
     pub fn commit_sp_outputs(&self, mut psbt: Psbt) -> Result<Psbt> {
         let mut pending = false;
         let mut committed = false;
@@ -268,6 +272,11 @@ impl SpClient {
             ));
         }
         if !pending {
+            if committed {
+                let secp = Secp256k1::new();
+                let signed_inputs: Vec<usize> = (0..psbt.inputs.len()).collect();
+                psbt.verify_before_signing(&secp, &signed_inputs)?;
+            }
             return Ok(psbt);
         }
 
@@ -297,24 +306,27 @@ impl SpClient {
         let mut signer = Signer::new(psbt)?;
         // Every wallet input is a BIP-376 spend. The default Taproot sighash commits to
         // every prevout, so the inputs have to be validated as one set.
-        let sigs = signer.session(|mut session| -> Result<Vec<_>> {
-            let inputs = session.signable_inputs().map_err(|errors| {
-                Error::msg(
-                    errors
-                        .iter()
-                        .map(|(index, error)| format!("input {index}: {error}"))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                )
-            })?;
-            (0..input_count)
-                .map(|index| {
-                    session
-                        .get_silent_payment_sigs(&inputs, index, &spend_sk, &secp)
-                        .map_err(Error::from)
-                })
-                .collect()
-        })?;
+        let signed_inputs: Vec<usize> = (0..input_count).collect();
+        let verifier = SpOutputVerifier { secp: &secp };
+        let sigs = signer
+            .session(&verifier, &signed_inputs, |mut session| -> Result<Vec<_>> {
+                let inputs = session.signable_inputs().map_err(|errors| {
+                    Error::msg(
+                        errors
+                            .iter()
+                            .map(|(index, error)| format!("input {index}: {error}"))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    )
+                })?;
+                (0..input_count)
+                    .map(|index| {
+                        session
+                            .get_silent_payment_sigs(&inputs, index, &spend_sk, &secp)
+                            .map_err(Error::from)
+                    })
+                    .collect()
+            })??;
         Ok(signer.apply(sigs)?)
     }
 
@@ -605,5 +617,60 @@ mod tests {
         let tx = client.extract_transaction(psbt).expect("extract");
         assert_eq!(tx.output.len(), 1);
         assert!(tx.input.iter().all(|input| !input.witness.is_empty()));
+    }
+
+    #[test]
+    fn commit_sp_outputs_rejects_a_swapped_script() {
+        let client = test_client();
+        let utxos = wallet_utxos(&[100_000, 200_000]);
+        let recipients = vec![payment_recipient(50_000)];
+        let selections =
+            propose_coin_selections(&utxos, &recipients, test_fee_rate()).expect("selection");
+        let selection = selections
+            .into_iter()
+            .find(|s| s.change() > Amount::ZERO)
+            .expect("a selection with change");
+        let psbt = client
+            .create_transaction_from_proposal(&utxos, recipients, &selection, Network::Regtest)
+            .expect("transaction");
+        let mut psbt = client.commit_sp_outputs(psbt).expect("commit");
+        let recommitted = client
+            .commit_sp_outputs(psbt.clone())
+            .expect("an already committed PSBT must still verify");
+        assert_eq!(
+            recommitted
+                .outputs
+                .iter()
+                .map(|output| output.script_pubkey.clone())
+                .collect::<Vec<_>>(),
+            psbt.outputs
+                .iter()
+                .map(|output| output.script_pubkey.clone())
+                .collect::<Vec<_>>()
+        );
+
+        let change_vout = psbt
+            .outputs
+            .iter()
+            .position(|o| o.sp_v0_info.is_some())
+            .expect("change output");
+        let secp = Secp256k1::new();
+        let sk = SecretKey::from_slice(&[0x44; 32]).expect("valid test key");
+        let (xonly, _) = sk.x_only_public_key(&secp);
+        psbt.outputs[change_vout].script_pubkey =
+            ScriptBuf::new_p2tr_tweaked(xonly.dangerous_assume_tweaked());
+
+        let err = client
+            .commit_sp_outputs(psbt.clone())
+            .expect_err("a swapped silent payment script must be rejected");
+        assert!(err.to_string().contains("does not match"));
+
+        let err = client
+            .sign_inputs(psbt)
+            .expect_err("signing a swapped silent payment script must be rejected");
+        assert!(
+            err.chain().any(|cause| cause.to_string().contains("does not match")),
+            "{err:#}"
+        );
     }
 }
