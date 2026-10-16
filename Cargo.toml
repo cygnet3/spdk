@@ -38,7 +38,7 @@ reqwest = { version = "0.12.4", features = [
   "rustls-tls",
   "gzip",
 ], default-features = false }
-psbt-v2 = { git = "https://gitea.bitcoin.ninja/sosthene/rust-psbt.git", rev = "fceb052fa0a4a35f6ddda823d5b9c17f945a9078", features = ["silent-payments", "miniscript"] }
+psbt-v2 = { git = "https://gitea.bitcoin.ninja/sosthene/rust-psbt.git", rev = "2fb5abceaee36d3a72885a3fe21a2f630220f000", features = ["silent-payments", "miniscript"] }
 # DLEQ (BIP-374) backend decision (2026-09):
 # We use rust-dleq's pure-Rust `standalone` backend (the default in `silentpayments`
 # and `psbt`), pinned to this fork. It is verified against the official BIP-374
