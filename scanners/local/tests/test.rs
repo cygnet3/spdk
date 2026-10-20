@@ -9,7 +9,7 @@ use futures::StreamExt as _;
 use local_scanner::SpScanner;
 use silentpayments::receiving::Label;
 use spdk_core::scanner::Scanner as _;
-use spdk_wallet::client::{SpClient, SpendKey};
+use spdk_spend::{SpClient, SpendKey};
 
 use crate::mock::chain::MockChainBackend;
 

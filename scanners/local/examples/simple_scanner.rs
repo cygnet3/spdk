@@ -8,7 +8,7 @@ use bitcoin::{Amount, BlockHash, Network, OutPoint};
 use futures::StreamExt as _;
 use local_scanner::SpScanner;
 use spdk_core::scanner::{DiscoveredOutput, Scanner as _};
-use spdk_wallet::client::{SpClient, SpendKey};
+use spdk_spend::{SpClient, SpendKey};
 
 // in this example, we use the public signet silentpayments.dev blindbit server
 const BLINDBIT_BACKEND_URL: &str = "https://silentpayments.dev/blindbit/signet";
