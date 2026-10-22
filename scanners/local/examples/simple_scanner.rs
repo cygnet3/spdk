@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 
-use backend_blindbit_v1::{BlindbitBackend, BlindbitClient};
+use backend_blindbit_v1::BlindbitBackend;
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Amount, BlockHash, Network, OutPoint};
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scan_sk = SecretKey::from_slice(&SCAN_SK_BYTES)?;
     let spend_sk = SecretKey::from_slice(&SPEND_SK_BYTES)?;
 
-    let backend = BlindbitBackend::new(BlindbitClient::new(BLINDBIT_BACKEND_URL)?);
+    let backend = BlindbitBackend::new(BLINDBIT_BACKEND_URL)?;
 
     let client = SpClient::new(scan_sk, SpendKey::Secret(spend_sk), NETWORK)?;
     let sp_receiver = client.receiver();
