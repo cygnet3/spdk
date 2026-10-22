@@ -5,10 +5,11 @@ use std::pin::Pin;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use bitcoin::absolute::Height;
-use bitcoin::{Amount, BlockHash, OutPoint};
+use bitcoin::{Amount, BlockHash, OutPoint, Txid};
 use futures::{Stream, StreamExt as _, stream};
 use spdk_core::chain::{BoxedBlockData, ChainBackend, SpentIndexData, UtxoData};
 
+use crate::BackendInfo;
 use crate::client::BlindbitClient;
 use crate::structs::BlindbitV1BlockData;
 use crate::utils::input_hashes_map;
@@ -25,6 +26,18 @@ impl BlindbitBackend {
         Ok(Self {
             client: BlindbitClient::new(host_url)?,
         })
+    }
+
+    pub async fn info(&self) -> Result<BackendInfo> {
+        self.client.info().await
+    }
+
+    pub async fn block_height(&self) -> Result<Height> {
+        self.client.block_height().await
+    }
+
+    pub async fn forward_tx(&self, tx_hex: String) -> Result<Txid> {
+        self.client.forward_tx(tx_hex).await
     }
 }
 
