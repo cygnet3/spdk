@@ -1,2 +1,4 @@
-pub mod client;
-pub mod scanner;
+mod client;
+mod scanner;
+pub use client::FrigateClient as Client;
+pub use scanner::FrigateScanner as Scanner;

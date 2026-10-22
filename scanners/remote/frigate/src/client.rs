@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use bitcoin::absolute::Height;
 use bitcoin::{Amount, BlockHash, OutPoint, Txid};
 use electrum_streaming_client::response::{FullTx, HeaderResp};
-use electrum_streaming_client::{AsyncClient, Event, request};
+use electrum_streaming_client::{
+    AsyncClient, ElectrumScriptHash, ElectrumScriptStatus, Event, request,
+};
 use futures::Stream;
 use futures::channel::mpsc::UnboundedReceiver;
 use log::{debug, info};
@@ -166,6 +168,39 @@ impl FrigateClient {
 
         info!("Unsubscribed to silent payment address: {res:?}");
         Ok(())
+    }
+
+    pub async fn scripthash_subscribe(
+        &mut self,
+        sub_req: request::ScriptHashSubscribe,
+    ) -> Result<Option<ElectrumScriptStatus>> {
+        self.version().await?;
+        let res = timeout(self.request_timeout, self.client.send_request(sub_req))
+            .await
+            .map_err(|_| FrigateError::Timeout("Script hash subscription timed out".to_owned()))?
+            .map_err(|e| {
+                FrigateError::Request(format!("Script hash subscription request failed: {e}"))
+            })?;
+
+        info!("Subscribed to script: {res:?}");
+        Ok(res)
+    }
+
+    pub async fn get_history(
+        &mut self,
+        script_hash: ElectrumScriptHash,
+    ) -> Result<Vec<electrum_streaming_client::response::Tx>> {
+        self.version().await?;
+
+        let res = timeout(
+            self.request_timeout,
+            self.client
+                .send_request(request::GetHistory { script_hash }),
+        )
+        .await
+        .map_err(|_| FrigateError::Timeout("Script history request timed out".to_owned()))?
+        .map_err(|e| FrigateError::Request(format!("Script history request failed: {e}")))?;
+        Ok(res)
     }
 }
 

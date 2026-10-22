@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use bitcoin::absolute::Height;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{BlockHash, Network, OutPoint};
-use frigate::client::FrigateClient;
-use frigate::scanner::FrigateScanner;
+use frigate::Client;
+use frigate::Scanner;
 use spdk_core::scanner::{DiscoveredOutput, Scanner as _};
 use spdk_wallet::client::{SpClient, SpendKey};
 
@@ -33,12 +33,12 @@ async fn main() -> anyhow::Result<()> {
     let scan_sk = SecretKey::from_slice(&SCAN_SK_BYTES)?;
     let spend_sk = SecretKey::from_slice(&SPEND_SK_BYTES)?;
 
-    let frigate_client = FrigateClient::connect(FRIGATE_BACKEND_URL).await?;
+    let frigate_client = Client::connect(FRIGATE_BACKEND_URL).await?;
 
     let sp_client = SpClient::new(scan_sk, SpendKey::Secret(spend_sk), NETWORK)?;
     let sp_receiver = sp_client.receiver();
 
-    let frigate_scanner = FrigateScanner::new(frigate_client, scan_sk, sp_receiver, None);
+    let frigate_scanner = Scanner::new(frigate_client, scan_sk, sp_receiver, None, HashSet::new());
 
     println!("Receiving code for this key pair + network:");
     println!("{}", sp_client.receiving_code());

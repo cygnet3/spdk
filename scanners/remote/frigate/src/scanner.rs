@@ -4,7 +4,7 @@ use bitcoin::absolute::Height;
 use bitcoin::secp256k1::{PublicKey, Scalar, SecretKey};
 use bitcoin::{OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
 use electrum_streaming_client::notification::Notification;
-use electrum_streaming_client::{Event, request};
+use electrum_streaming_client::{ElectrumScriptHash, Event, request};
 use futures::channel::mpsc::{Receiver, channel};
 use futures::{SinkExt as _, StreamExt as _};
 use log::{debug, error, info};
@@ -23,6 +23,7 @@ pub struct FrigateScanner {
     b_scan: SecretKey,
     sp_receiver: SpReceiver,
     labels: Option<Vec<u32>>,
+    owned_outpoints: HashSet<OutPoint>,
 }
 
 impl FrigateScanner {
@@ -31,19 +32,37 @@ impl FrigateScanner {
         b_scan: SecretKey,
         sp_receiver: SpReceiver,
         labels: Option<Vec<u32>>,
+        owned_outpoints: HashSet<OutPoint>,
     ) -> Self {
         Self {
             client,
             b_scan,
             sp_receiver,
             labels,
+            owned_outpoints,
         }
     }
-}
 
-impl Scanner for FrigateScanner {
-    #[expect(clippy::too_many_lines, reason = "will be refactored once needed")]
-    fn scan_blocks(mut self, range: std::ops::RangeInclusive<Height>) -> Receiver<ScanResult> {
+    /// Starts a scan and keeps listening for confirmed spends of discovered outputs.
+    ///
+    /// The scan receiver is closed when the historical scan reaches progress `1.0`. The spent
+    /// receiver remains open for subsequent script-hash notifications.
+    pub fn scan_blocks_with_spent_outputs(
+        self,
+        range: std::ops::RangeInclusive<Height>,
+    ) -> (Receiver<ScanResult>, Receiver<HashSet<OutPoint>>) {
+        self.start_scan(range, true)
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scan orchestration will be refactored later"
+    )]
+    fn start_scan(
+        mut self,
+        range: std::ops::RangeInclusive<Height>,
+        monitor_spent: bool,
+    ) -> (Receiver<ScanResult>, Receiver<HashSet<OutPoint>>) {
         let subscribe_params = request::SpSubscribe {
             scan_priv_key: self.b_scan,
             spend_pub_key: self.sp_receiver.receiving_code().m_pubkey(),
@@ -57,11 +76,14 @@ impl Scanner for FrigateScanner {
             range.end().to_consensus_u32(),
         );
 
-        let (mut tx, rx) = channel(100_000);
+        let (scan_tx, scan_rx) = channel(100_000);
+        let (mut spent_tx, spent_rx) = channel(100_000);
 
         tokio::spawn(async move {
-            // Maybe later check if there's any current subscription and skip, just listen to
-            // events.
+            let mut scan_tx = Some(scan_tx);
+            let mut tracked_scripts: HashMap<ElectrumScriptHash, HashSet<OutPoint>> =
+                HashMap::new();
+
             match self.client.subscribe(subscribe_params).await {
                 Ok(sp_address) => info!("Subscribed to silent payments address {sp_address}"),
                 Err(e) => {
@@ -71,116 +93,220 @@ impl Scanner for FrigateScanner {
             }
 
             while let Some(event) = self.client.events.next().await {
-                if let Event::Notification(notification) = event {
-                    match notification {
-                        Notification::SpSubscribe(sp_subscribe_notification) => {
-                            let histories = sp_subscribe_notification.history.clone();
-                            let progress = sp_subscribe_notification.progress;
+                let Event::Notification(notification) = event else {
+                    continue;
+                };
 
-                            let mut secrets_by_height: BTreeMap<u32, HashMap<Txid, PublicKey>> =
-                                BTreeMap::new();
+                match notification {
+                    Notification::SpSubscribe(sp_subscribe_notification) => {
+                        let histories = sp_subscribe_notification.history;
+                        let progress = sp_subscribe_notification.progress;
+                        let mut secrets_by_height: BTreeMap<u32, HashMap<Txid, PublicKey>> =
+                            BTreeMap::new();
 
-                            debug!("Received history {histories:#?}");
-                            info!("Found a total of {} output(s)", histories.len());
+                        debug!("Received history {histories:#?}");
+                        info!("Found a total of {} output(s)", histories.len());
 
-                            for h in &histories {
-                                if h.height == 0 {
-                                    debug!("Skipping mempool transaction {}", h.tx_hash);
-                                    continue;
-                                }
-
-                                secrets_by_height
-                                    .entry(h.height)
-                                    .and_modify(|v| {
-                                        v.insert(h.tx_hash, h.tweak_key);
-                                    })
-                                    .or_insert(HashMap::from([(h.tx_hash, h.tweak_key)]));
+                        for history in &histories {
+                            if history.height == 0 {
+                                debug!("Skipping mempool transaction {}", history.tx_hash);
+                                continue;
                             }
 
-                            for history in secrets_by_height {
-                                let blk_header = match self.client.get_block_header(history.0).await
-                                {
-                                    Ok(header) => header,
+                            secrets_by_height
+                                .entry(history.height)
+                                .or_default()
+                                .insert(history.tx_hash, history.tweak_key);
+                        }
+
+                        for (height, tx_tweaks) in secrets_by_height {
+                            let blk_header = match self.client.get_block_header(height).await {
+                                Ok(header) => header,
+                                Err(e) => {
+                                    error!("Unable to fetch block header at height {height}: {e}");
+                                    return;
+                                }
+                            };
+                            let blkheight = match Height::from_consensus(height) {
+                                Ok(height) => height,
+                                Err(e) => {
+                                    error!(
+                                        "Invalid block height {height} received from Frigate: {e}"
+                                    );
+                                    return;
+                                }
+                            };
+
+                            for (txid, tweak) in tx_tweaks {
+                                let full_tx = match self.client.get_transaction(txid).await {
+                                    Ok(full_tx) => full_tx,
                                     Err(e) => {
-                                        error!(
-                                            "Unable to fetch block header at height {}: {e}",
-                                            history.0
-                                        );
+                                        error!("Unable to fetch transaction {txid}: {e}");
                                         return;
                                     }
                                 };
-                                let blkheight = match Height::from_consensus(history.0) {
-                                    Ok(height) => height,
+                                let discovered_outputs = match process_outputs(
+                                    &full_tx.tx,
+                                    &self.b_scan,
+                                    &self.sp_receiver,
+                                    &[tweak],
+                                ) {
+                                    Ok(outputs) => outputs,
                                     Err(e) => {
-                                        error!(
-                                            "Invalid block height {} received from Frigate: {e}",
-                                            history.0
-                                        );
+                                        error!("Unable to process transaction {txid}: {e}");
                                         return;
                                     }
                                 };
 
-                                // Get now the outputs from the transaction belonging to the key
-                                // we're scanning for.
-                                // Once done just return the scan result
+                                self.owned_outpoints.extend(discovered_outputs.keys());
 
-                                for tx_tweak in history.1 {
-                                    let discovered_inputs = HashSet::<OutPoint>::new();
-                                    let full_tx =
-                                        match self.client.get_transaction(tx_tweak.0).await {
-                                            Ok(full_tx) => full_tx,
-                                            Err(e) => {
-                                                error!(
-                                                    "Unable to fetch transaction {}: {e}",
-                                                    tx_tweak.0
-                                                );
-                                                return;
-                                            }
-                                        };
-                                    let discovered_outputs = match process_outputs(
-                                        &full_tx.tx,
-                                        &self.b_scan,
-                                        &self.sp_receiver,
-                                        &[tx_tweak.1],
-                                    ) {
-                                        Ok(outputs) => outputs,
-                                        Err(e) => {
-                                            error!(
-                                                "Unable to process transaction {}: {e}",
-                                                tx_tweak.0
-                                            );
+                                if monitor_spent {
+                                    subscribe_outputs(
+                                        &mut self.client,
+                                        &mut tracked_scripts,
+                                        &discovered_outputs,
+                                    )
+                                    .await;
+                                }
+
+                                let scan_res = ScanResult {
+                                    blkheight,
+                                    blkhash: blk_header.header.block_hash(),
+                                    discovered_inputs: HashSet::new(),
+                                    discovered_outputs,
+                                };
+
+                                if let Some(sender) = scan_tx.as_mut() {
+                                    if let Err(e) = sender.send(scan_res).await {
+                                        error!(
+                                            "Unable to send scan result: {e}; stopping scan output"
+                                        );
+                                        scan_tx = None;
+                                        if !monitor_spent {
                                             return;
                                         }
-                                    };
-
-                                    let scan_res = ScanResult {
-                                        blkheight,
-                                        blkhash: blk_header.header.block_hash(),
-                                        discovered_inputs,
-                                        discovered_outputs,
-                                    };
-
-                                    if let Err(e) = tx.send(scan_res).await {
-                                        error!("Unable to send scan result: {e}; stopping scan");
-                                        return;
+                                    } else {
+                                        info!("Scan result sent!");
                                     }
-                                    info!("Scan result sent!");
                                 }
                             }
+                        }
 
-                            if progress >= 1.0f32 {
-                                info!("Scanning completed!");
+                        if progress >= 1.0f32 {
+                            if !monitor_spent {
+                                info!("Scan completed!");
                                 break;
                             }
+
+                            if scan_tx.take().is_some() {
+                                info!("Scan completed, monitoring spent outputs");
+                            }
                         }
-                        _ => error!("Notification event not supported."),
+                    }
+                    Notification::ScriptHash(notification) if monitor_spent => {
+                        let script_hash = notification.script_hash();
+                        let spent = match confirmed_spent_outpoints(
+                            &mut self.client,
+                            script_hash,
+                            &tracked_scripts,
+                        )
+                        .await
+                        {
+                            Ok(spent) => spent,
+                            Err(e) => {
+                                error!(
+                                    "Unable to inspect history for script hash {script_hash}: {e}"
+                                );
+                                continue;
+                            }
+                        };
+
+                        if spent.is_empty() {
+                            continue;
+                        }
+
+                        self.owned_outpoints
+                            .retain(|outpoint| !spent.contains(outpoint));
+                        for outpoints in tracked_scripts.values_mut() {
+                            outpoints.retain(|outpoint| !spent.contains(outpoint));
+                        }
+                        tracked_scripts.retain(|_, outpoints| !outpoints.is_empty());
+
+                        if let Err(e) = spent_tx.send(spent).await {
+                            error!("Unable to send spent output update: {e}; stopping monitor");
+                            return;
+                        }
+                    }
+                    Notification::ScriptHash(_) => {
+                        debug!("Ignoring script-hash notification after finite scan");
+                    }
+                    notification => {
+                        debug!("Ignoring unsupported notification: {notification:?}");
                     }
                 }
             }
         });
 
-        rx
+        (scan_rx, spent_rx)
     }
+}
+
+impl Scanner for FrigateScanner {
+    fn scan_blocks(self, range: std::ops::RangeInclusive<Height>) -> Receiver<ScanResult> {
+        let (scan_rx, spent_rx) = self.start_scan(range, false);
+        drop(spent_rx);
+        scan_rx
+    }
+}
+
+async fn subscribe_outputs(
+    client: &mut FrigateClient,
+    tracked_scripts: &mut HashMap<ElectrumScriptHash, HashSet<OutPoint>>,
+    discovered_outputs: &HashMap<OutPoint, DiscoveredOutput>,
+) {
+    for (outpoint, output) in discovered_outputs {
+        let script_hash = ElectrumScriptHash::from(output.txout.script_pubkey.as_script());
+        let first_output_for_script = !tracked_scripts.contains_key(&script_hash);
+        tracked_scripts
+            .entry(script_hash)
+            .or_default()
+            .insert(*outpoint);
+
+        if !first_output_for_script {
+            continue;
+        }
+
+        let request = request::ScriptHashSubscribe { script_hash };
+        if let Err(e) = client.scripthash_subscribe(request).await {
+            error!("Unable to subscribe to script hash {script_hash}: {e}");
+        }
+    }
+}
+
+async fn confirmed_spent_outpoints(
+    client: &mut FrigateClient,
+    script_hash: ElectrumScriptHash,
+    tracked_scripts: &HashMap<ElectrumScriptHash, HashSet<OutPoint>>,
+) -> anyhow::Result<HashSet<OutPoint>> {
+    let Some(owned_outpoints) = tracked_scripts.get(&script_hash) else {
+        return Ok(HashSet::new());
+    };
+
+    let mut spent = HashSet::new();
+    for history_entry in client.get_history(script_hash).await? {
+        if history_entry.confirmation_height().is_none() {
+            continue;
+        }
+
+        let full_tx = client.get_transaction(history_entry.txid()).await?;
+        for input in full_tx.tx.input {
+            if owned_outpoints.contains(&input.previous_output) {
+                spent.insert(input.previous_output);
+            }
+        }
+    }
+
+    Ok(spent)
 }
 
 fn process_outputs(
@@ -262,15 +388,13 @@ fn process_outputs(
     Ok(res)
 }
 
-// This is similar to the same function inside local scanner, may need to make it common
 pub fn output_key_to_secret_map(
     b_scan: &SecretKey,
     sp_receiver: &SpReceiver,
     tweak_data_vec: Vec<PublicKey>,
 ) -> anyhow::Result<HashMap<XOnlyPublicKey, SharedSecret>> {
-    let tweak_data_iterator = tweak_data_vec.into_iter();
-
-    let items: anyhow::Result<Vec<_>> = tweak_data_iterator
+    let items: anyhow::Result<Vec<_>> = tweak_data_vec
+        .into_iter()
         .map(|tweak| {
             let secret = calculate_ecdh_shared_secret(&tweak, b_scan);
             let output_keys = sp_receiver.generate_output_keys_from_shared_secret(&secret)?;
