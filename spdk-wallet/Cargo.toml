@@ -9,24 +9,14 @@ repository.workspace = true
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+silentpayments.workspace = true
 spdk-core.workspace = true
 backend-blindbit-v1 = { workspace = true, optional = true }
 local-scanner = { workspace = true, optional = true, features = ["rayon"] }
+spdk-spend.workspace = true
 
-anyhow.workspace = true
 bitcoin.workspace = true
-futures.workspace = true
-serde.workspace = true
-silentpayments.workspace = true
-log.workspace = true
-bdk_coin_select.workspace = true
 bip321.workspace = true
-
-[dev-dependencies]
-tokio.workspace = true
-async-trait.workspace = true
-serde_json.workspace = true
-
 
 [features]
 default = ["backend-blindbit-v1", "local-scanner"]

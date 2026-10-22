@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 spdk-core.workspace = true
+spdk-spend.workspace = true
 silentpayments.workspace = true
 
 anyhow.workspace = true

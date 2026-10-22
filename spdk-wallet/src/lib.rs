@@ -1,5 +1,4 @@
 mod bip321_parsing;
-pub mod client;
 
 // re-export traits for consumers who need to provide valid implementors
 // re-export blindbit backend if enabled
@@ -14,3 +13,4 @@ pub use bitcoin;
 pub use local_scanner::SpScanner;
 pub use silentpayments;
 pub use spdk_core::{chain, scanner};
+pub use spdk_spend;
