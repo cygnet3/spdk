@@ -9,7 +9,7 @@ use bitcoin::{Amount, BlockHash, OutPoint};
 use futures::{Stream, StreamExt as _, stream};
 use spdk_core::chain::{BoxedBlockData, ChainBackend, SpentIndexData, UtxoData};
 
-use crate::BlindbitClient;
+use crate::client::BlindbitClient;
 use crate::structs::BlindbitV1BlockData;
 use crate::utils::input_hashes_map;
 
@@ -21,8 +21,10 @@ pub struct BlindbitBackend {
 }
 
 impl BlindbitBackend {
-    pub const fn new(client: BlindbitClient) -> Self {
-        Self { client }
+    pub fn new(host_url: &str) -> Result<Self> {
+        Ok(Self {
+            client: BlindbitClient::new(host_url)?,
+        })
     }
 }
 
