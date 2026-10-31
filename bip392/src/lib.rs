@@ -26,19 +26,20 @@
 use core::fmt;
 use core::str::FromStr;
 
-pub use miniscript::Error;
 use miniscript::bitcoin::bip32::{self, ChildNumber, DerivationPath, Fingerprint};
 use miniscript::descriptor::Wildcard;
 pub use miniscript::descriptor::{
     DescriptorPublicKey, DescriptorSecretKey, SinglePubKey, checksum,
 };
-pub use miniscript::expression::{self, FromTree};
+pub use miniscript::expression;
 use secp256k1::{PublicKey, SecretKey};
 use silentpayments::Network as SpNetwork;
 
+mod error;
 mod keys;
 
-pub use self::keys::{SpKey, SpScanKey, SpSpendKey};
+pub use self::error::{Error, KeyError};
+pub use self::keys::{SpKey, SpKeyError, SpScanKey, SpSpendKey};
 
 /// A silent payment descriptor.
 ///
@@ -181,12 +182,12 @@ impl TwoKey {
     /// Rejects keys that cannot be materialized and stores the derived keys.
     fn new(scan: DescriptorSecretKey, spend: DescriptorSpendKey) -> Result<Self, Error> {
         let secp = secp256k1::Secp256k1::new();
-        let scan_secret = derive_secret_key(&secp, &scan)?;
+        let scan_secret = derive_secret_key(&secp, &scan).map_err(Error::Scan)?;
         let spend_secret: Option<SecretKey>;
         let spend_pubkey: PublicKey;
         match spend {
             DescriptorSpendKey::Private(ref desc) => {
-                let secret = derive_secret_key(&secp, desc)?;
+                let secret = derive_secret_key(&secp, desc).map_err(Error::Spend)?;
                 spend_pubkey = secret.public_key(&secp);
                 spend_secret = Some(secret);
             }
@@ -229,28 +230,20 @@ impl TwoKey {
 fn derive_secret_key<C: secp256k1::Signing>(
     secp: &secp256k1::Secp256k1<C>,
     descriptor_secret_key: &DescriptorSecretKey,
-) -> Result<SecretKey, Error> {
+) -> Result<SecretKey, KeyError> {
     let secret = match descriptor_secret_key {
-        DescriptorSecretKey::MultiXPrv(_) => {
-            return Err(Error::Unexpected(
-                "sp() spend key must not be multipath".to_string(),
-            ));
-        }
+        DescriptorSecretKey::MultiXPrv(_) => return Err(KeyError::Multipath),
         DescriptorSecretKey::XPrv(xprv) => {
             if xprv.wildcard != Wildcard::None {
-                return Err(Error::Unexpected(
-                    "sp() spend key must not contain a wildcard".to_string(),
-                ));
+                return Err(KeyError::Wildcard);
             }
             xprv.xkey
                 .derive_priv(secp, &xprv.derivation_path)
                 .map(|derived| derived.private_key)
-                .map_err(|e| Error::Unexpected(format!("sp() spend key: {e}")))?
+                .map_err(KeyError::Derivation)?
         }
         DescriptorSecretKey::Single(s) if !s.key.compressed => {
-            return Err(Error::Unexpected(
-                "sp() spend key must be compressed".to_string(),
-            ));
+            return Err(KeyError::Uncompressed);
         }
         DescriptorSecretKey::Single(s) => s.key.inner,
     };
@@ -261,15 +254,11 @@ fn derive_pubkey<C: secp256k1::Verification>(
     secp: &secp256k1::Secp256k1<C>,
     descriptor_pubkey: &DescriptorPublicKey,
 ) -> Result<PublicKey, Error> {
-    let pubkey = match descriptor_pubkey {
-        DescriptorPublicKey::MultiXPub(_) => Err(Error::Unexpected(
-            "sp() spend key must not be multipath".to_string(),
-        )),
+    match descriptor_pubkey {
+        DescriptorPublicKey::MultiXPub(_) => Err(Error::Spend(KeyError::Multipath)),
         DescriptorPublicKey::XPub(xpub) => {
             if xpub.wildcard != Wildcard::None {
-                return Err(Error::Unexpected(
-                    "sp() spend key must not contain a wildcard".to_string(),
-                ));
+                return Err(Error::Spend(KeyError::Wildcard));
             }
             if descriptor_pubkey.has_hardened_step() {
                 return Err(Error::Unexpected(
@@ -279,19 +268,18 @@ fn derive_pubkey<C: secp256k1::Verification>(
             xpub.xkey
                 .derive_pub(secp, &xpub.derivation_path)
                 .map(|derived| derived.public_key)
-                .map_err(|e| Error::Unexpected(format!("sp() spend key: {e}")))
+                .map_err(|err| Error::Spend(KeyError::Derivation(err)))
         }
         DescriptorPublicKey::Single(s) => match s.key {
-            SinglePubKey::FullKey(full) if !full.compressed => Err(Error::Unexpected(
-                "sp() spend key must be compressed".to_string(),
-            )),
+            SinglePubKey::FullKey(full) if !full.compressed => {
+                Err(Error::Spend(KeyError::Uncompressed))
+            }
             SinglePubKey::FullKey(full) => Ok(full.inner),
             SinglePubKey::XOnly(_) => Err(Error::Unexpected(
                 "sp() spend key must be compressed".to_string(),
             )),
         },
-    }?;
-    Ok(pubkey)
+    }
 }
 
 /// Splits a leading `[fingerprint/path]` off a key expression.
@@ -378,11 +366,11 @@ impl FromStr for Sp {
     }
 }
 
-impl FromTree for Sp {
+impl Sp {
     fn from_tree(root: expression::TreeIterItem) -> Result<Self, Error> {
         root.verify_toplevel("sp", 1..=2)
-            .map_err(From::from)
-            .map_err(Error::Parse)?;
+            .map_err(miniscript::ParseError::from)
+            .map_err(miniscript::Error::Parse)?;
 
         let mut children = root.children();
         let first = children.next().unwrap();
@@ -396,7 +384,7 @@ impl FromTree for Sp {
                     ));
                 }
                 let (key_str, origin) = split_key_origin(first.name())?;
-                let key = SpKey::from_str(key_str).map_err(|e| Error::Unexpected(e.to_string()))?;
+                let key = SpKey::from_str(key_str).map_err(Error::SpKey)?;
                 Ok(Sp::from_encoded(origin, key))
             }
             2 => {
@@ -621,15 +609,14 @@ mod tests {
     #[test]
     fn invalid_wildcard() {
         let (xprv, xpub) = account_xkeys();
-        for desc in [
-            format!("sp({xprv}/*,{xpub})"),
-            format!("sp({xprv},{xpub}/*h)"),
-            format!("sp({xprv},{xprv}/*)"),
+        for (desc, scan) in [
+            (format!("sp({xprv}/*,{xpub})"), true),
+            (format!("sp({xprv},{xpub}/*h)"), false),
+            (format!("sp({xprv},{xprv}/*)"), false),
         ] {
             match Sp::from_str(&desc) {
-                Err(Error::Unexpected(msg)) => {
-                    assert!(msg.contains("wildcard"), "{desc}: {msg}");
-                }
+                Err(Error::Scan(KeyError::Wildcard)) if scan => {}
+                Err(Error::Spend(KeyError::Wildcard)) if !scan => {}
                 other => panic!("expected wildcard rejection for {desc}, got {other:?}"),
             }
         }
@@ -643,7 +630,10 @@ mod tests {
 
     #[test]
     fn invalid_uncompressed_scan_key() {
-        assert!(Sp::from_str(&format!("sp({UNCOMPRESSED_WIF},{SPEND_PUB})")).is_err());
+        match Sp::from_str(&format!("sp({UNCOMPRESSED_WIF},{SPEND_PUB})")) {
+            Err(Error::Scan(KeyError::Uncompressed)) => {}
+            other => panic!("expected uncompressed scan key rejection, got {other:?}"),
+        }
     }
 
     #[test]
