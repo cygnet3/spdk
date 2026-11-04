@@ -82,6 +82,36 @@ pub fn propose_drain_selection(
     select_all_utxos_for_fee_rate(&utxos, &[placeholder], fee_rate)
 }
 
+enum SpOutputScripts {
+    None,
+    Pending,
+    Committed,
+}
+
+fn sp_output_scripts(psbt: &Psbt) -> Result<SpOutputScripts> {
+    let mut pending = false;
+    let mut committed = false;
+    for output in psbt
+        .outputs
+        .iter()
+        .filter(|output| output.sp_v0_info.is_some())
+    {
+        if output.script_pubkey.is_empty() {
+            pending = true;
+        } else {
+            committed = true;
+        }
+    }
+    match (pending, committed) {
+        (true, true) => Err(Error::msg(
+            "silent payment outputs are only partially derived",
+        )),
+        (false, false) => Ok(SpOutputScripts::None),
+        (true, false) => Ok(SpOutputScripts::Pending),
+        (false, true) => Ok(SpOutputScripts::Committed),
+    }
+}
+
 impl SpClient {
     fn validate_recipient_networks(recipients: &[Recipient], network: Network) -> Result<()> {
         let sp_network = sp_network_from_network(network);
@@ -250,34 +280,15 @@ impl SpClient {
     /// present, then commits the scripts. A PSBT with no silent-payment outputs
     /// is returned unchanged. Requires the spend secret when shares are missing.
     ///
-    /// When every silent-payment output already has a script, the scripts are
-    /// checked against the shares instead of being trusted. This wallet signs
-    /// every input, so that is the set passed to the check.
+    /// Scripts that are already set are not checked here. Use
+    /// [`Self::verify_committed_sp_outputs`].
     pub fn commit_sp_outputs(&self, mut psbt: Psbt) -> Result<Psbt> {
-        let mut pending = false;
-        let mut committed = false;
-        for output in &psbt.outputs {
-            if output.sp_v0_info.is_none() {
-                continue;
+        match sp_output_scripts(&psbt)? {
+            SpOutputScripts::None => return Ok(psbt),
+            SpOutputScripts::Committed => {
+                return Err(Error::msg("silent payment outputs are already derived"));
             }
-            if output.script_pubkey.is_empty() {
-                pending = true;
-            } else {
-                committed = true;
-            }
-        }
-        if pending && committed {
-            return Err(Error::msg(
-                "silent payment outputs are only partially derived",
-            ));
-        }
-        if !pending {
-            if committed {
-                let secp = Secp256k1::new();
-                let signed_inputs: Vec<usize> = (0..psbt.inputs.len()).collect();
-                psbt.verify_before_signing(&secp, &signed_inputs)?;
-            }
-            return Ok(psbt);
+            SpOutputScripts::Pending => {}
         }
 
         let secp = Secp256k1::new();
@@ -295,6 +306,23 @@ impl SpClient {
         let mut signer = Signer::new(psbt)?;
         signer.commit_silent_payment_outputs(scripts)?;
         Ok(signer.psbt())
+    }
+
+    /// Checks silent-payment scripts that are already set. Does not write them.
+    ///
+    /// A PSBT with no silent-payment outputs is accepted. Empty scripts are
+    /// rejected: [`Self::commit_sp_outputs`] has to run first. This wallet signs
+    /// every input, so that is the set passed to the check.
+    pub fn verify_committed_sp_outputs(&self, psbt: &Psbt) -> Result<()> {
+        match sp_output_scripts(psbt)? {
+            SpOutputScripts::None => Ok(()),
+            SpOutputScripts::Pending => Err(Error::msg("silent payment outputs are not derived")),
+            SpOutputScripts::Committed => {
+                let secp = Secp256k1::new();
+                let signed_inputs: Vec<usize> = (0..psbt.inputs.len()).collect();
+                Ok(psbt.verify_before_signing(&secp, &signed_inputs)?)
+            }
+        }
     }
 
     /// Signs every input this wallet can sign. Does not finalize witnesses.
@@ -636,20 +664,13 @@ mod tests {
             .create_transaction_from_proposal(&utxos, recipients, &selection, Network::Regtest)
             .expect("transaction");
         let mut psbt = client.commit_sp_outputs(psbt).expect("commit");
-        let recommitted = client
-            .commit_sp_outputs(psbt.clone())
+        client
+            .verify_committed_sp_outputs(&psbt)
             .expect("an already committed PSBT must still verify");
-        assert_eq!(
-            recommitted
-                .outputs
-                .iter()
-                .map(|output| output.script_pubkey.clone())
-                .collect::<Vec<_>>(),
-            psbt.outputs
-                .iter()
-                .map(|output| output.script_pubkey.clone())
-                .collect::<Vec<_>>()
-        );
+        let err = client
+            .commit_sp_outputs(psbt.clone())
+            .expect_err("commit must refuse scripts that are already set");
+        assert!(err.to_string().contains("already derived"));
 
         let change_vout = psbt
             .outputs
@@ -663,7 +684,7 @@ mod tests {
             ScriptBuf::new_p2tr_tweaked(xonly.dangerous_assume_tweaked());
 
         let err = client
-            .commit_sp_outputs(psbt.clone())
+            .verify_committed_sp_outputs(&psbt)
             .expect_err("a swapped silent payment script must be rejected");
         assert!(err.to_string().contains("does not match"));
 
@@ -671,7 +692,8 @@ mod tests {
             .sign_inputs(psbt)
             .expect_err("signing a swapped silent payment script must be rejected");
         assert!(
-            err.chain().any(|cause| cause.to_string().contains("does not match")),
+            err.chain()
+                .any(|cause| cause.to_string().contains("does not match")),
             "{err:#}"
         );
     }
