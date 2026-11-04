@@ -103,11 +103,11 @@ impl SpExtractorExt for Psbt {
             return Ok(());
         }
 
-        let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count);
+        let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count.into());
         for (vin, input) in self.inputs.iter().enumerate() {
             let outpoint = SpOutPoint::from_txid_and_vout(
                 &input.previous_txid.to_string(),
-                input.spent_output_index,
+                input.spent_output_index.into(),
             )
             .map_err(SpSignerError::from)?;
             let spk = &funding_output(input)
