@@ -48,6 +48,13 @@ fn rng() -> rand::rngs::ThreadRng {
     rand::thread_rng()
 }
 
+fn commit_derived_outputs(psbt: &mut Psbt, secp: &Secp256k1<secp256k1::All>) {
+    let scripts = psbt.derive_sp_output_scripts(secp).unwrap();
+    let mut signer = Signer::new(psbt.clone()).unwrap();
+    signer.commit_silent_payment_outputs(scripts).unwrap();
+    *psbt = signer.psbt();
+}
+
 fn sk(byte: u8) -> SecretKey {
     SecretKey::from_slice(&[byte; 32]).unwrap()
 }
@@ -373,7 +380,7 @@ fn test_single_signer_e2e() {
     let scripts = psbt.derive_sp_output_scripts(&secp).unwrap();
     assert_eq!(scripts.len(), 1);
 
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let sp_out = psbt
         .outputs
@@ -563,7 +570,7 @@ fn test_single_signer_ignores_non_eligible_input() {
         .unwrap();
     let scripts = psbt.derive_sp_output_scripts(&secp).unwrap();
     assert_eq!(scripts.len(), 1);
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let sp_out = psbt
         .outputs
@@ -912,7 +919,7 @@ fn test_single_signer_sp_input_receiver_can_scan() {
         .unwrap();
     let scripts = psbt.derive_sp_output_scripts(&secp).unwrap();
     assert_eq!(scripts.len(), 1);
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     assert_receiver_scan_finds_outputs(&secp, &psbt, &scan_sk, &spend_pk);
 }
@@ -1003,7 +1010,7 @@ fn test_multi_signer_two_parties_receiver_can_scan() {
     psbt_alice.inputs[1].sp_ecdh_shares = psbt_bob.inputs[1].sp_ecdh_shares.clone();
     psbt_alice.inputs[1].sp_dleq_proofs = psbt_bob.inputs[1].sp_dleq_proofs.clone();
 
-    psbt_alice.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt_alice, &secp);
 
     assert_receiver_scan_finds_outputs(&secp, &psbt_alice, &scan_sk, &spend_pk);
 }
@@ -1129,7 +1136,7 @@ fn test_uncompressed_p2pkh_cosigner_receiver_can_scan() {
     psbt.inputs[1].sp_ecdh_shares = psbt_bob.inputs[1].sp_ecdh_shares.clone();
     psbt.inputs[1].sp_dleq_proofs = psbt_bob.inputs[1].sp_dleq_proofs.clone();
 
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let mut receiver_inputs = TransactionInputs::with_capacity(2);
     let alice = &psbt.inputs[0];
@@ -1256,7 +1263,7 @@ fn committed_two_party_psbt(
         .unwrap();
     psbt.inputs[1].sp_ecdh_shares = psbt_bob.inputs[1].sp_ecdh_shares.clone();
     psbt.inputs[1].sp_dleq_proofs = psbt_bob.inputs[1].sp_dleq_proofs.clone();
-    psbt.commit_sp_outputs(secp).unwrap();
+    commit_derived_outputs(&mut psbt, secp);
     psbt
 }
 
@@ -1318,7 +1325,7 @@ fn test_verify_before_signing_rejects_tampered_output_script() {
     psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
     psbt.verify_before_signing(&secp, &[0]).unwrap();
 
     psbt.outputs[0].script_pubkey = p2tr_script(&secp, &sk(9));
@@ -1351,7 +1358,7 @@ fn test_compressed_p2pkh_contributes_and_receiver_can_scan() {
     psbt.inputs[0] = input;
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let spk = psbt.inputs[0]
         .witness_utxo
@@ -1399,7 +1406,7 @@ fn test_p2sh_p2wpkh_contributes_and_receiver_can_scan() {
     psbt.inputs[0] = input;
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let redeem = psbt.inputs[0].redeem_script.clone().unwrap();
     let spk = psbt.inputs[0]
@@ -1450,7 +1457,7 @@ fn test_global_share_skips_owned_uncompressed_p2pkh() {
     psbt.inputs[1] = p2pkh_uncompressed_input(&secp, outpoint(1), &uncompressed_sk);
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let mut inputs = TransactionInputs::with_capacity(2);
     let eligible = &psbt.inputs[0];
@@ -1512,7 +1519,7 @@ fn test_verify_before_signing_rejects_empty_output_script() {
     psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
     psbt.outputs[0].script_pubkey = ScriptBuf::new();
 
     let result = psbt.verify_before_signing(&secp, &[0]);
@@ -1537,7 +1544,7 @@ fn test_verify_before_signing_rejects_out_of_range_index() {
     psbt.inputs[0] = p2wpkh_input(&secp, outpoint(0), &spend_sk);
     psbt.add_ecdh_shares(&secp, &mut rng(), &spend_sk, ShareMode::Global)
         .unwrap();
-    psbt.commit_sp_outputs(&secp).unwrap();
+    commit_derived_outputs(&mut psbt, &secp);
 
     let result = psbt.verify_before_signing(&secp, &[9]);
     assert!(

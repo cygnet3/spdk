@@ -21,10 +21,7 @@ use std::fmt;
 
 use bitcoin::key::TweakedPublicKey;
 use bitcoin::{CompressedPublicKey, ScriptBuf, XOnlyPublicKey};
-use psbt_v2::{
-    CommitSilentPaymentOutputsError, DetermineLockTimeError, FundingUtxoError, GetKey, Input,
-    KeyRequest, Psbt, SilentPaymentVerifier, Signer as UpstreamSigner, SpV0Info,
-};
+use psbt_v2::{FundingUtxoError, GetKey, Input, KeyRequest, Psbt, SilentPaymentVerifier, SpV0Info};
 use secp256k1::rand::{CryptoRng, RngCore};
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, Signing, Verification};
 use silentpayments::sending::generate_recipient_pubkeys;
@@ -87,10 +84,6 @@ pub enum SpSignerError {
     SilentPayments(silentpayments::Error),
     /// secp256k1 failure.
     Secp256k1(secp256k1::Error),
-    /// Upstream lock-time determination failed when constructing the commit signer.
-    DetermineLockTime(DetermineLockTimeError),
-    /// Upstream `commit_silent_payment_outputs` rejected the derived scripts.
-    CommitOutputs(CommitSilentPaymentOutputsError),
     /// A silent payment output script is empty or differs from the one derived from the
     /// verified ECDH shares.
     OutputScriptMismatch { index: usize },
@@ -148,8 +141,6 @@ impl fmt::Display for SpSignerError {
             ),
             E::SilentPayments(e) => write!(f, "silent payments error: {e}"),
             E::Secp256k1(e) => write!(f, "secp256k1 error: {e}"),
-            E::DetermineLockTime(e) => write!(f, "cannot determine lock time: {e}"),
-            E::CommitOutputs(e) => write!(f, "failed to commit silent payment outputs: {e}"),
             E::OutputScriptMismatch { index } => write!(
                 f,
                 "output {index}: silent payment script does not match the verified ECDH shares"
@@ -189,18 +180,6 @@ impl From<silentpayments::Error> for SpSignerError {
 impl From<secp256k1::Error> for SpSignerError {
     fn from(value: secp256k1::Error) -> Self {
         Self::Secp256k1(value)
-    }
-}
-
-impl From<DetermineLockTimeError> for SpSignerError {
-    fn from(value: DetermineLockTimeError) -> Self {
-        Self::DetermineLockTime(value)
-    }
-}
-
-impl From<CommitSilentPaymentOutputsError> for SpSignerError {
-    fn from(value: CommitSilentPaymentOutputsError) -> Self {
-        Self::CommitOutputs(value)
     }
 }
 
@@ -255,13 +234,6 @@ pub trait SpSignerExt {
         &self,
         secp: &Secp256k1<C>,
     ) -> Result<Vec<(usize, ScriptBuf)>, SpSignerError>
-    where
-        C: Signing + Verification;
-
-    /// Single-signer convenience: derive + commit in one step. The commit is
-    /// upstream's `commit_silent_payment_outputs`, which runs the BIP-375 signer
-    /// checks and clears the modifiable flags. `self` is left untouched on error.
-    fn commit_sp_outputs<C>(&mut self, secp: &Secp256k1<C>) -> Result<(), SpSignerError>
     where
         C: Signing + Verification;
 
@@ -459,20 +431,6 @@ impl SpSignerExt for Psbt {
         }
 
         derive_sp_output_scripts_from_inputs(self, secp, &transaction_inputs)
-    }
-
-    fn commit_sp_outputs<C>(&mut self, secp: &Secp256k1<C>) -> Result<(), SpSignerError>
-    where
-        C: Signing + Verification,
-    {
-        let scripts = self.derive_sp_output_scripts(secp)?;
-        // Upstream commit: refuses script mismatches, clears the modifiable flags
-        // (without clobbering SIGHASH_SINGLE) and runs the BIP-375 signer checks.
-        // Operate on a clone so `self` stays untouched on error.
-        let mut signer = UpstreamSigner::new(self.clone())?;
-        signer.commit_silent_payment_outputs(scripts)?;
-        *self = signer.psbt();
-        Ok(())
     }
 
     fn verify_before_signing<C>(

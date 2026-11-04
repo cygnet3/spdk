@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use bitcoin::base64::prelude::{BASE64_STANDARD, Engine as _};
 use psbt::extractor::{SpExtractorError, SpExtractorExt};
 use psbt::signer::SpSignerExt;
-use psbt_v2::{Finalizer, Psbt, SilentPaymentState};
+use psbt_v2::{Finalizer, Psbt, Signer, SilentPaymentState};
 use secp256k1::Secp256k1;
 use serde::Deserialize;
 
@@ -67,11 +67,14 @@ fn parse_psbt(base64: &str) -> Result<Psbt, psbt_v2::DeserializeError> {
 
 fn derive_outputs(psbt: &Psbt) -> Result<Psbt, String> {
     let secp = Secp256k1::new();
-    let mut derived = psbt.clone();
-    derived
-        .commit_sp_outputs(&secp)
-        .map_err(|e| format!("commit_sp_outputs failed: {e}"))?;
-    Ok(derived)
+    let scripts = psbt
+        .derive_sp_output_scripts(&secp)
+        .map_err(|e| format!("derive_sp_output_scripts failed: {e}"))?;
+    let mut signer = Signer::new(psbt.clone()).map_err(|e| format!("Signer::new failed: {e}"))?;
+    signer
+        .commit_silent_payment_outputs(scripts)
+        .map_err(|e| format!("commit_silent_payment_outputs failed: {e}"))?;
+    Ok(signer.psbt())
 }
 
 fn has_unsigned_inputs(psbt: &Psbt) -> bool {

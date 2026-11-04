@@ -291,8 +291,10 @@ impl SpClient {
             let mut rng = OsRng;
             psbt.add_ecdh_shares(&secp, &mut rng, &spend_sk, ShareMode::Global)?;
         }
-        psbt.commit_sp_outputs(&secp)?;
-        Ok(psbt)
+        let scripts = psbt.derive_sp_output_scripts(&secp)?;
+        let mut signer = Signer::new(psbt)?;
+        signer.commit_silent_payment_outputs(scripts)?;
+        Ok(signer.psbt())
     }
 
     /// Signs every input this wallet can sign. Does not finalize witnesses.
