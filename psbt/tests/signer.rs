@@ -87,7 +87,7 @@ fn sp_output(scan: &PublicKey, spend: &PublicKey) -> Output {
 /// for non-P2TR spends, so both UTXO forms are set and kept consistent.
 /// The txid of the `OutPoint` passed to [`Input::new`] is not preserved.
 fn set_verified_funding_utxo(input: &mut Input, txout: TxOut) {
-    let vout = input.spent_output_index as usize;
+    let vout: usize = input.spent_output_index.into();
     let mut output = vec![
         TxOut {
             value: Amount::ZERO,
@@ -128,11 +128,7 @@ fn p2wpkh_input(secp: &Secp256k1<secp256k1::All>, outpoint: OutPoint, secret: &S
 }
 
 /// Build a P2PKH `Input` funded to the compressed encoding of `secret`'s public key.
-fn p2pkh_input(
-    secp: &Secp256k1<secp256k1::All>,
-    outpoint: OutPoint,
-    secret: &SecretKey,
-) -> Input {
+fn p2pkh_input(secp: &Secp256k1<secp256k1::All>, outpoint: OutPoint, secret: &SecretKey) -> Input {
     let public = bitcoin::PublicKey::new(secret.public_key(secp));
     let mut input = Input::new(&outpoint);
     input.sequence = Some(Sequence::MAX);
@@ -266,9 +262,11 @@ fn sign_sp_input(psbt: Psbt, spend_sk: &SecretKey, secp: &Secp256k1<secp256k1::A
     let sigs = signer
         .session(&verifier, &[0], |mut session| {
             let inputs = session.signable_inputs().unwrap();
-            vec![session
-                .get_silent_payment_sigs(&inputs, 0, spend_sk, secp)
-                .unwrap()]
+            vec![
+                session
+                    .get_silent_payment_sigs(&inputs, 0, spend_sk, secp)
+                    .unwrap(),
+            ]
         })
         .unwrap();
     signer.apply(sigs).unwrap()
@@ -276,11 +274,11 @@ fn sign_sp_input(psbt: Psbt, spend_sk: &SecretKey, secp: &Secp256k1<secp256k1::A
 
 /// Rebuild the sender-side `TransactionInputs` exactly as `compute_sp_outputs` does.
 fn transaction_inputs_for(psbt: &Psbt) -> TransactionInputs {
-    let mut inputs = TransactionInputs::with_capacity(psbt.global.input_count);
+    let mut inputs = TransactionInputs::with_capacity(psbt.global.input_count.into());
     for (vin, input) in psbt.inputs.iter().enumerate() {
         let outpoint = SpOutPoint::from_txid_and_vout(
             &input.previous_txid.to_string(),
-            input.spent_output_index,
+            input.spent_output_index.into(),
         )
         .unwrap();
         let spk = input
@@ -869,7 +867,7 @@ fn test_sign_sp_inputs_produces_valid_taproot_sig() {
             .inputs
             .iter()
             .map(|i| bitcoin::TxIn {
-                previous_output: OutPoint::new(i.previous_txid, i.spent_output_index),
+                previous_output: OutPoint::new(i.previous_txid, i.spent_output_index.into()),
                 script_sig: ScriptBuf::new(),
                 sequence: i.sequence.unwrap_or(Sequence::MAX),
                 witness: bitcoin::Witness::new(),
@@ -1136,7 +1134,7 @@ fn test_uncompressed_p2pkh_cosigner_receiver_can_scan() {
     let mut receiver_inputs = TransactionInputs::with_capacity(2);
     let alice = &psbt.inputs[0];
     receiver_inputs.push(
-        SpOutPoint::from_txid_and_vout(&alice.previous_txid.to_string(), alice.spent_output_index)
+        SpOutPoint::from_txid_and_vout(&alice.previous_txid.to_string(), alice.spent_output_index.into())
             .unwrap(),
         p2wpkh_script(&secp, &alice_sk).to_bytes(),
         Some(alice_sk.public_key(&secp)),
@@ -1151,7 +1149,7 @@ fn test_uncompressed_p2pkh_cosigner_receiver_can_scan() {
     .unwrap();
     assert_eq!(bob_key, None, "receiver skips an uncompressed P2PKH key");
     receiver_inputs.push(
-        SpOutPoint::from_txid_and_vout(&bob.previous_txid.to_string(), bob.spent_output_index)
+        SpOutPoint::from_txid_and_vout(&bob.previous_txid.to_string(), bob.spent_output_index.into())
             .unwrap(),
         bob_spk.to_bytes(),
         bob_key,
@@ -1369,16 +1367,15 @@ fn test_compressed_p2pkh_contributes_and_receiver_can_scan() {
     assert_eq!(pubkey, Some(spend_sk.public_key(&secp)));
 
     let mut inputs = TransactionInputs::with_capacity(1);
-    inputs
-        .push(
-            SpOutPoint::from_txid_and_vout(
-                &psbt.inputs[0].previous_txid.to_string(),
-                psbt.inputs[0].spent_output_index,
-            )
-            .unwrap(),
-            spk.to_bytes(),
-            pubkey,
-        );
+    inputs.push(
+        SpOutPoint::from_txid_and_vout(
+            &psbt.inputs[0].previous_txid.to_string(),
+            psbt.inputs[0].spent_output_index.into(),
+        )
+        .unwrap(),
+        spk.to_bytes(),
+        pubkey,
+    );
     assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
 }
 
@@ -1422,16 +1419,15 @@ fn test_p2sh_p2wpkh_contributes_and_receiver_can_scan() {
     assert_eq!(pubkey, Some(spend_sk.public_key(&secp)));
 
     let mut inputs = TransactionInputs::with_capacity(1);
-    inputs
-        .push(
-            SpOutPoint::from_txid_and_vout(
-                &psbt.inputs[0].previous_txid.to_string(),
-                psbt.inputs[0].spent_output_index,
-            )
-            .unwrap(),
-            spk.to_bytes(),
-            pubkey,
-        );
+    inputs.push(
+        SpOutPoint::from_txid_and_vout(
+            &psbt.inputs[0].previous_txid.to_string(),
+            psbt.inputs[0].spent_output_index.into(),
+        )
+        .unwrap(),
+        spk.to_bytes(),
+        pubkey,
+    );
     assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
 }
 
@@ -1458,23 +1454,17 @@ fn test_global_share_skips_owned_uncompressed_p2pkh() {
 
     let mut inputs = TransactionInputs::with_capacity(2);
     let eligible = &psbt.inputs[0];
-    inputs
-        .push(
-            SpOutPoint::from_txid_and_vout(
-                &eligible.previous_txid.to_string(),
-                eligible.spent_output_index,
-            )
-            .unwrap(),
-            p2wpkh_script(&secp, &spend_sk).to_bytes(),
-            Some(spend_sk.public_key(&secp)),
-        );
+    inputs.push(
+        SpOutPoint::from_txid_and_vout(
+            &eligible.previous_txid.to_string(),
+            eligible.spent_output_index.into(),
+        )
+        .unwrap(),
+        p2wpkh_script(&secp, &spend_sk).to_bytes(),
+        Some(spend_sk.public_key(&secp)),
+    );
     let skipped = &psbt.inputs[1];
-    let skipped_spk = skipped
-        .witness_utxo
-        .as_ref()
-        .unwrap()
-        .script_pubkey
-        .clone();
+    let skipped_spk = skipped.witness_utxo.as_ref().unwrap().script_pubkey.clone();
     let skipped_key = get_pubkey_from_input(
         p2pkh_uncompressed_script_sig(&secp, &uncompressed_sk).as_bytes(),
         &[],
@@ -1482,16 +1472,15 @@ fn test_global_share_skips_owned_uncompressed_p2pkh() {
     )
     .unwrap();
     assert_eq!(skipped_key, None);
-    inputs
-        .push(
-            SpOutPoint::from_txid_and_vout(
-                &skipped.previous_txid.to_string(),
-                skipped.spent_output_index,
-            )
-            .unwrap(),
-            skipped_spk.to_bytes(),
-            skipped_key,
-        );
+    inputs.push(
+        SpOutPoint::from_txid_and_vout(
+            &skipped.previous_txid.to_string(),
+            skipped.spent_output_index.into(),
+        )
+        .unwrap(),
+        skipped_spk.to_bytes(),
+        skipped_key,
+    );
     assert_receiver_scan_finds_outputs_from(&secp, &psbt, &inputs, &scan_sk, &spend_pk);
 }
 
@@ -1574,10 +1563,7 @@ fn test_session_rejects_signing_outside_declared_inputs() {
         session.signable_input(1).map(|_| ())
     });
     assert!(
-        matches!(
-            result,
-            Ok(Err(SignError::NotInSignedInputs { index: 1 }))
-        ),
+        matches!(result, Ok(Err(SignError::NotInSignedInputs { index: 1 }))),
         "got {result:?}"
     );
 }

@@ -444,11 +444,11 @@ impl SpSignerExt for Psbt {
         }
 
         // The BIP-352 input set, exactly as the receiver rebuilds it.
-        let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count);
+        let mut transaction_inputs = TransactionInputs::with_capacity(self.global.input_count.into());
         for (vin, input) in self.inputs.iter().enumerate() {
             let outpoint = SpOutPoint::from_txid_and_vout(
                 &input.previous_txid.to_string(),
-                input.spent_output_index,
+                input.spent_output_index.into(),
             )?;
             let spk = funding_output(input)?.script_pubkey.to_bytes();
             let pubkey = extract_eligible_input_pubkey(input, vin)?;
