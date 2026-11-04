@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::{Error, Result};
 use bitcoin::bip32::{DerivationPath, Fingerprint};
@@ -18,9 +18,7 @@ use silentpayments::Network as SpNetwork;
 use spdk_core::scanner::DiscoveredOutput;
 
 use super::coin_select::{pick_utxos_for_fee_rate, select_all_utxos_for_fee_rate};
-use super::{
-    CoinSelectProposal, DrainSelection, FeeRate, Recipient, RecipientAddress, SpClient,
-};
+use super::{CoinSelectProposal, DrainSelection, FeeRate, Recipient, RecipientAddress, SpClient};
 
 const fn sp_network_from_network(network: Network) -> SpNetwork {
     match network {
@@ -127,30 +125,6 @@ impl SpClient {
         Ok(())
     }
 
-    fn resolve_selected_utxos(
-        available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
-        selected: &[OutPoint],
-    ) -> Result<Vec<(OutPoint, DiscoveredOutput)>> {
-        let res = selected
-            .iter()
-            .map(|outpoint| {
-                if let Some(output) = available_utxos.get(outpoint) {
-                    Ok((*outpoint, output.clone()))
-                } else {
-                    Err(Error::msg(format!(
-                        "outpoint {outpoint} not found in available_utxos"
-                    )))
-                }
-            })
-            .collect::<Result<Vec<(OutPoint, DiscoveredOutput)>>>()?;
-        if res.len() != selected.len() {
-            return Err(Error::msg(
-                "All selected outpoints are not in provided utxos",
-            ));
-        }
-        Ok(res)
-    }
-
     fn assemble_unsigned(
         &self,
         available_utxos: &HashMap<OutPoint, DiscoveredOutput>,
@@ -159,14 +133,17 @@ impl SpClient {
         network: Network,
     ) -> Result<Psbt> {
         Self::validate_recipient_networks(recipients, network)?;
-        let selected_utxos = Self::resolve_selected_utxos(available_utxos, selected_outpoints)?;
         let spend_pubkey = CompressedPublicKey(PublicKey::from(&self.spend_key()));
 
         // Inputs and outputs are fixed by coin selection. Freeze them here so a
         // later ECDH share cannot be computed against a different input set.
         let mut constructor = Constructor::<Modifiable>::default();
-        for (outpoint, output) in &selected_utxos {
-            constructor = constructor.input(input_for_utxo(spend_pubkey, outpoint, output));
+        for outpoint in selected_outpoints.iter() {
+            if let Some(output) = available_utxos.get(outpoint) {
+                constructor = constructor.input(input_for_utxo(spend_pubkey, outpoint, output));
+            } else {
+                return Err(Error::msg(format!("{outpoint} isn't part of this wallet")));
+            }
         }
         for recipient in recipients {
             constructor = constructor.output(output_for_recipient(recipient, network)?)?;
@@ -215,15 +192,6 @@ impl SpClient {
             ));
         }
 
-        // Check that there's no duplicate selection
-        let selected_utxos = selection.selected_utxos();
-        let mut selected_seen = HashSet::with_capacity(selected_utxos.len());
-        for outpoint in selected_utxos {
-            if !selected_seen.insert(outpoint) {
-                return Err(Error::msg("Duplicate outpoint in selected_utxos"));
-            }
-        }
-
         if selection.change() > Amount::ZERO {
             recipients.push(Recipient {
                 address: RecipientAddress::SpCode(self.sp_receiver.change_code()),
@@ -232,7 +200,12 @@ impl SpClient {
         }
         recipients.shuffle(&mut thread_rng());
 
-        self.assemble_unsigned(available_utxos, selected_utxos, &recipients, network)
+        self.assemble_unsigned(
+            available_utxos,
+            selection.selected_utxos(),
+            &recipients,
+            network,
+        )
     }
 
     /// Builds an unsigned drain PSBT from a [`DrainSelection`].
