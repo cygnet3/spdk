@@ -1,15 +1,11 @@
 use std::str::FromStr as _;
 
-use anyhow::Error;
 // re-export from bdk_coin_select, as we use this in the api
 pub use bdk_coin_select::FeeRate;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
-use bitcoin::key::Secp256k1;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Network, OutPoint, Transaction};
-use serde::{Deserialize, Serialize};
 use silentpayments::SilentPaymentCode;
 use silentpayments::utils::sending::PartialSecret;
 use spdk_core::scanner::DiscoveredOutput;
@@ -73,50 +69,4 @@ pub struct SilentPaymentUnsignedTransaction {
     pub actual_fee_rate: FeeRate,
     /// Coin-selection strategy used for a payment; `None` for drain transactions.
     pub strategy: Option<Strategy>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-pub enum SpendKey {
-    Secret(SecretKey),
-    Public(PublicKey),
-}
-
-impl Drop for SpendKey {
-    fn drop(&mut self) {
-        if let Self::Secret(sk) = self {
-            // Erase the key material before dropping.
-            // secp256k1::SecretKey does not implement Zeroize (its inner
-            // array is private); non_secure_erase() is the zeroize-documented
-            // erase path (volatile C-level memset, cannot be optimized away).
-            sk.non_secure_erase();
-        }
-    }
-}
-
-impl TryInto<SecretKey> for SpendKey {
-    type Error = anyhow::Error;
-    fn try_into(self) -> std::prelude::v1::Result<SecretKey, Error> {
-        match self {
-            Self::Secret(k) => Ok(k),
-            Self::Public(_) => Err(Error::msg("Can't take SecretKey from Public")),
-        }
-    }
-}
-
-impl From<&SpendKey> for PublicKey {
-    fn from(value: &SpendKey) -> Self {
-        match value {
-            SpendKey::Secret(k) => {
-                let secp = Secp256k1::signing_only();
-                k.public_key(&secp)
-            }
-            SpendKey::Public(p) => *p,
-        }
-    }
-}
-
-impl From<SpendKey> for PublicKey {
-    fn from(value: SpendKey) -> Self {
-        (&value).into()
-    }
 }
