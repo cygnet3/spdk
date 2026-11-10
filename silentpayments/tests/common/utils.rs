@@ -1,75 +1,17 @@
 use std::fs::File;
-use std::io::{self, Cursor, Read as _};
-use std::str::FromStr as _;
+use std::io::Read as _;
 
 use bitcoin_hashes::Hash as _;
-use secp256k1::{Message, Scalar, SecretKey, XOnlyPublicKey};
+use secp256k1::{Message, Scalar, SecretKey};
 use serde_json::from_str;
-use silentpayments::SilentPaymentCode;
 
 use super::structs::{OutputWithSignature, TestData};
-
-fn deser_compact_size(f: &mut Cursor<&Vec<u8>>) -> io::Result<u64> {
-    let mut buf = [0; 8];
-    f.read_exact(&mut buf[..1])?;
-    match buf[0] {
-        0xfd => {
-            f.read_exact(&mut buf[..2])?;
-            Ok(u64::from(u16::from_le_bytes(buf[..2].try_into().unwrap())))
-        }
-        0xfe => {
-            f.read_exact(&mut buf[..4])?;
-            Ok(u64::from(u32::from_le_bytes(buf[..4].try_into().unwrap())))
-        }
-        0xff => {
-            f.read_exact(&mut buf)?;
-            Ok(u64::from_le_bytes(buf))
-        }
-        _ => Ok(u64::from(buf[0])),
-    }
-}
-
-fn deser_string(f: &mut Cursor<&Vec<u8>>) -> io::Result<Vec<u8>> {
-    let size = usize::try_from(deser_compact_size(f)?)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize"))?;
-    let mut buf = vec![0; size];
-    f.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-pub fn deser_string_vector(f: &mut Cursor<&Vec<u8>>) -> io::Result<Vec<Vec<u8>>> {
-    // Check if the buffer is empty before attempting to deserialize the size
-    if f.get_ref().is_empty() {
-        return Ok(Vec::new()); // Return an empty vector if the buffer is empty
-    }
-    let size = usize::try_from(deser_compact_size(f)?)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "compact size exceeds usize"))?;
-    let mut vec = Vec::with_capacity(size);
-    for _ in 0..size {
-        vec.push(deser_string(f)?);
-    }
-    Ok(vec)
-}
 
 pub fn read_file() -> Vec<TestData> {
     let mut file = File::open("tests/resources/send_and_receive_test_vectors.json").unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     from_str(&contents).unwrap()
-}
-
-pub fn decode_outputs_to_check(outputs: &[String]) -> Vec<XOnlyPublicKey> {
-    outputs
-        .iter()
-        .map(|x| XOnlyPublicKey::from_str(x).unwrap())
-        .collect()
-}
-
-pub fn decode_recipients(recipients: &[String]) -> Vec<SilentPaymentCode> {
-    recipients
-        .iter()
-        .map(|sp_code_str| SilentPaymentCode::from_str(sp_code_str).unwrap())
-        .collect()
 }
 
 pub fn verify_and_calculate_signatures(
@@ -97,9 +39,9 @@ pub fn verify_and_calculate_signatures(
 
         // Push result to list
         res.push(OutputWithSignature {
-            pub_key: P.to_string(),
-            priv_key_tweak: hex::encode(tweak.to_be_bytes()),
-            signature: sig.to_string(),
+            pub_key: P,
+            priv_key_tweak: tweak,
+            signature: sig,
         });
     }
     Ok(res)
