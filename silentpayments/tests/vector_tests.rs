@@ -3,10 +3,9 @@ mod common;
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::io::Cursor;
-    use std::str::FromStr as _;
 
-    use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
+    use bitcoin::hashes::Hash as _;
+    use secp256k1::{PublicKey, Scalar, Secp256k1};
     use silentpayments::receiving::{Label, Receiver};
     use silentpayments::sending::generate_recipient_pubkeys;
     use silentpayments::utils::OutPoint;
@@ -17,10 +16,7 @@ mod tests {
     use silentpayments::{Network, SilentPaymentCode};
 
     use crate::common::structs::TestData;
-    use crate::common::utils::{
-        self, decode_outputs_to_check, decode_recipients, deser_string_vector,
-        verify_and_calculate_signatures,
-    };
+    use crate::common::utils::{self, verify_and_calculate_signatures};
 
     const NETWORK: Network = Network::Mainnet;
 
@@ -46,21 +42,18 @@ mod tests {
             let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(&vin.txid, vin.vout).unwrap())
+                .map(|vin| OutPoint::from_txid_bytes_and_vout(vin.txid.to_byte_array(), vin.vout))
                 .collect();
             let mut input_priv_keys = Vec::new();
             for input in given.vin {
-                let script_sig = hex::decode(&input.scriptSig).unwrap();
-                let txinwitness_bytes = hex::decode(&input.txinwitness).unwrap();
-                let mut cursor = Cursor::new(&txinwitness_bytes);
-                let txinwitness = deser_string_vector(&mut cursor).unwrap();
-                let script_pub_key = hex::decode(&input.prevout.scriptPubKey.hex).unwrap();
+                let script_sig = input.scriptSig.as_bytes();
+                let txinwitness = input.txinwitness.to_vec();
+                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes();
 
-                match get_pubkey_from_input(&script_sig, &txinwitness, &script_pub_key) {
-                    Ok(Some(_pubkey)) => input_priv_keys.push((
-                        SecretKey::from_str(&input.private_key).unwrap(),
-                        is_p2tr(&script_pub_key),
-                    )),
+                match get_pubkey_from_input(script_sig, &txinwitness, script_pub_key) {
+                    Ok(Some(_pubkey)) => {
+                        input_priv_keys.push((input.private_key, is_p2tr(script_pub_key)));
+                    }
                     Ok(None) => (),
                     Err(e) => panic!("Problem parsing the input: {e:?}"),
                 }
@@ -71,7 +64,7 @@ mod tests {
 
             // we drop the amounts from the test here, since we don't work with amounts
             // the wallet should make sure the amount sent are correct
-            let silent_payment_codes = decode_recipients(&given.recipients);
+            let silent_payment_codes = given.recipients;
 
             // as an alternative, we could first multiply each input priv key with the input hash
             // that way, we never expose the sk to our library
@@ -94,8 +87,8 @@ mod tests {
             let given = receivingtest.given;
             let expected = receivingtest.expected;
 
-            let b_scan = SecretKey::from_str(&given.key_material.scan_priv_key).unwrap();
-            let b_spend = SecretKey::from_str(&given.key_material.spend_priv_key).unwrap();
+            let b_scan = given.key_material.scan_priv_key;
+            let b_spend = given.key_material.spend_priv_key;
             let B_spend = b_spend.public_key(&secp);
             let B_scan = b_scan.public_key(&secp);
 
@@ -109,22 +102,20 @@ mod tests {
             )
             .unwrap();
 
-            let outputs_to_check = decode_outputs_to_check(&given.outputs);
+            let outputs_to_check = given.outputs;
 
             let outpoints: Vec<OutPoint> = given
                 .vin
                 .iter()
-                .map(|vin| OutPoint::from_txid_and_vout(&vin.txid, vin.vout).unwrap())
+                .map(|vin| OutPoint::from_txid_bytes_and_vout(vin.txid.to_byte_array(), vin.vout))
                 .collect();
             let mut input_pub_keys = Vec::new();
             for input in given.vin {
-                let script_sig = hex::decode(&input.scriptSig).unwrap();
-                let txinwitness_bytes = hex::decode(&input.txinwitness).unwrap();
-                let mut cursor = Cursor::new(&txinwitness_bytes);
-                let txinwitness = deser_string_vector(&mut cursor).unwrap();
-                let script_pub_key = hex::decode(&input.prevout.scriptPubKey.hex).unwrap();
+                let script_sig = input.scriptSig.as_bytes();
+                let txinwitness = input.txinwitness.to_vec();
+                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes();
 
-                match get_pubkey_from_input(&script_sig, &txinwitness, &script_pub_key) {
+                match get_pubkey_from_input(script_sig, &txinwitness, script_pub_key) {
                     Ok(Some(pubkey)) => input_pub_keys.push(pubkey),
                     Ok(None) => (),
                     Err(e) => panic!("Problem parsing the input: {e:?}"),
