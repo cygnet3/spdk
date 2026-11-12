@@ -2,18 +2,18 @@
 mod common;
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use bitcoin::hashes::Hash as _;
-    use secp256k1::{PublicKey, Scalar, Secp256k1};
+    use secp256k1::{Scalar, Secp256k1};
     use silentpayments::receiving::{Label, Receiver};
     use silentpayments::sending::generate_recipient_pubkeys;
     use silentpayments::utils::OutPoint;
-    use silentpayments::utils::receiving::{
-        calculate_ecdh_shared_secret, calculate_tweak_data, get_pubkey_from_input, is_p2tr,
+    use silentpayments::utils::receiving::{PublicTweakData, get_pubkey_from_input, is_p2tr};
+    use silentpayments::utils::sending::{GlobalSenderEcdhShare, NormalizedSecretKey};
+    use silentpayments::{
+        Network, NonEmptyArray, SilentPaymentCode, TransactionInputs, TransactionSharedSecret,
     };
-    use silentpayments::utils::sending::calculate_partial_secret;
-    use silentpayments::{Network, SilentPaymentCode};
 
     use crate::common::structs::TestData;
     use crate::common::utils::{self, verify_and_calculate_signatures};
@@ -39,26 +39,35 @@ mod tests {
         for sendingtest in test_case.sending {
             let given = sendingtest.given;
             let expected = sendingtest.expected;
-            let outpoints: Vec<OutPoint> = given
-                .vin
-                .iter()
-                .map(|vin| OutPoint::from_txid_bytes_and_vout(vin.txid.to_byte_array(), vin.vout))
-                .collect();
-            let mut input_priv_keys = Vec::new();
-            for input in given.vin {
-                let script_sig = input.scriptSig.as_bytes();
-                let txinwitness = input.txinwitness.to_vec();
-                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes();
 
-                match get_pubkey_from_input(script_sig, &txinwitness, script_pub_key) {
-                    Ok(Some(_pubkey)) => {
-                        input_priv_keys.push((input.private_key, is_p2tr(script_pub_key)));
-                    }
-                    Ok(None) => (),
+            // Keep every vin. The input hash uses the smallest outpoint of the whole
+            // transaction, including inputs that are not silent-payment eligible.
+            // Private keys are summed only for inputs that yield a pubkey, matching
+            // `TransactionInputs::eligible_pubkeys`.
+            let mut inputs = TransactionInputs::with_capacity(given.vin.len());
+            let mut normalized_keys = Vec::new();
+            for input in given.vin {
+                let outpoint =
+                    OutPoint::from_txid_bytes_and_vout(input.txid.to_byte_array(), input.vout);
+                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes().to_vec();
+                let pubkey = match get_pubkey_from_input(
+                    input.scriptSig.as_bytes(),
+                    &input.txinwitness.to_vec(),
+                    &script_pub_key,
+                ) {
+                    Ok(pubkey) => pubkey,
                     Err(e) => panic!("Problem parsing the input: {e:?}"),
+                };
+                if pubkey.is_some() {
+                    normalized_keys.push(NormalizedSecretKey::new(
+                        &secp,
+                        input.private_key,
+                        is_p2tr(&script_pub_key),
+                    ));
                 }
+                inputs.push(outpoint, script_pub_key, pubkey);
             }
-            if input_priv_keys.is_empty() {
+            if normalized_keys.is_empty() {
                 continue;
             }
 
@@ -66,10 +75,30 @@ mod tests {
             // the wallet should make sure the amount sent are correct
             let silent_payment_codes = given.recipients;
 
-            // as an alternative, we could first multiply each input priv key with the input hash
-            // that way, we never expose the sk to our library
-            let partial_secret = calculate_partial_secret(&input_priv_keys, &outpoints).unwrap();
-            let outputs = generate_recipient_pubkeys(silent_payment_codes, partial_secret).unwrap();
+            let aux_rand = [0u8; 32];
+
+            let mut shared_secrets = HashMap::new();
+            for payment_code in &silent_payment_codes {
+                let recipient_scan_key = payment_code.scan_key();
+                if shared_secrets.contains_key(&recipient_scan_key) {
+                    continue;
+                }
+                let global_share = GlobalSenderEcdhShare::new_from_summed_keys(
+                    &secp,
+                    recipient_scan_key,
+                    NonEmptyArray::new(&normalized_keys).unwrap(),
+                    &aux_rand,
+                )
+                .unwrap();
+                shared_secrets.insert(
+                    recipient_scan_key,
+                    TransactionSharedSecret::new_from_global_share(&secp, &global_share, &inputs)
+                        .unwrap(),
+                );
+            }
+
+            let outputs =
+                generate_recipient_pubkeys(&secp, &silent_payment_codes, &shared_secrets).unwrap();
 
             for output_pubkeys in &outputs {
                 for pubkey in output_pubkeys.1 {
@@ -104,28 +133,26 @@ mod tests {
 
             let outputs_to_check = given.outputs;
 
-            let outpoints: Vec<OutPoint> = given
-                .vin
-                .iter()
-                .map(|vin| OutPoint::from_txid_bytes_and_vout(vin.txid.to_byte_array(), vin.vout))
-                .collect();
-            let mut input_pub_keys = Vec::new();
+            // Keep every vin. The input hash uses the smallest outpoint of the whole
+            // transaction, including inputs that are not silent-payment eligible.
+            let mut inputs = TransactionInputs::with_capacity(given.vin.len());
             for input in given.vin {
-                let script_sig = input.scriptSig.as_bytes();
-                let txinwitness = input.txinwitness.to_vec();
-                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes();
-
-                match get_pubkey_from_input(script_sig, &txinwitness, script_pub_key) {
-                    Ok(Some(pubkey)) => input_pub_keys.push(pubkey),
-                    Ok(None) => (),
+                let outpoint =
+                    OutPoint::from_txid_bytes_and_vout(input.txid.to_byte_array(), input.vout);
+                let script_pub_key = input.prevout.scriptPubKey.hex.as_bytes().to_vec();
+                let pubkey = match get_pubkey_from_input(
+                    input.scriptSig.as_bytes(),
+                    &input.txinwitness.to_vec(),
+                    &script_pub_key,
+                ) {
+                    Ok(pubkey) => pubkey,
                     Err(e) => panic!("Problem parsing the input: {e:?}"),
-                }
+                };
+                inputs.push(outpoint, script_pub_key, pubkey);
             }
-            if input_pub_keys.is_empty() {
+            if inputs.input_pubkeys().iter().all(Option::is_none) {
                 continue;
             }
-
-            let input_pub_keys: Vec<&PublicKey> = input_pub_keys.iter().collect();
 
             for label_int in &given.labels {
                 let label = Label::new(b_scan, *label_int);
@@ -152,16 +179,18 @@ mod tests {
             // to the expected codes
             assert_eq!(receiving_codes, expected_codes);
 
-            let tweak_data = calculate_tweak_data(&input_pub_keys, &outpoints).unwrap();
-            let ecdh_shared_secret = calculate_ecdh_shared_secret(&tweak_data, &b_scan);
+            let tweak_data = PublicTweakData::new(&secp, &inputs).unwrap();
+            let ecdh_shared_secret =
+                TransactionSharedSecret::new_from_public_tweak_data(&secp, &tweak_data, &b_scan)
+                    .unwrap();
 
             let scanned_outputs_received = sp_receiver
                 .scan_transaction(&ecdh_shared_secret, &outputs_to_check)
                 .unwrap();
 
             let key_tweaks: Vec<Scalar> = scanned_outputs_received
-                .into_values()
-                .flat_map(|map| {
+                .into_iter()
+                .flat_map(|(_, map)| {
                     let mut ret: Vec<Scalar> = vec![];
                     for l in map.into_values() {
                         ret.push(l);
