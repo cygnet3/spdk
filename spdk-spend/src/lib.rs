@@ -1,4 +1,3 @@
-#[expect(clippy::module_inception)]
 mod client;
 mod coin_select;
 mod spend;

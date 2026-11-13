@@ -1,0 +1,23 @@
+[package]
+name = "spdk-spend"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+spdk-core.workspace = true
+silentpayments.workspace = true
+
+anyhow.workspace = true
+bitcoin.workspace = true
+bdk_coin_select.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

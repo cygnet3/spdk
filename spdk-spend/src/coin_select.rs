@@ -9,7 +9,7 @@ use bdk_coin_select::{
 };
 use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut};
 
-use crate::client::{Recipient, RecipientAddress};
+use crate::structs::{Recipient, RecipientAddress};
 
 /// Upper bound on branch-and-bound iterations (see `bdk_coin_select` README).
 const BNB_MAX_ROUNDS: usize = 100_000;

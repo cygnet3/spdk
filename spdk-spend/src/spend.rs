@@ -453,7 +453,7 @@ mod tests {
     use bitcoin::{Address, Txid};
 
     use super::*;
-    use crate::client::SpendKey;
+    use crate::structs::SpendKey;
 
     fn test_client() -> SpClient {
         let scan_sk = SecretKey::from_slice(&[0x11; 32]).expect("valid test key");
